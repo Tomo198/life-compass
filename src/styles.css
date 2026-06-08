@@ -996,7 +996,7 @@ td select {
 }
 
 .goal-field-stack,
-.goal-achievement-summary {
+goal-achievement-summary {
   display: grid;
   gap: 0.5rem;
   min-width: 12rem;
@@ -1248,9 +1248,88 @@ td select {
 }
 
 @media (max-width: 720px) {
+  body {
+    background: var(--bg);
+  }
+
+  button,
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+
+  h1 {
+    font-size: 1.28rem;
+  }
+
+  h2 {
+    font-size: 1.05rem;
+  }
+
+  p {
+    line-height: 1.6;
+  }
+
+  .app-shell {
+    display: block;
+    padding-bottom: calc(4.95rem + env(safe-area-inset-bottom));
+  }
+
   .main-area,
   .sidebar {
-    padding: 1rem;
+    padding: 0.85rem;
+  }
+
+  .main-area {
+    padding-bottom: 0;
+  }
+
+  .sidebar {
+    position: fixed;
+    inset: auto 0 0;
+    z-index: 50;
+    height: auto;
+    padding: 0.45rem 0.65rem calc(0.45rem + env(safe-area-inset-bottom));
+    border-top: 1px solid var(--line);
+    border-right: 0;
+    background: color-mix(in srgb, var(--surface) 94%, transparent);
+    box-shadow: 0 -12px 28px rgba(36, 48, 47, 0.12);
+  }
+
+  .brand,
+  .sidebar-note {
+    display: none;
+  }
+
+  .nav-list {
+    display: flex;
+    gap: 0.35rem;
+    overflow-x: auto;
+    padding: 0.15rem 0.1rem 0.25rem;
+    scroll-snap-type: x proximity;
+    scrollbar-width: none;
+  }
+
+  .nav-list::-webkit-scrollbar {
+    display: none;
+  }
+
+  .nav-list button {
+    flex: 0 0 5.35rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: auto;
+    min-width: 5.35rem;
+    min-height: 3.6rem;
+    padding: 0.45rem 0.35rem;
+    border-radius: 8px;
+    white-space: normal;
+    text-align: center;
+    font-size: 0.74rem;
+    line-height: 1.25;
+    scroll-snap-align: start;
   }
 
   .topbar,
@@ -1260,17 +1339,69 @@ td select {
     align-items: stretch;
   }
 
+  .topbar {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    gap: 0.65rem;
+    margin: -0.85rem -0.85rem 0.85rem;
+    padding: 0.75rem 0.85rem 0.7rem;
+    border-bottom: 1px solid var(--line);
+    background: color-mix(in srgb, var(--bg) 90%, transparent);
+    backdrop-filter: blur(14px);
+  }
+
+  .topbar .eyebrow {
+    display: none;
+  }
+
   .topbar-actions,
   .data-actions {
     width: 100%;
   }
 
-  .topbar-actions button,
-  .data-actions button {
-    flex: 1 1 11rem;
+  .topbar-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.45rem;
   }
 
-  .summary-grid,
+  .topbar-actions button,
+  .data-actions button {
+    flex: initial;
+    min-height: 2.45rem;
+    padding: 0.52rem 0.7rem;
+    font-size: 0.88rem;
+  }
+
+  .view-stack {
+    gap: 0.85rem;
+  }
+
+  .panel,
+  .form-panel {
+    padding: 0.9rem;
+    box-shadow: none;
+  }
+
+  .section-heading {
+    gap: 0.7rem;
+    margin-bottom: 0.75rem;
+  }
+
+  .section-heading > button {
+    width: 100%;
+  }
+
+  .step-title {
+    gap: 0.6rem;
+  }
+
+  .step-title > span {
+    width: 1.7rem;
+    height: 1.7rem;
+  }
+
   .dashboard-lower,
   .form-grid,
   .notes-grid,
@@ -1287,31 +1418,60 @@ td select {
     grid-template-columns: 1fr;
   }
 
-  .nav-list {
-    display: flex;
-    gap: 0.5rem;
-    overflow-x: auto;
-    padding-bottom: 0.2rem;
-    scrollbar-width: thin;
+  .summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.6rem;
   }
 
-  .nav-list button {
-    flex: 0 0 auto;
-    width: auto;
-    min-width: 7.5rem;
-    white-space: nowrap;
+  .metric {
+    min-height: 5.6rem;
+    padding: 0.72rem;
+  }
+
+  .metric span,
+  .metric small {
+    font-size: 0.76rem;
+  }
+
+  .metric strong {
+    font-size: 1.08rem;
   }
 
   .timeline-row {
     grid-template-columns: 1fr;
+    gap: 0.7rem;
+    padding: 0.85rem;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface);
+  }
+
+  .timeline-row:first-child {
+    border-top: 1px solid var(--line);
+  }
+
+  .timeline-year {
+    display: flex;
+    justify-content: space-between;
+    padding-bottom: 0.65rem;
+    border-bottom: 1px solid var(--line);
   }
 
   .timeline-fields {
     grid-template-columns: 1fr;
+    gap: 0.7rem;
   }
 
-  .metric {
-    min-height: 6rem;
+  .title-field,
+  .memo-field {
+    grid-column: auto;
+  }
+
+  .impact-field,
+  .year-age-control,
+  .goal-field-stack,
+  .goal-achievement-summary {
+    min-width: 0;
   }
 
   .mobile-card-list {
@@ -1324,6 +1484,46 @@ td select {
     display: none;
   }
 
+  .table-wrap,
+  .chart-wrap {
+    width: calc(100% + 1.8rem);
+    margin-right: -0.9rem;
+    margin-left: -0.9rem;
+    border-right: 0;
+    border-left: 0;
+    border-radius: 0;
+  }
+
+  .table-wrap.narrow {
+    max-width: none;
+  }
+
+  table {
+    min-width: 620px;
+  }
+
+  th,
+  td {
+    padding: 0.62rem;
+  }
+
+  td input,
+  td select {
+    min-width: 7.5rem;
+  }
+
+  .chart-wrap {
+    min-height: 14rem;
+  }
+
+  .chart-wrap svg {
+    min-width: 610px;
+  }
+
+  .mobile-record {
+    padding: 0.85rem;
+  }
+
   .completion-list,
   .mobile-edit-grid,
   .mobile-record dl,
@@ -1333,5 +1533,20 @@ td select {
 
   .mobile-record-head {
     flex-direction: column;
+  }
+}
+
+@media (max-width: 380px) {
+  .summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .nav-list button {
+    flex-basis: 4.9rem;
+    min-width: 4.9rem;
+  }
+
+  .topbar-actions {
+    grid-template-columns: 1fr;
   }
 }

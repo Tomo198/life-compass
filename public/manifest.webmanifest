@@ -1,0 +1,19 @@
+{
+  "name": "Life Compass",
+  "short_name": "Life Compass",
+  "description": "Household-first life planning for goals, cashflow, assets, and future events.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#f6f4ef",
+  "theme_color": "#2f6f64",
+  "icons": [
+    {
+      "src": "/icons/life-compass.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
