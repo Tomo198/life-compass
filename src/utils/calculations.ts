@@ -39,6 +39,7 @@ export type ProjectionPoint = {
 export type AnnualProjectionRow = ProjectionPoint & {
   annualSavings: number;
   eventImpact: number;
+  returnImpact: number;
   eventTitles: string[];
 };
 
@@ -182,10 +183,15 @@ export const getAnnualProjectionRows = (plan: LifePlan, years: number): AnnualPr
 
   return projection.map((point, index) => {
     const yearEvents = eventsForYear(plan.events, point.year);
+    const annualSavings = index === 0 ? 0 : cashflow.monthlySavings * 12;
+    const eventImpact = index === 0 ? 0 : eventImpactForYear(plan.events, point.year);
+    const previousValue = projection[index - 1]?.value ?? point.value;
+    const returnImpact = index === 0 ? 0 : point.value - previousValue - annualSavings - eventImpact;
     return {
       ...point,
-      annualSavings: index === 0 ? 0 : cashflow.monthlySavings * 12,
-      eventImpact: index === 0 ? 0 : eventImpactForYear(plan.events, point.year),
+      annualSavings,
+      eventImpact,
+      returnImpact,
       eventTitles: yearEvents.map((event) => event.title)
     };
   });

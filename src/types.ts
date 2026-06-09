@@ -111,6 +111,7 @@ export type ViewKey =
   | "simulation"
   | "notes"
   | "data"
+  | "pricing"
   | "pro"
   | "settings"
   | "legal";

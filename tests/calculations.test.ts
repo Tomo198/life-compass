@@ -264,7 +264,38 @@ test("annual projection rows expose savings and event markers for each year", ()
   assert.equal(rows[0].annualSavings, 0);
   assert.equal(rows[1].annualSavings, 120000);
   assert.equal(rows[1].eventImpact, -120000);
+  assert.equal(rows[1].returnImpact, 0);
   assert.deepEqual(rows[1].eventTitles, ["home repair"]);
+});
+
+test("annual projection rows separate return impact from savings and event impact", () => {
+  const plan: LifePlan = {
+    ...basePlan,
+    household: {
+      monthlyIncome: 100000,
+      annualBonus: 0,
+      sideIncome: 0,
+      fixedCost: 0,
+      variableCost: 0,
+      annualSpecialCost: 0
+    },
+    assets: {
+      cash: 1000000,
+      investment: 0,
+      other: 0,
+      debt: 0
+    },
+    events: [],
+    simulation: { ...basePlan.simulation, annualReturnRate: 3 }
+  };
+
+  const rows = getAnnualProjectionRows(plan, 1);
+  const expectedReturnImpact = rows[1].value - rows[0].value - rows[1].annualSavings - rows[1].eventImpact;
+
+  assert.equal(rows[1].annualSavings, 1200000);
+  assert.equal(rows[1].eventImpact, 0);
+  assert.equal(rows[1].returnImpact, expectedReturnImpact);
+  assert.ok(rows[1].returnImpact > 0);
 });
 
 test("mortgage emergency fund uses a 9 to 12 month range and the lower bound for shortage", () => {

@@ -265,6 +265,12 @@ td select {
   margin-top: 1rem;
 }
 
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+}
+
 .secondary {
   background: var(--surface);
   color: var(--primary-dark);
@@ -740,6 +746,19 @@ td select {
   white-space: nowrap;
 }
 
+.missing-guide {
+  display: grid;
+  gap: 0.65rem;
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--line);
+}
+
+.missing-guide p {
+  margin-bottom: 0;
+  font-size: 0.9rem;
+}
+
 .status-pill {
   display: inline-flex;
   align-items: center;
@@ -836,6 +855,38 @@ td select {
   justify-self: start;
 }
 
+.template-panel {
+  display: grid;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+  padding: 0.95rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+
+.template-panel > div:first-child {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.template-panel span {
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.template-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.template-actions button {
+  min-height: 2.45rem;
+  padding: 0.55rem 0.75rem;
+}
+
 .table-wrap {
   width: 100%;
   overflow-x: auto;
@@ -893,6 +944,28 @@ td select {
 
 .boundary-grid p {
   margin: 0.35rem 0 0;
+}
+
+.explanation-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.85rem;
+  margin-top: 1rem;
+}
+
+.explanation-grid div {
+  display: grid;
+  gap: 0.4rem;
+  padding: 0.95rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.explanation-grid span {
+  color: var(--muted);
+  line-height: 1.55;
+  font-size: 0.9rem;
 }
 
 .timeline {
@@ -996,7 +1069,7 @@ td select {
 }
 
 .goal-field-stack,
-goal-achievement-summary {
+.goal-achievement-summary {
   display: grid;
   gap: 0.5rem;
   min-width: 12rem;
@@ -1184,9 +1257,52 @@ goal-achievement-summary {
   font-weight: 700;
 }
 
+.pricing-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.pricing-card {
+  display: grid;
+  gap: 0.85rem;
+  padding: 1.25rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.pricing-card.current {
+  border-color: color-mix(in srgb, var(--primary) 45%, var(--line));
+}
+
+.pricing-card > span {
+  color: var(--accent);
+  font-weight: 800;
+  font-size: 0.88rem;
+}
+
+.pricing-card > strong {
+  font-size: clamp(1.55rem, 2.7vw, 2.3rem);
+}
+
+.pricing-card ul {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0;
+  padding-left: 1.2rem;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
 .legal-layout {
   display: grid;
   gap: 1rem;
+}
+
+.legal-intro p:last-child {
+  margin-bottom: 0;
 }
 
 .legal-section ul {
@@ -1223,7 +1339,9 @@ goal-achievement-summary {
   .onboarding-steps,
   .data-status-grid,
   .data-guide,
-  .pro-grid {
+  .pro-grid,
+  .pricing-grid,
+  .explanation-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -1414,7 +1532,15 @@ goal-achievement-summary {
   .onboarding-steps,
   .data-status-grid,
   .data-guide,
-  .pro-grid {
+  .pro-grid,
+  .pricing-grid,
+  .explanation-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .button-row,
+  .template-actions {
+    display: grid;
     grid-template-columns: 1fr;
   }
 

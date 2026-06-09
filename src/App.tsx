@@ -47,6 +47,7 @@ const navItems: { key: ViewKey; label: string }[] = [
   { key: "simulation", label: "シミュレーション" },
   { key: "notes", label: "メモ" },
   { key: "data", label: "データ管理" },
+  { key: "pricing", label: "料金" },
   { key: "pro", label: "Pro機能" },
   { key: "legal", label: "法務" }
 ];
@@ -193,6 +194,151 @@ const getTargetAgeForYear = (currentAge: number, dueYear: number) => {
 
 const cloneDefaultPlan = () => JSON.parse(JSON.stringify(defaultPlan)) as LifePlan;
 
+const createEmptyPlan = (): LifePlan => ({
+  version: 1,
+  profile: {
+    name: "新しいプラン",
+    age: 0,
+    familyType: "single",
+    workStyle: "employee",
+    housing: "rent"
+  },
+  household: {
+    monthlyIncome: 0,
+    annualBonus: 0,
+    sideIncome: 0,
+    fixedCost: 0,
+    variableCost: 0,
+    annualSpecialCost: 0
+  },
+  assets: {
+    cash: 0,
+    investment: 0,
+    other: 0,
+    debt: 0
+  },
+  goals: [],
+  events: [],
+  simulation: {
+    monthlyContribution: 0,
+    bonusContribution: 0,
+    annualReturnRate: 0,
+    years: 30
+  },
+  notes: {
+    general: "",
+    spendingReview: ""
+  },
+  reviews: [],
+  updatedAt: new Date().toISOString()
+});
+
+type GoalTemplate = Omit<Goal, "id" | "dueYear" | "progress"> & {
+  yearsFromNow: number;
+};
+
+const goalTemplates: GoalTemplate[] = [
+  {
+    title: "生活防衛資金を整える",
+    goalType: "oneTime",
+    yearsFromNow: 1,
+    requiredAmount: 1500000,
+    savedAmount: 0,
+    monthlyAllocation: 50000,
+    recurrence: "yearly",
+    priority: "high",
+    memo: "月間生活費をもとに、6〜12ヶ月分を目安として見直す"
+  },
+  {
+    title: "住宅購入の頭金を準備",
+    goalType: "oneTime",
+    yearsFromNow: 5,
+    requiredAmount: 5000000,
+    savedAmount: 0,
+    monthlyAllocation: 60000,
+    recurrence: "yearly",
+    priority: "medium",
+    memo: "住宅購入の時期や必要額は定期的に見直す"
+  },
+  {
+    title: "毎年旅行に行く",
+    goalType: "recurring",
+    yearsFromNow: 1,
+    requiredAmount: 200000,
+    savedAmount: 0,
+    monthlyAllocation: 17000,
+    recurrence: "yearly",
+    priority: "medium",
+    memo: "年1回の旅行予算として、年間特別支出にも反映する"
+  },
+  {
+    title: "資格取得の費用を準備",
+    goalType: "oneTime",
+    yearsFromNow: 2,
+    requiredAmount: 300000,
+    savedAmount: 0,
+    monthlyAllocation: 15000,
+    recurrence: "yearly",
+    priority: "low",
+    memo: "受験料、教材費、講座費用などをまとめて確認する"
+  }
+];
+
+type EventTemplate = Omit<LifeEvent, "id" | "year" | "age"> & {
+  yearsFromNow: number;
+};
+
+const eventTemplates: EventTemplate[] = [
+  {
+    title: "転職",
+    category: "career",
+    yearsFromNow: 2,
+    amount: 0,
+    cashflowType: "neutral",
+    memo: "年収や働き方の変化は家計入力も合わせて見直す"
+  },
+  {
+    title: "引越し",
+    category: "move",
+    yearsFromNow: 1,
+    amount: 500000,
+    cashflowType: "expense",
+    memo: "初期費用、家具家電、移動費など"
+  },
+  {
+    title: "住宅購入",
+    category: "home",
+    yearsFromNow: 5,
+    amount: 3000000,
+    cashflowType: "expense",
+    memo: "頭金や諸費用の概算。住宅ローンは資産入力の負債も確認する"
+  },
+  {
+    title: "車購入",
+    category: "car",
+    yearsFromNow: 3,
+    amount: 2000000,
+    cashflowType: "expense",
+    memo: "購入費、維持費、保険料など"
+  },
+  {
+    title: "教育費",
+    category: "education",
+    yearsFromNow: 10,
+    amount: 1000000,
+    cashflowType: "expense",
+    memo: "入学金、授業料、教材費など"
+  },
+  {
+    title: "親の介護",
+    category: "care",
+    yearsFromNow: 8,
+    amount: 600000,
+    cashflowType: "expense",
+    memo: "支援額や頻度は状況に合わせて見直す"
+  }
+];
+
 function App() {
   const [plan, setPlan] = useState<LifePlan>(() => loadPlan());
   const [activeView, setActiveView] = useState<ViewKey>("dashboard");
@@ -260,6 +406,23 @@ function App() {
     commitPlan({ ...plan, goals: [...plan.goals, nextGoal] });
   };
 
+  const addGoalFromTemplate = (template: GoalTemplate) => {
+    const nextGoal: Goal = {
+      id: createId(),
+      title: template.title,
+      goalType: template.goalType,
+      dueYear: new Date().getFullYear() + template.yearsFromNow,
+      requiredAmount: template.requiredAmount,
+      savedAmount: template.savedAmount,
+      monthlyAllocation: template.monthlyAllocation,
+      recurrence: template.recurrence,
+      priority: template.priority,
+      progress: 0,
+      memo: template.memo
+    };
+    commitPlan({ ...plan, goals: [...plan.goals, nextGoal] });
+  };
+
   const updateGoal = <K extends keyof Goal>(id: string, key: K, value: Goal[K]) => {
     commitPlan({
       ...plan,
@@ -282,6 +445,21 @@ function App() {
       amount: 0,
       cashflowType: "neutral",
       memo: ""
+    };
+    commitPlan({ ...plan, events: [...plan.events, nextEvent] });
+  };
+
+  const addEventFromTemplate = (template: EventTemplate) => {
+    const year = new Date().getFullYear() + template.yearsFromNow;
+    const nextEvent: LifeEvent = {
+      id: createId(),
+      title: template.title,
+      category: template.category,
+      year,
+      age: getTargetAgeForYear(plan.profile.age, year),
+      amount: template.amount,
+      cashflowType: template.cashflowType,
+      memo: template.memo
     };
     commitPlan({ ...plan, events: [...plan.events, nextEvent] });
   };
@@ -310,7 +488,13 @@ function App() {
     clearPlan();
     const next = cloneDefaultPlan();
     commitPlan(next);
-    setImportMessage("初期データに戻しました。");
+    setImportMessage("サンプルプランに戻しました。");
+  };
+
+  const startEmptyPlan = () => {
+    clearPlan();
+    commitPlan(createEmptyPlan());
+    setImportMessage("空のプランを作成しました。");
   };
 
   const renderView = () => {
@@ -324,12 +508,21 @@ function App() {
       case "assets":
         return <AssetsView plan={plan} updateAssets={updateAssets} />;
       case "goals":
-        return <GoalsView plan={plan} addGoal={addGoal} updateGoal={updateGoal} removeGoal={removeGoal} />;
+        return (
+          <GoalsView
+            plan={plan}
+            addGoal={addGoal}
+            addGoalFromTemplate={addGoalFromTemplate}
+            updateGoal={updateGoal}
+            removeGoal={removeGoal}
+          />
+        );
       case "timeline":
         return (
           <TimelineView
             plan={plan}
             addEvent={addEvent}
+            addEventFromTemplate={addEventFromTemplate}
             updateEvent={updateEvent}
             updateEventSchedule={updateEventSchedule}
             removeEvent={removeEvent}
@@ -347,8 +540,11 @@ function App() {
             importMessage={importMessage}
             setImportMessage={setImportMessage}
             resetPlan={resetPlan}
+            startEmptyPlan={startEmptyPlan}
           />
         );
+      case "pricing":
+        return <PricingView setActiveView={setActiveView} />;
       case "pro":
         return <ProView plan={plan} />;
       case "settings":
@@ -503,6 +699,7 @@ function Dashboard({ plan, setActiveView }: DashboardProps) {
   const nextEvent = getNextEvent(plan.events);
   const completion = getInputCompletion(plan);
   const guidanceItems = getDashboardGuidance({ plan, cashflow, assets, emergency, completion });
+  const missingItems = completion.items.filter((item) => !item.complete).slice(0, 3);
 
   return (
     <div className="view-stack">
@@ -667,6 +864,17 @@ function Dashboard({ plan, setActiveView }: DashboardProps) {
               </button>
             ))}
           </div>
+          {missingItems.length > 0 && (
+            <div className="missing-guide">
+              <strong>次に入力するとよい項目</strong>
+              <p>未入力のうち、見通しに影響しやすい項目です。入力できる範囲だけで問題ありません。</p>
+              {missingItems.map((item) => (
+                <button type="button" className="secondary" key={item.label} onClick={() => setActiveView(item.view)}>
+                  {item.label}を確認
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </section>
     </div>
@@ -808,11 +1016,13 @@ function AssetsView({
 function GoalsView({
   plan,
   addGoal,
+  addGoalFromTemplate,
   updateGoal,
   removeGoal
 }: {
   plan: LifePlan;
   addGoal: () => void;
+  addGoalFromTemplate: (template: GoalTemplate) => void;
   updateGoal: <K extends keyof Goal>(id: string, key: K, value: Goal[K]) => void;
   removeGoal: (id: string) => void;
 }) {
@@ -825,6 +1035,19 @@ function GoalsView({
         <button type="button" onClick={addGoal}>
           目標を追加
         </button>
+      </div>
+      <div className="template-panel" aria-label="目標テンプレート">
+        <div>
+          <strong>テンプレートから追加</strong>
+          <span>あとで金額や期限を自由に変更できます。</span>
+        </div>
+        <div className="template-actions">
+          {goalTemplates.map((template) => (
+            <button type="button" className="secondary" key={template.title} onClick={() => addGoalFromTemplate(template)}>
+              {template.title}
+            </button>
+          ))}
+        </div>
       </div>
       <div className="table-wrap desktop-table">
         <table>
@@ -1093,12 +1316,14 @@ function GoalAchievementBadge({ achievement }: { achievement: ReturnType<typeof 
 function TimelineView({
   plan,
   addEvent,
+  addEventFromTemplate,
   updateEvent,
   updateEventSchedule,
   removeEvent
 }: {
   plan: LifePlan;
   addEvent: () => void;
+  addEventFromTemplate: (template: EventTemplate) => void;
   updateEvent: <K extends keyof LifeEvent>(id: string, key: K, value: LifeEvent[K]) => void;
   updateEventSchedule: (id: string, year: number) => void;
   removeEvent: (id: string) => void;
@@ -1111,6 +1336,19 @@ function TimelineView({
         <button type="button" onClick={addEvent}>
           イベントを追加
         </button>
+      </div>
+      <div className="template-panel" aria-label="ライフイベントテンプレート">
+        <div>
+          <strong>テンプレートから追加</strong>
+          <span>予定年、金額、家計への影響は追加後に変更できます。</span>
+        </div>
+        <div className="template-actions">
+          {eventTemplates.map((template) => (
+            <button type="button" className="secondary" key={template.title} onClick={() => addEventFromTemplate(template)}>
+              {template.title}
+            </button>
+          ))}
+        </div>
       </div>
       <div className="timeline">
         {sortedEvents.map((event) => (
@@ -1238,6 +1476,20 @@ function SimulationView({
             helper="毎月貯蓄額が正の場合"
           />
         </div>
+        <div className="explanation-grid">
+          <div>
+            <strong>計算式</strong>
+            <span>月間生活費 × 目安月数で確認します。ここでは生活費を固定費、変動費、年間特別支出の月割で見ています。</span>
+          </div>
+          <div>
+            <strong>目安月数の考え方</strong>
+            <span>{emergency.note} あくまで整理用の目安で、実際に必要な金額は働き方、家族構成、住居、医療費などで変わります。</span>
+          </div>
+          <div>
+            <strong>見直しの使い方</strong>
+            <span>不足がある場合は、毎月の貯蓄額や目標の優先度と並べて確認します。余裕がある場合も使途を決めておくと見返しやすくなります。</span>
+          </div>
+        </div>
       </section>
 
       <section className="panel form-panel">
@@ -1353,13 +1605,15 @@ function DataView({
   commitPlan,
   importMessage,
   setImportMessage,
-  resetPlan
+  resetPlan,
+  startEmptyPlan
 }: {
   plan: LifePlan;
   commitPlan: (plan: LifePlan) => void;
   importMessage: string;
   setImportMessage: (message: string) => void;
   resetPlan: () => void;
+  startEmptyPlan: () => void;
 }) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const updatedAt = new Date(plan.updatedAt).toLocaleString("ja-JP");
@@ -1382,8 +1636,14 @@ function DataView({
   };
 
   const handleReset = () => {
-    if (window.confirm("現在の入力内容を初期データに戻します。必要な場合は先にJSONエクスポートしてください。")) {
+    if (window.confirm("現在の入力内容をサンプルプランに戻します。必要な場合は先にJSONエクスポートしてください。")) {
       resetPlan();
+    }
+  };
+
+  const handleStartEmpty = () => {
+    if (window.confirm("現在の入力内容を消して、空のプランを作成します。必要な場合は先にJSONエクスポートしてください。")) {
+      startEmptyPlan();
     }
   };
 
@@ -1415,8 +1675,11 @@ function DataView({
           <button type="button" className="secondary" onClick={() => fileInputRef.current?.click()}>
             JSONインポート
           </button>
-          <button type="button" className="danger" onClick={handleReset}>
-            初期化
+          <button type="button" className="secondary" onClick={handleReset}>
+            サンプルプランに戻す
+          </button>
+          <button type="button" className="danger" onClick={handleStartEmpty}>
+            空のプランを作成
           </button>
           <input
             ref={fileInputRef}
@@ -1431,6 +1694,10 @@ function DataView({
         </div>
         <div className="data-guide">
           <div>
+            <strong>この端末で使うとき</strong>
+            <span>入力内容はこのブラウザ内に保存されます。サーバーには送信しない前提のため、別の端末や別のブラウザには自動同期されません。</span>
+          </div>
+          <div>
             <strong>バックアップするとき</strong>
             <span>JSONエクスポートを押すと、現在の入力内容をファイルとして保存できます。端末変更、ブラウザ変更、閲覧データ削除の前に使います。</span>
           </div>
@@ -1439,13 +1706,76 @@ function DataView({
             <span>JSONインポートから保存済みファイルを選ぶと、このブラウザ内のプランに反映されます。</span>
           </div>
           <div>
-            <strong>初期化するとき</strong>
-            <span>現在の入力内容を初期データに戻します。必要なデータは先にエクスポートしてください。</span>
+            <strong>サンプルと空プラン</strong>
+            <span>使い方を確認したい場合はサンプルプラン、最初から入力したい場合は空のプランを使います。どちらも現在の入力内容を置き換えます。</span>
           </div>
         </div>
         {importMessage && <p className="message">{importMessage}</p>}
       </section>
       <DisclaimerPanel />
+    </div>
+  );
+}
+
+function PricingView({ setActiveView }: { setActiveView: (view: ViewKey) => void }) {
+  return (
+    <div className="view-stack">
+      <section className="pro-hero">
+        <div>
+          <p className="eyebrow">料金</p>
+          <h2>無料版を中心に、Pro版は Coming soon</h2>
+          <p>現在は課金機能を実装していません。将来のPro版に備えて、無料版とPro版の機能境界だけを明確にしています。</p>
+        </div>
+        <span className="lock-badge">課金なし</span>
+      </section>
+
+      <section className="pricing-grid">
+        <div className="pricing-card current">
+          <span>現在利用可能</span>
+          <h2>無料版</h2>
+          <strong>0円</strong>
+          <ul>
+            <li>1つのライフプラン作成・保存</li>
+            <li>家計、資産、目標、年表、メモ</li>
+            <li>生活防衛資金チェック</li>
+            <li>基本資産推移と簡易積立の参考試算</li>
+            <li>ブラウザ内保存とJSONバックアップ</li>
+          </ul>
+          <button type="button" onClick={() => setActiveView("dashboard")}>
+            ダッシュボードへ
+          </button>
+        </div>
+
+        <div className="pricing-card">
+          <span>Coming soon</span>
+          <h2>Pro版</h2>
+          <strong>{proPriceLabel}</strong>
+          <ul>
+            <li>複数シナリオ保存と比較</li>
+            <li>固定費見直しインパクト</li>
+            <li>見直し履歴と月次/四半期レビュー</li>
+            <li>詳細取り崩しシミュレーション</li>
+            <li>PDFレポートとクラウド保存予定</li>
+          </ul>
+          <button type="button" className="secondary" onClick={() => setActiveView("pro")}>
+            Pro予定を見る
+          </button>
+        </div>
+      </section>
+
+      <section className="panel">
+        <h2>課金導入前の方針</h2>
+        <div className="boundary-grid">
+          <div>
+            <strong>今は決済情報を入力しません</strong>
+            <p>Stripe、PayPalなどの決済手段は未定です。現在のアプリ内でカード番号や決済情報を入力する場所はありません。</p>
+          </div>
+          <div>
+            <strong>正式提供時に明記すること</strong>
+            <p>価格、更新日、解約方法、返金条件、事業者情報、サポート窓口を料金ページと法務ページに掲載します。</p>
+          </div>
+        </div>
+      </section>
     </div>
   );
 }
@@ -1574,9 +1904,14 @@ function SettingsView({
         <div className="panel">
           <h2>Pro機能</h2>
           <p>複数シナリオ比較、見直し履歴、PDFレポートなどを予定しています。初期版では課金処理は実装していません。</p>
-          <button type="button" className="secondary" onClick={() => setActiveView("pro")}>
-            Pro機能を見る
-          </button>
+          <div className="button-row">
+            <button type="button" className="secondary" onClick={() => setActiveView("pricing")}>
+              料金を見る
+            </button>
+            <button type="button" className="secondary" onClick={() => setActiveView("pro")}>
+              Pro機能を見る
+            </button>
+          </div>
         </div>
       </section>
 
@@ -1589,34 +1924,64 @@ function SettingsView({
 }
 
 function LegalView() {
+  const legalDocuments = [
+    {
+      title: "利用規約",
+      items: [
+        "Life Compass は、家計、資産、目標、ライフイベントを整理するためのライフプラン管理ツールです。",
+        "表示される結果は、ユーザーが入力した条件に基づく試算です。",
+        "本サービスは投資助言、税務助言、法律助言、保険助言を行うものではありません。",
+        "ユーザーは自身の判断と責任で本サービスを利用します。必要に応じて専門家に相談してください。",
+        "サービス内容、画面、機能、提供条件は改善のため変更される場合があります。"
+      ]
+    },
+    {
+      title: "プライバシーポリシー",
+      items: [
+        "初期版では、収入、支出、資産、家族情報などをサーバーに保存しません。",
+        "入力データはユーザーのブラウザ内に保存されます。ログイン機能やクラウド保存は未実装です。",
+        "JSONエクスポートしたファイルの保管、共有、削除はユーザー自身で管理してください。",
+        "将来クラウド保存やログイン機能を導入する場合は、保存先、利用目的、削除方法、問い合わせ先を明示します。",
+        "アクセス解析やエラー収集を導入する場合も、収集内容と目的をこのページで説明します。"
+      ]
+    },
+    {
+      title: "特定商取引法に基づく表記",
+      items: [
+        "現在は課金機能を実装しておらず、有料販売は行っていません。",
+        "Pro版は Coming soon であり、現時点の月額500円程度という表示は想定であって正式な販売条件ではありません。",
+        "正式提供時には、販売価格、支払方法、提供時期、解約方法、返金条件、事業者名、所在地、連絡先などを明記します。",
+        "決済手段が決まり次第、Stripe、PayPalなどの利用先と決済情報の取り扱いを説明します。"
+      ]
+    },
+    {
+      title: "返金ポリシー",
+      items: [
+        "現在は有料課金がないため、返金対象となる購入はありません。",
+        "Pro版を正式提供する場合は、返金可否、返金申請方法、対象期間、対象外となるケースを事前に明記します。",
+        "決済事業者を利用する場合、返金処理の反映時期は決済事業者の仕様に従う可能性があります。"
+      ]
+    },
+    {
+      title: "解約ポリシー",
+      items: [
+        "現在はサブスクリプション課金がないため、解約手続きはありません。",
+        "Pro版を正式提供する場合は、更新日、解約方法、解約後に利用できる機能、データの扱いを明記します。",
+        "無料版のブラウザ内データは、ユーザー自身がデータ管理画面またはブラウザ機能で削除できます。"
+      ]
+    }
+  ];
+
   return (
     <div className="legal-layout">
-      <LegalSection
-        title="利用規約"
-        items={[
-          "Life Compass は教育・参考目的のライフプラン管理ツールです。",
-          "ユーザーが入力した条件に基づき、家計、資産、目標、ライフイベントを整理するための表示を行います。",
-          "表示される結果は将来の収益、資産形成、生活状況を保証するものではありません。",
-          "実際の判断は必要に応じて専門家に相談してください。"
-        ]}
-      />
-      <LegalSection
-        title="プライバシーポリシー"
-        items={[
-          "初期版では、収入・支出・資産・家族情報などをサーバーに保存しません。",
-          "データはユーザーのブラウザ内に保存されます。",
-          "JSONエクスポートしたファイルの管理はユーザー自身で行います。",
-          "将来クラウド保存を導入する場合は、保存先、利用目的、削除方法を明示します。"
-        ]}
-      />
-      <LegalSection
-        title="特定商取引法に基づく表記"
-        items={[
-          "初期版では課金機能を実装していません。",
-          "Pro版は Coming soon であり、販売価格、提供条件、解約方法、事業者情報は正式提供時に表示します。",
-          "月額500円程度を想定していますが、正式な提供条件ではありません。"
-        ]}
-      />
+      <section className="panel legal-intro">
+        <p className="eyebrow">法務ページ</p>
+        <h2>利用条件とデータの扱い</h2>
+        <p>現在は無料版のみを提供し、課金機能はありません。将来Pro版を正式提供する前に、料金、返金、解約、事業者情報を確定して追記します。</p>
+      </section>
+      {legalDocuments.map((document) => (
+        <LegalSection key={document.title} title={document.title} items={document.items} />
+      ))}
       <DisclaimerPanel />
     </div>
   );
@@ -1727,6 +2092,7 @@ type ChartPoint = {
   age?: number;
   annualSavings?: number;
   eventImpact?: number;
+  returnImpact?: number;
   eventTitles?: string[];
 };
 
@@ -1843,10 +2209,22 @@ function LineChart({ points }: { points: ChartPoint[] }) {
                 <strong>{selectedPoint.eventImpact ? manYen(selectedPoint.eventImpact) : "-"}</strong>
               </div>
             )}
+            {"returnImpact" in selectedPoint && (
+              <div>
+                <span>利回り等の影響</span>
+                <strong>{selectedPoint.returnImpact ? manYen(selectedPoint.returnImpact) : "-"}</strong>
+              </div>
+            )}
             {selectedPoint.eventTitles && selectedPoint.eventTitles.length > 0 && (
               <div className="chart-selection-wide">
                 <span>イベント</span>
                 <strong>{selectedPoint.eventTitles.join(" / ")}</strong>
+              </div>
+            )}
+            {"annualSavings" in selectedPoint && (
+              <div className="chart-selection-wide">
+                <span>この年の見方</span>
+                <strong>前年差 = 年間貯蓄 + イベント影響 + 利回り等の影響</strong>
               </div>
             )}
           </>
