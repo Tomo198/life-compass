@@ -194,6 +194,13 @@ const getTargetAgeForYear = (currentAge: number, dueYear: number) => {
   return currentAge + Math.max(0, dueYear - currentYear);
 };
 
+const getYearsUntilLabel = (year: number) => {
+  const diff = year - new Date().getFullYear();
+  if (diff < 0) return `${Math.abs(diff)}年前`;
+  if (diff === 0) return "今年";
+  return `あと約${diff}年`;
+};
+
 const cloneDefaultPlan = () => JSON.parse(JSON.stringify(defaultPlan)) as LifePlan;
 
 const isSamplePlan = (plan: LifePlan) =>
@@ -1512,6 +1519,125 @@ function GoalAchievementBadge({ achievement }: { achievement: ReturnType<typeof 
   return <span className={`status-pill ${achievement.status}`}>{label}</span>;
 }
 
+type CalendarEntry = {
+  id: string;
+  year: number;
+  title: string;
+  kind: "goal" | "event";
+  detail: string;
+  amount?: number;
+  tone: "goal" | "expense" | "income" | "neutral";
+  progress?: number;
+};
+
+function LifeCalendar({ plan }: { plan: LifePlan }) {
+  const [rangeYears, setRangeYears] = useState<5 | 10 | 30>(10);
+  const currentYear = new Date().getFullYear();
+  const years = Array.from({ length: rangeYears + 1 }, (_, index) => currentYear + index);
+  const entries = useMemo<CalendarEntry[]>(() => {
+    const goalEntries = plan.goals.map((goal) => {
+      const preparedPercent = getGoalPreparedPercent(goal);
+      return {
+        id: `goal-${goal.id}`,
+        year: goal.dueYear,
+        title: goal.title,
+        kind: "goal" as const,
+        detail:
+          goal.goalType === "recurring"
+            ? `${getRecurrenceLabel(goal.recurrence)} / 年間準備率 ${preparedPercent}%`
+            : `達成率 ${preparedPercent}% / 残り ${manYen(Math.max(0, goal.requiredAmount - goal.savedAmount))}`,
+        amount: goal.requiredAmount,
+        tone: "goal" as const,
+        progress: preparedPercent
+      };
+    });
+
+    const eventEntries = plan.events.map((event) => ({
+      id: `event-${event.id}`,
+      year: event.year,
+      title: event.title,
+      kind: "event" as const,
+      detail: cashflowLabels[event.cashflowType],
+      amount: event.amount,
+      tone: event.cashflowType
+    }));
+
+    return [...goalEntries, ...eventEntries].sort((a, b) => a.year - b.year || a.title.localeCompare(b.title, "ja"));
+  }, [plan.events, plan.goals]);
+  const visibleEntries = entries.filter((entry) => entry.year >= currentYear && entry.year <= currentYear + rangeYears);
+  const upcomingEntries = visibleEntries.slice(0, 4);
+
+  return (
+    <section className="life-calendar" aria-label="ライフカレンダー">
+      <div className="section-heading">
+        <div>
+          <p className="eyebrow">ライフカレンダー</p>
+          <h3>目標とイベントを年単位で確認</h3>
+          <p>目標の期限とライフイベントをまとめて並べ、短期から長期までの残り期間を確認できます。</p>
+        </div>
+        <div className="segmented-control" aria-label="表示期間">
+          <button type="button" className={rangeYears === 5 ? "active" : ""} onClick={() => setRangeYears(5)}>
+            5年
+          </button>
+          <button type="button" className={rangeYears === 10 ? "active" : ""} onClick={() => setRangeYears(10)}>
+            10年
+          </button>
+          <button type="button" className={rangeYears === 30 ? "active" : ""} onClick={() => setRangeYears(30)}>
+            30年
+          </button>
+        </div>
+      </div>
+
+      {upcomingEntries.length > 0 && (
+        <div className="calendar-next-list" aria-label="近い予定">
+          {upcomingEntries.map((entry) => (
+            <div key={entry.id}>
+              <span>{getYearsUntilLabel(entry.year)}</span>
+              <strong>{entry.title}</strong>
+              <small>{entry.year}年 / {getTargetAgeForYear(plan.profile.age, entry.year)}歳頃</small>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="calendar-grid">
+        {years.map((year) => {
+          const yearEntries = visibleEntries.filter((entry) => entry.year === year);
+          return (
+            <div className={year === currentYear ? "calendar-year-card current" : "calendar-year-card"} key={year}>
+              <div className="calendar-year-head">
+                <strong>{year}</strong>
+                <span>{getTargetAgeForYear(plan.profile.age, year)}歳頃</span>
+              </div>
+              {yearEntries.length === 0 ? (
+                <p>予定なし</p>
+              ) : (
+                <div className="calendar-entry-list">
+                  {yearEntries.map((entry) => (
+                    <div className={`calendar-entry ${entry.tone}`} key={entry.id}>
+                      <div>
+                        <span>{entry.kind === "goal" ? "目標" : "イベント"}</span>
+                        <strong>{entry.title}</strong>
+                      </div>
+                      <small>{entry.detail}</small>
+                      {entry.amount ? <small>{manYen(entry.amount)}</small> : null}
+                      {typeof entry.progress === "number" && (
+                        <div className="calendar-progress" aria-label={`達成率 ${entry.progress}%`}>
+                          <span style={{ width: `${entry.progress}%` }} />
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 function TimelineView({
   plan,
   setActiveView,
@@ -1539,6 +1665,7 @@ function TimelineView({
             イベントを追加
           </button>
         </div>
+        <LifeCalendar plan={plan} />
         <div className="template-panel" aria-label="ライフイベントテンプレート">
           <div>
             <strong>テンプレートから追加</strong>

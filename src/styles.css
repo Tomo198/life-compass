@@ -1081,6 +1081,153 @@ td select {
   font-size: 0.9rem;
 }
 
+.life-calendar {
+  display: grid;
+  gap: 1rem;
+  margin-bottom: 1.2rem;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+
+.life-calendar .section-heading {
+  margin-bottom: 0;
+}
+
+.life-calendar h3 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.calendar-next-list {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.calendar-next-list div {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.calendar-next-list span,
+.calendar-next-list small {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12.5rem, 1fr));
+  gap: 0.75rem;
+  max-height: 34rem;
+  overflow: auto;
+  padding-right: 0.2rem;
+}
+
+.calendar-year-card {
+  display: grid;
+  align-content: start;
+  gap: 0.65rem;
+  min-height: 9rem;
+  padding: 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.calendar-year-card.current {
+  border-color: var(--primary);
+}
+
+.calendar-year-card > p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.calendar-year-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.calendar-year-head strong {
+  color: var(--primary-dark);
+  font-size: 1.1rem;
+}
+
+.calendar-year-head span {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.calendar-entry-list {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.calendar-entry {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.65rem;
+  border-left: 0.24rem solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-soft);
+}
+
+.calendar-entry.goal {
+  border-left-color: var(--primary);
+}
+
+.calendar-entry.expense {
+  border-left-color: #c76f4a;
+}
+
+.calendar-entry.income {
+  border-left-color: #4f8a6d;
+}
+
+.calendar-entry.neutral {
+  border-left-color: var(--muted);
+}
+
+.calendar-entry div:first-child {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.calendar-entry span,
+.calendar-entry small {
+  color: var(--muted);
+  font-size: 0.76rem;
+  line-height: 1.35;
+}
+
+.calendar-entry strong {
+  overflow-wrap: anywhere;
+}
+
+.calendar-progress {
+  height: 0.42rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--surface);
+}
+
+.calendar-progress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--primary);
+}
+
 .timeline {
   display: grid;
   gap: 0.9rem;
@@ -1503,6 +1650,7 @@ td select {
 
   .summary-grid,
   .dashboard-lower,
+  .calendar-next-list,
   .quick-action-grid,
   .helper-grid,
   .onboarding-steps,
@@ -1690,6 +1838,7 @@ td select {
   }
 
   .dashboard-lower,
+  .calendar-next-list,
   .form-grid,
   .quick-action-grid,
   .helper-grid,
@@ -1732,6 +1881,17 @@ td select {
   .summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 0.6rem;
+  }
+
+  .life-calendar {
+    padding: 0.75rem;
+  }
+
+  .calendar-grid {
+    grid-template-columns: 1fr;
+    max-height: none;
+    overflow: visible;
+    padding-right: 0;
   }
 
   .metric {
