@@ -351,6 +351,31 @@ td select {
   line-height: 1.5;
 }
 
+.quick-action-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.quick-action-grid button {
+  display: grid;
+  gap: 0.3rem;
+  min-height: 4.7rem;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  text-align: left;
+}
+
+.quick-action-grid button:hover {
+  background: var(--surface-soft);
+}
+
+.quick-action-grid span {
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
 .split-layout {
   display: grid;
   grid-template-columns: minmax(0, 1.45fr) minmax(19rem, 0.55fr);
@@ -448,6 +473,76 @@ td select {
 .calculation-band.compact {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   margin-top: 1rem;
+}
+
+.helper-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.85rem;
+  padding: 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+
+.helper-grid.compact {
+  margin-bottom: 1rem;
+}
+
+.helper-grid div {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.helper-grid span {
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+
+.notice-band {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.95rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.notice-band span {
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.notice-band.notice {
+  border-color: #d7b8a4;
+  background: #fff7ed;
+}
+
+.notice-band.good,
+.notice-band.check {
+  border-color: #b9cec1;
+  background: var(--surface-soft);
+}
+
+.step-flow-nav {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0.8rem;
+  align-items: center;
+  padding: 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.step-flow-nav button:last-child {
+  justify-self: end;
+}
+
+.step-flow-nav button:first-child {
+  justify-self: start;
 }
 
 .asset-formula {
@@ -887,6 +982,24 @@ td select {
   padding: 0.55rem 0.75rem;
 }
 
+.empty-state {
+  display: grid;
+  gap: 0.35rem;
+  padding: 1rem;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--muted);
+}
+
+.empty-state strong {
+  color: var(--ink);
+}
+
+.empty-state span {
+  line-height: 1.55;
+}
+
 .table-wrap {
   width: 100%;
   overflow-x: auto;
@@ -1089,6 +1202,60 @@ td select {
   color: var(--muted);
   font-size: 0.78rem;
   line-height: 1.45;
+}
+
+.goal-progress {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.goal-progress > div:first-child {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.goal-progress span {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.goal-progress strong {
+  font-size: 0.92rem;
+}
+
+.goal-progress-track {
+  height: 0.55rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--surface-soft);
+}
+
+.goal-progress-track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--primary);
+}
+
+.simulation-controls {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.projection-detail-table {
+  margin-top: 1rem;
+  max-height: 24rem;
+}
+
+.projection-detail-table td small {
+  display: block;
+  margin-top: 0.2rem;
+  color: var(--muted);
+  line-height: 1.4;
 }
 
 .status-list {
@@ -1336,6 +1503,8 @@ td select {
 
   .summary-grid,
   .dashboard-lower,
+  .quick-action-grid,
+  .helper-grid,
   .onboarding-steps,
   .data-status-grid,
   .data-guide,
@@ -1522,6 +1691,8 @@ td select {
 
   .dashboard-lower,
   .form-grid,
+  .quick-action-grid,
+  .helper-grid,
   .notes-grid,
   .boundary-grid,
   .setting-options,
@@ -1542,6 +1713,20 @@ td select {
   .template-actions {
     display: grid;
     grid-template-columns: 1fr;
+  }
+
+  .step-flow-nav {
+    grid-template-columns: 1fr;
+  }
+
+  .step-flow-nav > span {
+    display: none;
+  }
+
+  .step-flow-nav button:first-child,
+  .step-flow-nav button:last-child {
+    justify-self: stretch;
+    width: 100%;
   }
 
   .summary-grid {

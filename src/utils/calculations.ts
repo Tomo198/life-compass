@@ -43,6 +43,16 @@ export type AnnualProjectionRow = ProjectionPoint & {
   eventTitles: string[];
 };
 
+export type MonthlyProjectionRow = ProjectionPoint & {
+  month: number;
+  monthIndex: number;
+  label: string;
+  monthlySavings: number;
+  eventImpact: number;
+  returnImpact: number;
+  eventTitles: string[];
+};
+
 export type ContributionResult = {
   finalValue: number;
   totalContribution: number;
@@ -195,6 +205,59 @@ export const getAnnualProjectionRows = (plan: LifePlan, years: number): AnnualPr
       eventTitles: yearEvents.map((event) => event.title)
     };
   });
+};
+
+export const getMonthlyProjectionRows = (plan: LifePlan, months: number): MonthlyProjectionRow[] => {
+  const cashflow = getCashflowSummary(plan.household);
+  const { netAssets } = getAssetSummary(plan.assets);
+  const monthlyRate = plan.simulation.annualReturnRate / 100 / 12;
+  const startDate = new Date();
+  let value = netAssets;
+
+  const rows: MonthlyProjectionRow[] = [];
+
+  for (let monthOffset = 0; monthOffset <= months; monthOffset += 1) {
+    const targetDate = new Date(startDate.getFullYear(), startDate.getMonth() + monthOffset, 1);
+    const year = targetDate.getFullYear();
+    const month = targetDate.getMonth() + 1;
+    const age = plan.profile.age + Math.floor(monthOffset / 12);
+    const previousValue = rows[monthOffset - 1]?.value ?? value;
+    const eventImpact = monthOffset === 0 || month !== 12 ? 0 : eventImpactForYear(plan.events, year);
+    const monthEvents = monthOffset === 0 || month !== 12 ? [] : eventsForYear(plan.events, year);
+    const monthlySavings = monthOffset === 0 ? 0 : cashflow.monthlySavings;
+
+    if (monthOffset > 0) {
+      value = value * (1 + monthlyRate) + cashflow.monthlySavings + eventImpact;
+    }
+
+    rows.push({
+      year,
+      month,
+      monthIndex: monthOffset,
+      label: `${year}/${String(month).padStart(2, "0")}`,
+      age,
+      value,
+      monthlySavings,
+      eventImpact,
+      returnImpact: monthOffset === 0 ? 0 : value - previousValue - monthlySavings - eventImpact,
+      eventTitles: monthEvents.map((event) => event.title)
+    });
+  }
+
+  return rows;
+};
+
+const clampPercent = (value: number) => Math.max(0, Math.min(100, Math.round(value)));
+
+export const getGoalPreparedPercent = (goal: Goal) => {
+  if (goal.goalType === "recurring") {
+    const annualRequiredAmount = goal.requiredAmount * getRecurrenceCountPerYear(goal.recurrence);
+    if (annualRequiredAmount <= 0) return 0;
+    return clampPercent(((goal.monthlyAllocation * 12) / annualRequiredAmount) * 100);
+  }
+
+  if (goal.requiredAmount <= 0) return goal.savedAmount > 0 ? 100 : 0;
+  return clampPercent((goal.savedAmount / goal.requiredAmount) * 100);
 };
 
 export const getGoalAchievement = (plan: LifePlan, goal: Goal): GoalAchievement => {

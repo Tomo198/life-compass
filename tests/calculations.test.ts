@@ -8,7 +8,9 @@ import {
   getEmergencyFundMonths,
   getEmergencyFundResult,
   getGoalAchievement,
+  getGoalPreparedPercent,
   getInputCompletion,
+  getMonthlyProjectionRows,
   projectAssets,
   simulateContribution
 } from "../src/utils/calculations";
@@ -296,6 +298,61 @@ test("annual projection rows separate return impact from savings and event impac
   assert.equal(rows[1].eventImpact, 0);
   assert.equal(rows[1].returnImpact, expectedReturnImpact);
   assert.ok(rows[1].returnImpact > 0);
+});
+
+test("monthly projection rows expose short-term savings changes", () => {
+  const plan: LifePlan = {
+    ...basePlan,
+    household: {
+      monthlyIncome: 150000,
+      annualBonus: 0,
+      sideIncome: 0,
+      fixedCost: 50000,
+      variableCost: 0,
+      annualSpecialCost: 0
+    },
+    assets: {
+      cash: 1000000,
+      investment: 0,
+      other: 0,
+      debt: 0
+    },
+    events: [],
+    simulation: { ...basePlan.simulation, annualReturnRate: 0 }
+  };
+
+  const rows = getMonthlyProjectionRows(plan, 2);
+
+  assert.equal(rows.length, 3);
+  assert.equal(rows[0].value, 1000000);
+  assert.equal(rows[1].value, 1100000);
+  assert.equal(rows[2].value, 1200000);
+  assert.equal(rows[1].monthlySavings, 100000);
+  assert.equal(rows[1].returnImpact, 0);
+});
+
+test("goal prepared percent is based on saved amount or recurring annual preparation", () => {
+  assert.equal(
+    getGoalPreparedPercent({
+      ...basePlan.goals[0],
+      goalType: "oneTime",
+      requiredAmount: 5000000,
+      savedAmount: 2500000
+    }),
+    50
+  );
+
+  assert.equal(
+    getGoalPreparedPercent({
+      ...basePlan.goals[0],
+      goalType: "recurring",
+      requiredAmount: 120000,
+      recurrence: "monthly",
+      monthlyAllocation: 60000,
+      savedAmount: 0
+    }),
+    50
+  );
 });
 
 test("mortgage emergency fund uses a 9 to 12 month range and the lower bound for shortage", () => {

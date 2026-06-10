@@ -26,7 +26,9 @@ import {
   getEmergencyFundResult,
   getGoalAchievement,
   getGoalAchievements,
+  getGoalPreparedPercent,
   getInputCompletion,
+  getMonthlyProjectionRows,
   getNextEvent,
   getPrimaryGoal,
   getRecurrenceLabel,
@@ -193,6 +195,12 @@ const getTargetAgeForYear = (currentAge: number, dueYear: number) => {
 };
 
 const cloneDefaultPlan = () => JSON.parse(JSON.stringify(defaultPlan)) as LifePlan;
+
+const isSamplePlan = (plan: LifePlan) =>
+  plan.profile.name === "マイプラン" &&
+  plan.profile.age === 35 &&
+  plan.goals.some((goal) => goal.title === "5年後に資産500万円") &&
+  plan.events.some((event) => event.title === "資格取得");
 
 const createEmptyPlan = (): LifePlan => ({
   version: 1,
@@ -500,17 +508,18 @@ function App() {
   const renderView = () => {
     switch (activeView) {
       case "dashboard":
-        return <Dashboard plan={plan} setActiveView={setActiveView} />;
+        return <Dashboard plan={plan} setActiveView={setActiveView} startEmptyPlan={startEmptyPlan} />;
       case "profile":
-        return <ProfileView plan={plan} updateProfile={updateProfile} />;
+        return <ProfileView plan={plan} updateProfile={updateProfile} setActiveView={setActiveView} />;
       case "household":
-        return <HouseholdView plan={plan} updateHousehold={updateHousehold} />;
+        return <HouseholdView plan={plan} updateHousehold={updateHousehold} setActiveView={setActiveView} />;
       case "assets":
-        return <AssetsView plan={plan} updateAssets={updateAssets} />;
+        return <AssetsView plan={plan} updateAssets={updateAssets} setActiveView={setActiveView} />;
       case "goals":
         return (
           <GoalsView
             plan={plan}
+            setActiveView={setActiveView}
             addGoal={addGoal}
             addGoalFromTemplate={addGoalFromTemplate}
             updateGoal={updateGoal}
@@ -521,6 +530,7 @@ function App() {
         return (
           <TimelineView
             plan={plan}
+            setActiveView={setActiveView}
             addEvent={addEvent}
             addEventFromTemplate={addEventFromTemplate}
             updateEvent={updateEvent}
@@ -529,7 +539,7 @@ function App() {
           />
         );
       case "simulation":
-        return <SimulationView plan={plan} updateSimulation={updateSimulation} />;
+        return <SimulationView plan={plan} updateSimulation={updateSimulation} setActiveView={setActiveView} />;
       case "notes":
         return <NotesView plan={plan} updateNotes={updateNotes} />;
       case "data":
@@ -605,6 +615,7 @@ function App() {
 type DashboardProps = {
   plan: LifePlan;
   setActiveView: (view: ViewKey) => void;
+  startEmptyPlan: () => void;
 };
 
 type DashboardGuidance = {
@@ -686,7 +697,7 @@ const getDashboardGuidance = ({
   return items.slice(0, 3);
 };
 
-function Dashboard({ plan, setActiveView }: DashboardProps) {
+function Dashboard({ plan, setActiveView, startEmptyPlan }: DashboardProps) {
   const cashflow = getCashflowSummary(plan.household);
   const assets = getAssetSummary(plan.assets);
   const emergency = getEmergencyFundResult(plan);
@@ -700,20 +711,41 @@ function Dashboard({ plan, setActiveView }: DashboardProps) {
   const completion = getInputCompletion(plan);
   const guidanceItems = getDashboardGuidance({ plan, cashflow, assets, emergency, completion });
   const missingItems = completion.items.filter((item) => !item.complete).slice(0, 3);
+  const firstMissingView = completion.items.find((item) => !item.complete)?.view ?? "profile";
+  const samplePlan = isSamplePlan(plan);
+  const showStarterGuide = samplePlan || completion.percentage < 85;
+
+  const handleStartEmptyPlan = () => {
+    if (window.confirm("サンプルデータを消して、空のプランから入力を始めます。必要な場合は先にJSONエクスポートしてください。")) {
+      startEmptyPlan();
+      setActiveView("profile");
+    }
+  };
 
   return (
     <div className="view-stack">
-      {completion.percentage < 85 && (
+      {showStarterGuide && (
         <section className="panel onboarding-panel">
           <div className="section-heading">
             <div>
-              <p className="eyebrow">はじめての使い方</p>
-              <h2>まずは生活の全体像を入力します</h2>
-              <p>すべてを一度に埋めなくても大丈夫です。プロフィール、家計、資産、目標、年表の順に入れると見通しが作りやすくなります。</p>
+              <p className="eyebrow">{samplePlan ? "サンプルプラン表示中" : "はじめての使い方"}</p>
+              <h2>{samplePlan ? "自分のプランは空の状態から順番に作れます" : "まずは生活の全体像を入力します"}</h2>
+              <p>
+                {samplePlan
+                  ? "現在の数値は使い方を確認するためのサンプルです。自分用に作る場合は、空のプランに切り替えて基本情報から入力すると迷いにくくなります。"
+                  : "すべてを一度に埋めなくても大丈夫です。プロフィール、家計、資産、目標、年表の順に入れると見通しが作りやすくなります。"}
+              </p>
             </div>
-            <button type="button" onClick={() => setActiveView(completion.items.find((item) => !item.complete)?.view ?? "profile")}>
-              次の入力へ
-            </button>
+            <div className="button-row">
+              {samplePlan && (
+                <button type="button" onClick={handleStartEmptyPlan}>
+                  空のプランで始める
+                </button>
+              )}
+              <button type="button" className={samplePlan ? "secondary" : ""} onClick={() => setActiveView(samplePlan ? "profile" : firstMissingView)}>
+                {samplePlan ? "サンプルを編集する" : "次の入力へ"}
+              </button>
+            </div>
           </div>
           <div className="onboarding-steps" aria-label="入力の流れ">
             <button type="button" onClick={() => setActiveView("profile")}>
@@ -754,6 +786,25 @@ function Dashboard({ plan, setActiveView }: DashboardProps) {
           helper={`${emergency.lowerMonths}〜${emergency.upperMonths}ヶ月分`}
         />
         <Metric label="30年後の見通し" value={manYen(thirtyYear)} helper="前提条件に基づく試算" />
+      </section>
+
+      <section className="quick-action-grid" aria-label="よく使う操作">
+        <button type="button" onClick={() => setActiveView(firstMissingView)}>
+          <strong>入力を続ける</strong>
+          <span>{completion.percentage >= 100 ? "入力済み項目を見直す" : `入力完了度 ${completion.percentage}%`}</span>
+        </button>
+        <button type="button" onClick={() => setActiveView("goals")}>
+          <strong>目標を整える</strong>
+          <span>{plan.goals.length > 0 ? `${plan.goals.length}件の目標` : "テンプレートから追加"}</span>
+        </button>
+        <button type="button" onClick={() => setActiveView("timeline")}>
+          <strong>年表を確認</strong>
+          <span>{plan.events.length > 0 ? `${plan.events.length}件のイベント` : "予定を追加"}</span>
+        </button>
+        <button type="button" onClick={() => setActiveView("data")}>
+          <strong>バックアップ</strong>
+          <span>JSONで保存</span>
+        </button>
       </section>
 
       <section className="split-layout">
@@ -891,68 +942,127 @@ function Metric({ label, value, helper }: { label: string; value: string; helper
   );
 }
 
+function EmptyState({ title, detail }: { title: string; detail: string }) {
+  return (
+    <div className="empty-state">
+      <strong>{title}</strong>
+      <span>{detail}</span>
+    </div>
+  );
+}
+
+function StepFlowNav({
+  previous,
+  next,
+  setActiveView
+}: {
+  previous?: { view: ViewKey; label: string };
+  next?: { view: ViewKey; label: string };
+  setActiveView: (view: ViewKey) => void;
+}) {
+  return (
+    <section className="step-flow-nav" aria-label="入力の移動">
+      {previous ? (
+        <button type="button" className="secondary" onClick={() => setActiveView(previous.view)}>
+          前へ: {previous.label}
+        </button>
+      ) : (
+        <span />
+      )}
+      {next && (
+        <button type="button" onClick={() => setActiveView(next.view)}>
+          次へ: {next.label}
+        </button>
+      )}
+    </section>
+  );
+}
+
 function ProfileView({
   plan,
-  updateProfile
+  updateProfile,
+  setActiveView
 }: {
   plan: LifePlan;
   updateProfile: <K extends keyof Profile>(key: K, value: Profile[K]) => void;
+  setActiveView: (view: ViewKey) => void;
 }) {
   return (
-    <section className="panel form-panel">
-      <StepTitle step="1" title="基本プロフィール" description="生活防衛資金や年表の年齢表示に使います。" />
-      <div className="form-grid">
-        <label>
-          プラン名
-          <input value={plan.profile.name} onChange={(event) => updateProfile("name", event.target.value)} />
-        </label>
-        <label>
-          現在の年齢
-          <NumericInput value={plan.profile.age} min={0} onChange={(value) => updateProfile("age", value)} />
-        </label>
-        <label>
-          家族構成
-          <select value={plan.profile.familyType} onChange={(event) => updateProfile("familyType", event.target.value as FamilyType)}>
-            {Object.entries(familyLabels).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          働き方
-          <select value={plan.profile.workStyle} onChange={(event) => updateProfile("workStyle", event.target.value as WorkStyle)}>
-            {Object.entries(workLabels).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          住居形態
-          <select value={plan.profile.housing} onChange={(event) => updateProfile("housing", event.target.value as Housing)}>
-            {Object.entries(housingLabels).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
-    </section>
+    <div className="view-stack">
+      <section className="panel form-panel">
+        <StepTitle step="1" title="基本プロフィール" description="生活防衛資金や年表の年齢表示に使います。" />
+        <div className="form-grid">
+          <label>
+            プラン名
+            <input value={plan.profile.name} onChange={(event) => updateProfile("name", event.target.value)} />
+          </label>
+          <label>
+            現在の年齢
+            <NumericInput value={plan.profile.age} min={0} onChange={(value) => updateProfile("age", value)} />
+          </label>
+          <label>
+            家族構成
+            <select value={plan.profile.familyType} onChange={(event) => updateProfile("familyType", event.target.value as FamilyType)}>
+              {Object.entries(familyLabels).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            働き方
+            <select value={plan.profile.workStyle} onChange={(event) => updateProfile("workStyle", event.target.value as WorkStyle)}>
+              {Object.entries(workLabels).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            住居形態
+            <select value={plan.profile.housing} onChange={(event) => updateProfile("housing", event.target.value as Housing)}>
+              {Object.entries(housingLabels).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      </section>
+      <section className="helper-grid">
+        <div>
+          <strong>年齢</strong>
+          <span>目標の達成年齢、年表の予定年齢、将来見通しの表示に使います。</span>
+        </div>
+        <div>
+          <strong>家族構成と働き方</strong>
+          <span>生活防衛資金の目安月数を決めるための前提として使います。</span>
+        </div>
+        <div>
+          <strong>住居形態</strong>
+          <span>住宅ローンありの場合は、生活防衛資金をやや厚めに見ます。</span>
+        </div>
+      </section>
+      <StepFlowNav setActiveView={setActiveView} next={{ view: "household", label: "家計入力" }} />
+    </div>
   );
 }
 
 function HouseholdView({
   plan,
-  updateHousehold
+  updateHousehold,
+  setActiveView
 }: {
   plan: LifePlan;
   updateHousehold: <K extends keyof Household>(key: K, value: Household[K]) => void;
+  setActiveView: (view: ViewKey) => void;
 }) {
   const cashflow = getCashflowSummary(plan.household);
+  const monthlySavingsTone =
+    cashflow.monthlySavings < 0 ? "notice" : cashflow.savingsRate >= 20 ? "good" : cashflow.monthlySavings > 0 ? "check" : "neutral";
   return (
     <div className="view-stack">
       <section className="panel form-panel">
@@ -975,18 +1085,56 @@ function HouseholdView({
         <Metric label="毎月貯蓄額" value={manYen(cashflow.monthlySavings)} helper={`貯蓄率 ${percent(cashflow.savingsRate)}`} />
         <Metric label="年間収入" value={manYen(cashflow.annualIncome)} helper="ボーナス込み" />
       </section>
+      <section className={`notice-band ${monthlySavingsTone}`}>
+        <strong>
+          {cashflow.monthlySavings < 0
+            ? "毎月の収支がマイナスです"
+            : cashflow.savingsRate >= 20
+              ? "貯蓄率は高めの前提です"
+              : cashflow.monthlySavings > 0
+                ? "毎月の貯蓄が見込めます"
+                : "収支がほぼ同じです"}
+        </strong>
+        <span>
+          {cashflow.monthlySavings < 0
+            ? "入力ミスがないか確認し、固定費、変動費、年間特別支出のどこが大きいかを見直すと次の判断がしやすくなります。"
+            : "この毎月貯蓄額が、目標達成目安、生活防衛資金の到達目安、将来資産の見通しに使われます。"}
+        </span>
+      </section>
+      <section className="helper-grid">
+        <div>
+          <strong>固定費</strong>
+          <span>家賃、通信費、保険、サブスク、ローンなど毎月おおむね決まって出る支出です。</span>
+        </div>
+        <div>
+          <strong>変動費</strong>
+          <span>食費、日用品、交際費、交通費など月によって変わる支出です。</span>
+        </div>
+        <div>
+          <strong>年間特別支出</strong>
+          <span>旅行、家電、帰省、税金、車検など年に数回ある支出を年額で入れます。</span>
+        </div>
+      </section>
+      <StepFlowNav
+        setActiveView={setActiveView}
+        previous={{ view: "profile", label: "基本情報" }}
+        next={{ view: "assets", label: "資産入力" }}
+      />
     </div>
   );
 }
 
 function AssetsView({
   plan,
-  updateAssets
+  updateAssets,
+  setActiveView
 }: {
   plan: LifePlan;
   updateAssets: <K extends keyof Assets>(key: K, value: Assets[K]) => void;
+  setActiveView: (view: ViewKey) => void;
 }) {
   const assets = getAssetSummary(plan.assets);
+  const cashShare = assets.grossAssets > 0 ? Math.round((plan.assets.cash / assets.grossAssets) * 100) : 0;
   return (
     <div className="view-stack">
       <section className="panel form-panel">
@@ -1009,18 +1157,39 @@ function AssetsView({
           {exactYenLabel(assets.grossAssets)} - {exactYenLabel(plan.assets.debt)} = {exactYenLabel(assets.netAssets)}
         </strong>
       </section>
+      <section className="helper-grid">
+        <div>
+          <strong>現金比率</strong>
+          <span>総資産のうち現金は約{cashShare}%です。生活防衛資金チェックでは現金額を使います。</span>
+        </div>
+        <div>
+          <strong>負債の扱い</strong>
+          <span>住宅ローンや借入は資産合計から差し引き、純資産として表示します。</span>
+        </div>
+        <div>
+          <strong>入力の目安</strong>
+          <span>細かく分けすぎず、まずは現金、投資資産、その他資産、負債の4つで整理します。</span>
+        </div>
+      </section>
+      <StepFlowNav
+        setActiveView={setActiveView}
+        previous={{ view: "household", label: "家計入力" }}
+        next={{ view: "goals", label: "目標管理" }}
+      />
     </div>
   );
 }
 
 function GoalsView({
   plan,
+  setActiveView,
   addGoal,
   addGoalFromTemplate,
   updateGoal,
   removeGoal
 }: {
   plan: LifePlan;
+  setActiveView: (view: ViewKey) => void;
   addGoal: () => void;
   addGoalFromTemplate: (template: GoalTemplate) => void;
   updateGoal: <K extends keyof Goal>(id: string, key: K, value: Goal[K]) => void;
@@ -1029,27 +1198,28 @@ function GoalsView({
   const goalAchievements = getGoalAchievements(plan);
 
   return (
-    <section className="panel">
-      <div className="section-heading">
-        <StepTitle step="4" title="目標管理" description="期限、目標額、優先度、準備状況を整理します。" />
-        <button type="button" onClick={addGoal}>
-          目標を追加
-        </button>
-      </div>
-      <div className="template-panel" aria-label="目標テンプレート">
-        <div>
-          <strong>テンプレートから追加</strong>
-          <span>あとで金額や期限を自由に変更できます。</span>
+    <div className="view-stack">
+      <section className="panel">
+        <div className="section-heading">
+          <StepTitle step="4" title="目標管理" description="期限、目標額、優先度、準備状況を整理します。" />
+          <button type="button" onClick={addGoal}>
+            目標を追加
+          </button>
         </div>
-        <div className="template-actions">
-          {goalTemplates.map((template) => (
-            <button type="button" className="secondary" key={template.title} onClick={() => addGoalFromTemplate(template)}>
-              {template.title}
-            </button>
-          ))}
+        <div className="template-panel" aria-label="目標テンプレート">
+          <div>
+            <strong>テンプレートから追加</strong>
+            <span>あとで金額や期限を自由に変更できます。</span>
+          </div>
+          <div className="template-actions">
+            {goalTemplates.map((template) => (
+              <button type="button" className="secondary" key={template.title} onClick={() => addGoalFromTemplate(template)}>
+                {template.title}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
-      <div className="table-wrap desktop-table">
+        <div className="table-wrap desktop-table">
         <table>
           <thead>
             <tr>
@@ -1065,28 +1235,86 @@ function GoalsView({
             </tr>
           </thead>
           <tbody>
-            {plan.goals.map((goal) => (
-              <tr key={goal.id}>
-                <td>
-                  <input value={goal.title} onChange={(event) => updateGoal(goal.id, "title", event.target.value)} />
+            {plan.goals.length === 0 ? (
+              <tr>
+                <td colSpan={9}>
+                  <EmptyState title="まだ目標がありません" detail="テンプレートから1つ追加するか、目標を追加ボタンで自由に作れます。" />
                 </td>
-                <td>
+              </tr>
+            ) : (
+              plan.goals.map((goal) => (
+                <tr key={goal.id}>
+                  <td>
+                    <input value={goal.title} onChange={(event) => updateGoal(goal.id, "title", event.target.value)} />
+                  </td>
+                  <td>
+                    <select value={goal.goalType} onChange={(event) => updateGoal(goal.id, "goalType", event.target.value as Goal["goalType"])}>
+                      <option value="oneTime">1回限り</option>
+                      <option value="recurring">繰り返し</option>
+                    </select>
+                  </td>
+                  <td>
+                    <GoalDeadlineInput
+                      dueYear={goal.dueYear}
+                      currentAge={plan.profile.age}
+                      onChange={(value) => updateGoal(goal.id, "dueYear", value)}
+                    />
+                  </td>
+                  <td>
+                    <GoalAmountInput goal={goal} updateGoal={updateGoal} />
+                  </td>
+                  <td>
+                    <select value={goal.priority} onChange={(event) => updateGoal(goal.id, "priority", event.target.value as Priority)}>
+                      {Object.entries(priorityLabels).map(([value, label]) => (
+                        <option key={value} value={value}>
+                          {label}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                  <td>
+                    <GoalPreparationInput goal={goal} updateGoal={updateGoal} />
+                  </td>
+                  <td>
+                    <GoalAchievementSummary goal={goal} achievement={getGoalAchievement(plan, goal)} />
+                  </td>
+                  <td>
+                    <input value={goal.memo} onChange={(event) => updateGoal(goal.id, "memo", event.target.value)} />
+                  </td>
+                  <td>
+                    <button type="button" className="text-button" onClick={() => removeGoal(goal.id)}>
+                      削除
+                    </button>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+        </div>
+        <div className="mobile-card-list">
+        {goalAchievements.length === 0 ? (
+          <EmptyState title="まだ目標がありません" detail="テンプレートから1つ追加するか、目標を追加ボタンで自由に作れます。" />
+        ) : (
+          goalAchievements.map(({ goal, achievement }) => (
+            <div className="mobile-record" key={goal.id}>
+              <div className="mobile-record-head">
+                <label className="mobile-record-title">
+                  目標名
+                  <input value={goal.title} onChange={(event) => updateGoal(goal.id, "title", event.target.value)} />
+                </label>
+                <GoalAchievementBadge achievement={achievement} />
+              </div>
+              <div className="mobile-edit-grid">
+                <label>
+                  種類
                   <select value={goal.goalType} onChange={(event) => updateGoal(goal.id, "goalType", event.target.value as Goal["goalType"])}>
                     <option value="oneTime">1回限り</option>
                     <option value="recurring">繰り返し</option>
                   </select>
-                </td>
-                <td>
-                  <GoalDeadlineInput
-                    dueYear={goal.dueYear}
-                    currentAge={plan.profile.age}
-                    onChange={(value) => updateGoal(goal.id, "dueYear", value)}
-                  />
-                </td>
-                <td>
-                  <GoalAmountInput goal={goal} updateGoal={updateGoal} />
-                </td>
-                <td>
+                </label>
+                <label>
+                  優先度
                   <select value={goal.priority} onChange={(event) => updateGoal(goal.id, "priority", event.target.value as Priority)}>
                     {Object.entries(priorityLabels).map(([value, label]) => (
                       <option key={value} value={value}>
@@ -1094,81 +1322,41 @@ function GoalsView({
                       </option>
                     ))}
                   </select>
-                </td>
-                <td>
+                </label>
+                <div className="mobile-field-wide">
+                  <span>期限</span>
+                  <GoalDeadlineInput
+                    dueYear={goal.dueYear}
+                    currentAge={plan.profile.age}
+                    onChange={(value) => updateGoal(goal.id, "dueYear", value)}
+                  />
+                </div>
+                <div className="mobile-field-wide">
+                  <GoalAmountInput goal={goal} updateGoal={updateGoal} />
+                </div>
+                <div className="mobile-field-wide">
                   <GoalPreparationInput goal={goal} updateGoal={updateGoal} />
-                </td>
-                <td>
-                  <GoalAchievementSummary achievement={getGoalAchievement(plan, goal)} />
-                </td>
-                <td>
+                </div>
+                <label className="mobile-field-wide">
+                  メモ
                   <input value={goal.memo} onChange={(event) => updateGoal(goal.id, "memo", event.target.value)} />
-                </td>
-                <td>
-                  <button type="button" className="text-button" onClick={() => removeGoal(goal.id)}>
-                    削除
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <div className="mobile-card-list">
-        {goalAchievements.map(({ goal, achievement }) => (
-          <div className="mobile-record" key={goal.id}>
-            <div className="mobile-record-head">
-              <label className="mobile-record-title">
-                目標名
-                <input value={goal.title} onChange={(event) => updateGoal(goal.id, "title", event.target.value)} />
-              </label>
-              <GoalAchievementBadge achievement={achievement} />
+                </label>
+              </div>
+              <GoalAchievementSummary goal={goal} achievement={achievement} />
+              <button type="button" className="text-button mobile-delete-button" onClick={() => removeGoal(goal.id)}>
+                削除
+              </button>
             </div>
-            <div className="mobile-edit-grid">
-              <label>
-                種類
-                <select value={goal.goalType} onChange={(event) => updateGoal(goal.id, "goalType", event.target.value as Goal["goalType"])}>
-                  <option value="oneTime">1回限り</option>
-                  <option value="recurring">繰り返し</option>
-                </select>
-              </label>
-              <label>
-                優先度
-                <select value={goal.priority} onChange={(event) => updateGoal(goal.id, "priority", event.target.value as Priority)}>
-                  {Object.entries(priorityLabels).map(([value, label]) => (
-                    <option key={value} value={value}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <div className="mobile-field-wide">
-                <span>期限</span>
-                <GoalDeadlineInput
-                  dueYear={goal.dueYear}
-                  currentAge={plan.profile.age}
-                  onChange={(value) => updateGoal(goal.id, "dueYear", value)}
-                />
-              </div>
-              <div className="mobile-field-wide">
-                <GoalAmountInput goal={goal} updateGoal={updateGoal} />
-              </div>
-              <div className="mobile-field-wide">
-                <GoalPreparationInput goal={goal} updateGoal={updateGoal} />
-              </div>
-              <label className="mobile-field-wide">
-                メモ
-                <input value={goal.memo} onChange={(event) => updateGoal(goal.id, "memo", event.target.value)} />
-              </label>
-            </div>
-            <GoalAchievementSummary achievement={achievement} />
-            <button type="button" className="text-button mobile-delete-button" onClick={() => removeGoal(goal.id)}>
-              削除
-            </button>
-          </div>
-        ))}
-      </div>
-    </section>
+          ))
+        )}
+        </div>
+      </section>
+      <StepFlowNav
+        setActiveView={setActiveView}
+        previous={{ view: "assets", label: "資産入力" }}
+        next={{ view: "timeline", label: "年表" }}
+      />
+    </div>
   );
 }
 
@@ -1279,9 +1467,20 @@ function GoalPreparationInput({
   );
 }
 
-function GoalAchievementSummary({ achievement }: { achievement: ReturnType<typeof getGoalAchievement> }) {
+function GoalAchievementSummary({ goal, achievement }: { goal: Goal; achievement: ReturnType<typeof getGoalAchievement> }) {
+  const preparedPercent = getGoalPreparedPercent(goal);
+
   return (
     <div className="goal-achievement-summary">
+      <div className="goal-progress">
+        <div>
+          <span>{goal.goalType === "recurring" ? "年間準備率" : "達成率"}</span>
+          <strong>{preparedPercent}%</strong>
+        </div>
+        <div className="goal-progress-track" aria-label={`${goal.goalType === "recurring" ? "年間準備率" : "達成率"} ${preparedPercent}%`}>
+          <span style={{ width: `${preparedPercent}%` }} />
+        </div>
+      </div>
       <GoalAchievementBadge achievement={achievement} />
       <small>{achievement.note}</small>
       {achievement.status === "recurring" && <small>年間必要額: {manYen(achievement.annualRequiredAmount)}</small>}
@@ -1315,6 +1514,7 @@ function GoalAchievementBadge({ achievement }: { achievement: ReturnType<typeof 
 
 function TimelineView({
   plan,
+  setActiveView,
   addEvent,
   addEventFromTemplate,
   updateEvent,
@@ -1322,6 +1522,7 @@ function TimelineView({
   removeEvent
 }: {
   plan: LifePlan;
+  setActiveView: (view: ViewKey) => void;
   addEvent: () => void;
   addEventFromTemplate: (template: EventTemplate) => void;
   updateEvent: <K extends keyof LifeEvent>(id: string, key: K, value: LifeEvent[K]) => void;
@@ -1330,130 +1531,211 @@ function TimelineView({
 }) {
   const sortedEvents = [...plan.events].sort((a, b) => a.year - b.year);
   return (
-    <section className="panel">
-      <div className="section-heading">
-        <StepTitle step="5" title="ライフイベント年表" description="予定年、金額、家計への影響を整理し、資産見通しに反映できます。" />
-        <button type="button" onClick={addEvent}>
-          イベントを追加
-        </button>
-      </div>
-      <div className="template-panel" aria-label="ライフイベントテンプレート">
-        <div>
-          <strong>テンプレートから追加</strong>
-          <span>予定年、金額、家計への影響は追加後に変更できます。</span>
+    <div className="view-stack">
+      <section className="panel">
+        <div className="section-heading">
+          <StepTitle step="5" title="ライフイベント年表" description="予定年、金額、家計への影響を整理し、資産見通しに反映できます。" />
+          <button type="button" onClick={addEvent}>
+            イベントを追加
+          </button>
         </div>
-        <div className="template-actions">
-          {eventTemplates.map((template) => (
-            <button type="button" className="secondary" key={template.title} onClick={() => addEventFromTemplate(template)}>
-              {template.title}
-            </button>
-          ))}
-        </div>
-      </div>
-      <div className="timeline">
-        {sortedEvents.map((event) => (
-          <div className="timeline-row" key={event.id}>
-            <div className="timeline-year">
-              <strong>{event.year}</strong>
-              <span>{getTargetAgeForYear(plan.profile.age, event.year)}歳</span>
-            </div>
-            <div className="timeline-fields">
-              <label className="timeline-field title-field">
-                イベント名
-                <input value={event.title} onChange={(input) => updateEvent(event.id, "title", input.target.value)} />
-                <small>例: 住宅購入、車購入、転職、旅行など</small>
-              </label>
-              <label className="timeline-field">
-                種類
-                <select
-                  value={event.category}
-                  onChange={(input) => updateEvent(event.id, "category", input.target.value as LifeEventCategory)}
-                >
-                  {Object.entries(eventCategoryLabels).map(([value, label]) => (
-                    <option key={value} value={value}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
-                <small>年表で見分けるための分類です。</small>
-              </label>
-              <div className="timeline-field">
-                <span>予定年</span>
-                <YearAgeInput
-                  year={event.year}
-                  currentAge={plan.profile.age}
-                  ageLabel="予定年齢"
-                  onChange={(value) => updateEventSchedule(event.id, value)}
-                />
-              </div>
-              <label className="timeline-field">
-                金額
-                <NumericInput value={event.amount} min={0} onChange={(value) => updateEvent(event.id, "amount", value)} />
-                <small>支出または収入変化として反映する金額です。</small>
-              </label>
-              <label className="timeline-field impact-field">
-                家計への影響
-                <select
-                  value={event.cashflowType}
-                  onChange={(input) => updateEvent(event.id, "cashflowType", input.target.value as CashflowType)}
-                >
-                  {Object.entries(cashflowLabels).map(([value, label]) => (
-                    <option key={value} value={value}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
-                <small>{cashflowHelp[event.cashflowType]}</small>
-              </label>
-              <label className="timeline-field memo-field">
-                メモ
-                <input value={event.memo} onChange={(input) => updateEvent(event.id, "memo", input.target.value)} />
-                <small>前提や検討中のことを残せます。</small>
-              </label>
-              <button type="button" className="text-button" onClick={() => removeEvent(event.id)}>
-                削除
-              </button>
-            </div>
+        <div className="template-panel" aria-label="ライフイベントテンプレート">
+          <div>
+            <strong>テンプレートから追加</strong>
+            <span>予定年、金額、家計への影響は追加後に変更できます。</span>
           </div>
-        ))}
-      </div>
-    </section>
+          <div className="template-actions">
+            {eventTemplates.map((template) => (
+              <button type="button" className="secondary" key={template.title} onClick={() => addEventFromTemplate(template)}>
+                {template.title}
+              </button>
+            ))}
+          </div>
+        </div>
+        <section className="helper-grid compact">
+        <div>
+          <strong>支出として反映</strong>
+          <span>住宅購入、車購入、旅行、教育費など、その年にまとまって出る支出に使います。</span>
+        </div>
+        <div>
+          <strong>収入・資産増として反映</strong>
+          <span>退職金、売却益、補助金など、その年に増える金額を記録するときに使います。</span>
+        </div>
+        <div>
+          <strong>記録のみ</strong>
+          <span>転職や結婚など、金額をまだ決めない予定を年表に残すときに使います。</span>
+        </div>
+        </section>
+        <div className="timeline">
+        {sortedEvents.length === 0 ? (
+          <EmptyState title="まだ年表イベントがありません" detail="転職、引越し、住宅購入などをテンプレートから追加すると、将来見通しに反映できます。" />
+        ) : (
+          sortedEvents.map((event) => (
+            <div className="timeline-row" key={event.id}>
+              <div className="timeline-year">
+                <strong>{event.year}</strong>
+                <span>{getTargetAgeForYear(plan.profile.age, event.year)}歳</span>
+              </div>
+              <div className="timeline-fields">
+                <label className="timeline-field title-field">
+                  イベント名
+                  <input value={event.title} onChange={(input) => updateEvent(event.id, "title", input.target.value)} />
+                  <small>例: 住宅購入、車購入、転職、旅行など</small>
+                </label>
+                <label className="timeline-field">
+                  種類
+                  <select
+                    value={event.category}
+                    onChange={(input) => updateEvent(event.id, "category", input.target.value as LifeEventCategory)}
+                  >
+                    {Object.entries(eventCategoryLabels).map(([value, label]) => (
+                      <option key={value} value={value}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                  <small>年表で見分けるための分類です。</small>
+                </label>
+                <div className="timeline-field">
+                  <span>予定年</span>
+                  <YearAgeInput
+                    year={event.year}
+                    currentAge={plan.profile.age}
+                    ageLabel="予定年齢"
+                    onChange={(value) => updateEventSchedule(event.id, value)}
+                  />
+                </div>
+                <label className="timeline-field">
+                  金額
+                  <NumericInput value={event.amount} min={0} onChange={(value) => updateEvent(event.id, "amount", value)} />
+                  <small>支出または収入変化として反映する金額です。</small>
+                </label>
+                <label className="timeline-field impact-field">
+                  家計への影響
+                  <select
+                    value={event.cashflowType}
+                    onChange={(input) => updateEvent(event.id, "cashflowType", input.target.value as CashflowType)}
+                  >
+                    {Object.entries(cashflowLabels).map(([value, label]) => (
+                      <option key={value} value={value}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                  <small>{cashflowHelp[event.cashflowType]}</small>
+                </label>
+                <label className="timeline-field memo-field">
+                  メモ
+                  <input value={event.memo} onChange={(input) => updateEvent(event.id, "memo", input.target.value)} />
+                  <small>前提や検討中のことを残せます。</small>
+                </label>
+                <button type="button" className="text-button" onClick={() => removeEvent(event.id)}>
+                  削除
+                </button>
+              </div>
+            </div>
+          ))
+        )}
+        </div>
+      </section>
+      <StepFlowNav
+        setActiveView={setActiveView}
+        previous={{ view: "goals", label: "目標管理" }}
+        next={{ view: "simulation", label: "シミュレーション" }}
+      />
+    </div>
   );
 }
 
 function SimulationView({
   plan,
-  updateSimulation
+  updateSimulation,
+  setActiveView
 }: {
   plan: LifePlan;
   updateSimulation: <K extends keyof SimulationSettings>(key: K, value: SimulationSettings[K]) => void;
+  setActiveView: (view: ViewKey) => void;
 }) {
+  const [projectionMode, setProjectionMode] = useState<"annual" | "monthly">("annual");
   const [projectionYears, setProjectionYears] = useState<10 | 30>(30);
+  const [projectionMonths, setProjectionMonths] = useState<12 | 24>(24);
   const projection10 = useMemo(() => projectAssets(plan, 10), [plan]);
   const projection30 = useMemo(() => projectAssets(plan, 30), [plan]);
   const annualRows = useMemo(() => getAnnualProjectionRows(plan, projectionYears), [plan, projectionYears]);
+  const monthlyRows = useMemo(() => getMonthlyProjectionRows(plan, projectionMonths), [plan, projectionMonths]);
   const emergency = getEmergencyFundResult(plan);
   const contribution = simulateContribution(plan.simulation);
+  const chartRows = projectionMode === "annual" ? annualRows : monthlyRows;
 
   return (
     <div className="view-stack">
       <section className="panel">
         <div className="section-heading">
           <StepTitle step="6" title="基本資産推移" description="入力条件に基づく10年/30年の見通しです。" />
-          <div className="segmented-control" aria-label="表示期間">
-            <button type="button" className={projectionYears === 10 ? "active" : ""} onClick={() => setProjectionYears(10)}>
-              10年
-            </button>
-            <button type="button" className={projectionYears === 30 ? "active" : ""} onClick={() => setProjectionYears(30)}>
-              30年
-            </button>
+          <div className="simulation-controls">
+            <div className="segmented-control" aria-label="表示単位">
+              <button type="button" className={projectionMode === "annual" ? "active" : ""} onClick={() => setProjectionMode("annual")}>
+                年次
+              </button>
+              <button type="button" className={projectionMode === "monthly" ? "active" : ""} onClick={() => setProjectionMode("monthly")}>
+                月次
+              </button>
+            </div>
+            {projectionMode === "annual" ? (
+              <div className="segmented-control" aria-label="表示期間">
+                <button type="button" className={projectionYears === 10 ? "active" : ""} onClick={() => setProjectionYears(10)}>
+                  10年
+                </button>
+                <button type="button" className={projectionYears === 30 ? "active" : ""} onClick={() => setProjectionYears(30)}>
+                  30年
+                </button>
+              </div>
+            ) : (
+              <div className="segmented-control" aria-label="月次表示期間">
+                <button type="button" className={projectionMonths === 12 ? "active" : ""} onClick={() => setProjectionMonths(12)}>
+                  12ヶ月
+                </button>
+                <button type="button" className={projectionMonths === 24 ? "active" : ""} onClick={() => setProjectionMonths(24)}>
+                  24ヶ月
+                </button>
+              </div>
+            )}
           </div>
         </div>
-        <LineChart points={annualRows} />
+        <LineChart points={chartRows} />
         <div className="calculation-band compact">
           <Metric label="10年後" value={manYen(projection10[10]?.value ?? 0)} helper="前提条件に基づく試算" />
           <Metric label="30年後" value={manYen(projection30[30]?.value ?? 0)} helper="前提条件に基づく試算" />
         </div>
+        {projectionMode === "monthly" && (
+          <div className="table-wrap projection-detail-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>月</th>
+                  <th>試算額</th>
+                  <th>月間貯蓄</th>
+                  <th>イベント影響</th>
+                  <th>利回り等</th>
+                </tr>
+              </thead>
+              <tbody>
+                {monthlyRows.map((row) => (
+                  <tr key={row.label}>
+                    <td>{row.label}</td>
+                    <td>{manYen(row.value)}</td>
+                    <td>{row.monthlySavings ? manYen(row.monthlySavings) : "-"}</td>
+                    <td>
+                      {row.eventImpact ? manYen(row.eventImpact) : "-"}
+                      {row.eventTitles.length > 0 ? <small>{row.eventTitles.join(" / ")}</small> : null}
+                    </td>
+                    <td>{row.returnImpact ? manYen(row.returnImpact) : "-"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
 
       <section className="panel">
@@ -1548,6 +1830,11 @@ function SimulationView({
           </table>
         </div>
       </section>
+      <StepFlowNav
+        setActiveView={setActiveView}
+        previous={{ view: "timeline", label: "年表" }}
+        next={{ view: "data", label: "バックアップ" }}
+      />
     </div>
   );
 }
@@ -2088,9 +2375,12 @@ function NumericInput({
 
 type ChartPoint = {
   year: number;
+  month?: number;
+  label?: string;
   value: number;
   age?: number;
   annualSavings?: number;
+  monthlySavings?: number;
   eventImpact?: number;
   returnImpact?: number;
   eventTitles?: string[];
@@ -2130,6 +2420,8 @@ function LineChart({ points }: { points: ChartPoint[] }) {
   const previousPoint = selectedIndex !== null && selectedIndex > 0 ? coordinates[selectedIndex - 1] : undefined;
   const labelStep = points.length > 20 ? 5 : points.length > 12 ? 3 : 1;
   const selectedLabelY = selectedPoint ? (selectedPoint.y < padding.top + 28 ? selectedPoint.y + 26 : selectedPoint.y - 16) : 0;
+  const selectedPointLabel = selectedPoint?.label ?? (selectedPoint ? `${selectedPoint.year}年` : "");
+  const isMonthly = Boolean(selectedPoint && "monthlySavings" in selectedPoint);
 
   return (
     <div className="chart-block">
@@ -2153,13 +2445,14 @@ function LineChart({ points }: { points: ChartPoint[] }) {
           {coordinates.map((point, index) => {
             const isSelected = selectedIndex === index;
             const showYearLabel = index % labelStep === 0 || index === coordinates.length - 1 || isSelected;
+            const pointLabel = point.label ?? `${point.year}`;
             return (
-              <g key={point.year}>
+              <g key={`${pointLabel}-${index}`}>
                 <g
                   role="button"
                   tabIndex={0}
                   className="chart-hit-button"
-                  aria-label={`${point.year}年 ${manYen(point.value)}`}
+                  aria-label={`${pointLabel} ${manYen(point.value)}`}
                   onClick={() => setSelectedIndex(index)}
                   onKeyDown={(event) => {
                     if (event.key === "Enter" || event.key === " ") {
@@ -2178,7 +2471,7 @@ function LineChart({ points }: { points: ChartPoint[] }) {
                 )}
                 {showYearLabel && (
                   <text x={point.x} y={height - 16} textAnchor="middle" className="year-label">
-                    {point.year}
+                    {pointLabel}
                   </text>
                 )}
               </g>
@@ -2190,17 +2483,23 @@ function LineChart({ points }: { points: ChartPoint[] }) {
         {selectedPoint ? (
           <>
             <div>
-              <span>{selectedPoint.year}年{selectedPoint.age ? ` / ${selectedPoint.age}歳` : ""}</span>
+              <span>{selectedPointLabel}{selectedPoint.age ? ` / ${selectedPoint.age}歳` : ""}</span>
               <strong>{manYen(selectedPoint.value)}</strong>
             </div>
             <div>
-              <span>前年差</span>
+              <span>{isMonthly ? "前月差" : "前年差"}</span>
               <strong>{previousPoint ? manYen(selectedPoint.value - previousPoint.value) : "-"}</strong>
             </div>
             {"annualSavings" in selectedPoint && (
               <div>
                 <span>年間貯蓄</span>
                 <strong>{selectedPoint.annualSavings ? manYen(selectedPoint.annualSavings) : "-"}</strong>
+              </div>
+            )}
+            {"monthlySavings" in selectedPoint && (
+              <div>
+                <span>月間貯蓄</span>
+                <strong>{selectedPoint.monthlySavings ? manYen(selectedPoint.monthlySavings) : "-"}</strong>
               </div>
             )}
             {"eventImpact" in selectedPoint && (
@@ -2227,9 +2526,15 @@ function LineChart({ points }: { points: ChartPoint[] }) {
                 <strong>前年差 = 年間貯蓄 + イベント影響 + 利回り等の影響</strong>
               </div>
             )}
+            {"monthlySavings" in selectedPoint && (
+              <div className="chart-selection-wide">
+                <span>この月の見方</span>
+                <strong>前月差 = 月間貯蓄 + イベント影響 + 利回り等の影響</strong>
+              </div>
+            )}
           </>
         ) : (
-          <p>グラフ上の点をタップすると、その年の試算額を確認できます。</p>
+          <p>グラフ上の点をタップすると、その時点の試算額を確認できます。</p>
         )}
       </div>
     </div>
