@@ -15,6 +15,7 @@ import type {
   Priority,
   Profile,
   RecurrenceInterval,
+  ReviewNote,
   SimulationSettings,
   ViewKey,
   WorkStyle
@@ -405,6 +406,32 @@ function App() {
     commitPlan({ ...plan, notes: { ...(plan.notes || { general: "", spendingReview: "" }), [key]: value } });
   };
 
+  const addReview = () => {
+    const assets = getAssetSummary(plan.assets);
+    const cashflow = getCashflowSummary(plan.household);
+    const nextReview: ReviewNote = {
+      id: createId(),
+      date: new Date().toISOString().slice(0, 10),
+      plannedNetAssets: assets.netAssets,
+      plannedMonthlySavings: cashflow.monthlySavings,
+      actualNetAssets: assets.netAssets,
+      actualMonthlySavings: cashflow.monthlySavings,
+      memo: ""
+    };
+    commitPlan({ ...plan, reviews: [nextReview, ...(plan.reviews || [])] });
+  };
+
+  const updateReview = <K extends keyof ReviewNote>(id: string, key: K, value: ReviewNote[K]) => {
+    commitPlan({
+      ...plan,
+      reviews: (plan.reviews || []).map((review) => (review.id === id ? { ...review, [key]: value } : review))
+    });
+  };
+
+  const removeReview = (id: string) => {
+    commitPlan({ ...plan, reviews: (plan.reviews || []).filter((review) => review.id !== id) });
+  };
+
   const addGoal = () => {
     const nextGoal: Goal = {
       id: createId(),
@@ -549,7 +576,7 @@ function App() {
       case "simulation":
         return <SimulationView plan={plan} updateSimulation={updateSimulation} setActiveView={setActiveView} />;
       case "notes":
-        return <NotesView plan={plan} updateNotes={updateNotes} />;
+        return <NotesView plan={plan} updateNotes={updateNotes} addReview={addReview} updateReview={updateReview} removeReview={removeReview} />;
       case "data":
         return (
           <DataView
@@ -1203,7 +1230,24 @@ function GoalsView({
   updateGoal: <K extends keyof Goal>(id: string, key: K, value: Goal[K]) => void;
   removeGoal: (id: string) => void;
 }) {
-  const goalAchievements = getGoalAchievements(plan);
+  const [goalSearch, setGoalSearch] = useState("");
+  const [goalSort, setGoalSort] = useState<"dueYear" | "priority" | "progress" | "title">("dueYear");
+  const priorityRank: Record<Priority, number> = { high: 0, medium: 1, low: 2 };
+  const goalAchievements = useMemo(() => {
+    const normalizedSearch = goalSearch.trim().toLowerCase();
+    return getGoalAchievements(plan)
+      .filter(({ goal }) =>
+        normalizedSearch
+          ? `${goal.title} ${goal.memo}`.toLowerCase().includes(normalizedSearch)
+          : true
+      )
+      .sort((a, b) => {
+        if (goalSort === "priority") return priorityRank[a.goal.priority] - priorityRank[b.goal.priority] || a.goal.dueYear - b.goal.dueYear;
+        if (goalSort === "progress") return getGoalPreparedPercent(b.goal) - getGoalPreparedPercent(a.goal);
+        if (goalSort === "title") return a.goal.title.localeCompare(b.goal.title, "ja");
+        return a.goal.dueYear - b.goal.dueYear || a.goal.title.localeCompare(b.goal.title, "ja");
+      });
+  }, [goalSearch, goalSort, plan]);
 
   return (
     <div className="view-stack">
@@ -1227,6 +1271,22 @@ function GoalsView({
             ))}
           </div>
         </div>
+        <div className="list-toolbar" aria-label="目標の検索と並び替え">
+          <label>
+            目標を検索
+            <input value={goalSearch} onChange={(event) => setGoalSearch(event.target.value)} placeholder="目標名やメモで検索" />
+          </label>
+          <label>
+            並び替え
+            <select value={goalSort} onChange={(event) => setGoalSort(event.target.value as "dueYear" | "priority" | "progress" | "title")}>
+              <option value="dueYear">期限が近い順</option>
+              <option value="priority">優先度順</option>
+              <option value="progress">達成率が高い順</option>
+              <option value="title">名前順</option>
+            </select>
+          </label>
+          <span>{goalAchievements.length}件表示 / 全{plan.goals.length}件</span>
+        </div>
         <div className="table-wrap desktop-table">
         <table>
           <thead>
@@ -1249,8 +1309,14 @@ function GoalsView({
                   <EmptyState title="まだ目標がありません" detail="テンプレートから1つ追加するか、目標を追加ボタンで自由に作れます。" />
                 </td>
               </tr>
+            ) : goalAchievements.length === 0 ? (
+              <tr>
+                <td colSpan={9}>
+                  <EmptyState title="条件に合う目標がありません" detail="検索文字を変えるか、並び替えを戻して確認してください。" />
+                </td>
+              </tr>
             ) : (
-              plan.goals.map((goal) => (
+              goalAchievements.map(({ goal }) => (
                 <tr key={goal.id}>
                   <td>
                     <input value={goal.title} onChange={(event) => updateGoal(goal.id, "title", event.target.value)} />
@@ -1301,8 +1367,10 @@ function GoalsView({
         </table>
         </div>
         <div className="mobile-card-list">
-        {goalAchievements.length === 0 ? (
+        {plan.goals.length === 0 ? (
           <EmptyState title="まだ目標がありません" detail="テンプレートから1つ追加するか、目標を追加ボタンで自由に作れます。" />
+        ) : goalAchievements.length === 0 ? (
+          <EmptyState title="条件に合う目標がありません" detail="検索文字を変えるか、並び替えを戻して確認してください。" />
         ) : (
           goalAchievements.map(({ goal, achievement }) => (
             <div className="mobile-record" key={goal.id}>
@@ -1533,6 +1601,9 @@ type CalendarEntry = {
 
 function LifeCalendar({ plan }: { plan: LifePlan }) {
   const [rangeYears, setRangeYears] = useState<5 | 10 | 30>(10);
+  const [entrySearch, setEntrySearch] = useState("");
+  const [entryKind, setEntryKind] = useState<"all" | "goal" | "event">("all");
+  const [entrySort, setEntrySort] = useState<"yearAsc" | "yearDesc" | "title">("yearAsc");
   const currentYear = new Date().getFullYear();
   const years = Array.from({ length: rangeYears + 1 }, (_, index) => currentYear + index);
   const entries = useMemo<CalendarEntry[]>(() => {
@@ -1565,8 +1636,19 @@ function LifeCalendar({ plan }: { plan: LifePlan }) {
 
     return [...goalEntries, ...eventEntries].sort((a, b) => a.year - b.year || a.title.localeCompare(b.title, "ja"));
   }, [plan.events, plan.goals]);
-  const visibleEntries = entries.filter((entry) => entry.year >= currentYear && entry.year <= currentYear + rangeYears);
-  const upcomingEntries = visibleEntries.slice(0, 4);
+  const visibleEntries = useMemo(() => {
+    const normalizedSearch = entrySearch.trim().toLowerCase();
+    return entries
+      .filter((entry) => entry.year >= currentYear && entry.year <= currentYear + rangeYears)
+      .filter((entry) => (entryKind === "all" ? true : entry.kind === entryKind))
+      .filter((entry) => (normalizedSearch ? `${entry.title} ${entry.detail}`.toLowerCase().includes(normalizedSearch) : true))
+      .sort((a, b) => {
+        if (entrySort === "yearDesc") return b.year - a.year || a.title.localeCompare(b.title, "ja");
+        if (entrySort === "title") return a.title.localeCompare(b.title, "ja") || a.year - b.year;
+        return a.year - b.year || a.title.localeCompare(b.title, "ja");
+      });
+  }, [currentYear, entries, entryKind, entrySearch, entrySort, rangeYears]);
+  const upcomingEntries = [...visibleEntries].sort((a, b) => a.year - b.year || a.title.localeCompare(b.title, "ja")).slice(0, 4);
 
   return (
     <section className="life-calendar" aria-label="ライフカレンダー">
@@ -1601,9 +1683,35 @@ function LifeCalendar({ plan }: { plan: LifePlan }) {
         </div>
       )}
 
+      <div className="list-toolbar" aria-label="カレンダーの検索と整理">
+        <label>
+          検索
+          <input value={entrySearch} onChange={(event) => setEntrySearch(event.target.value)} placeholder="目標名・イベント名で検索" />
+        </label>
+        <label>
+          種類
+          <select value={entryKind} onChange={(event) => setEntryKind(event.target.value as "all" | "goal" | "event")}>
+            <option value="all">すべて</option>
+            <option value="goal">目標のみ</option>
+            <option value="event">イベントのみ</option>
+          </select>
+        </label>
+        <label>
+          並び替え
+          <select value={entrySort} onChange={(event) => setEntrySort(event.target.value as "yearAsc" | "yearDesc" | "title")}>
+            <option value="yearAsc">時期が近い順</option>
+            <option value="yearDesc">時期が遠い順</option>
+            <option value="title">名前順</option>
+          </select>
+        </label>
+        <span>{visibleEntries.length}件表示 / 全{entries.length}件</span>
+      </div>
+
       <div className="calendar-grid">
         {years.map((year) => {
           const yearEntries = visibleEntries.filter((entry) => entry.year === year);
+          const shownYearEntries = yearEntries.slice(0, 3);
+          const hiddenCount = Math.max(0, yearEntries.length - shownYearEntries.length);
           return (
             <div className={year === currentYear ? "calendar-year-card current" : "calendar-year-card"} key={year}>
               <div className="calendar-year-head">
@@ -1614,7 +1722,7 @@ function LifeCalendar({ plan }: { plan: LifePlan }) {
                 <p>予定なし</p>
               ) : (
                 <div className="calendar-entry-list">
-                  {yearEntries.map((entry) => (
+                  {shownYearEntries.map((entry) => (
                     <div className={`calendar-entry ${entry.tone}`} key={entry.id}>
                       <div>
                         <span>{entry.kind === "goal" ? "目標" : "イベント"}</span>
@@ -1629,11 +1737,35 @@ function LifeCalendar({ plan }: { plan: LifePlan }) {
                       )}
                     </div>
                   ))}
+                  {hiddenCount > 0 && <span className="calendar-more">他{hiddenCount}件は下の一覧で確認</span>}
                 </div>
               )}
             </div>
           );
         })}
+      </div>
+
+      <div className="calendar-list-panel" aria-label="目標とイベントの一覧">
+        {visibleEntries.length === 0 ? (
+          <EmptyState title="条件に合う予定がありません" detail="検索条件や表示期間を変えて確認してください。" />
+        ) : (
+          visibleEntries.map((entry) => (
+            <div className={`calendar-list-row ${entry.tone}`} key={entry.id}>
+              <div>
+                <span>{entry.kind === "goal" ? "目標" : "イベント"}</span>
+                <strong>{entry.title}</strong>
+              </div>
+              <div>
+                <span>{entry.year}年 / {getTargetAgeForYear(plan.profile.age, entry.year)}歳頃</span>
+                <small>{getYearsUntilLabel(entry.year)}</small>
+              </div>
+              <div>
+                <span>{entry.detail}</span>
+                {entry.amount ? <small>{manYen(entry.amount)}</small> : null}
+              </div>
+            </div>
+          ))
+        )}
       </div>
     </section>
   );
@@ -1656,7 +1788,23 @@ function TimelineView({
   updateEventSchedule: (id: string, year: number) => void;
   removeEvent: (id: string) => void;
 }) {
-  const sortedEvents = [...plan.events].sort((a, b) => a.year - b.year);
+  const [eventSearch, setEventSearch] = useState("");
+  const [eventSort, setEventSort] = useState<"yearAsc" | "yearDesc" | "title" | "type">("yearAsc");
+  const sortedEvents = useMemo(() => {
+    const normalizedSearch = eventSearch.trim().toLowerCase();
+    return [...plan.events]
+      .filter((event) =>
+        normalizedSearch
+          ? `${event.title} ${event.memo} ${eventCategoryLabels[event.category]}`.toLowerCase().includes(normalizedSearch)
+          : true
+      )
+      .sort((a, b) => {
+        if (eventSort === "yearDesc") return b.year - a.year || a.title.localeCompare(b.title, "ja");
+        if (eventSort === "title") return a.title.localeCompare(b.title, "ja") || a.year - b.year;
+        if (eventSort === "type") return eventCategoryLabels[a.category].localeCompare(eventCategoryLabels[b.category], "ja") || a.year - b.year;
+        return a.year - b.year || a.title.localeCompare(b.title, "ja");
+      });
+  }, [eventSearch, eventSort, plan.events]);
   return (
     <div className="view-stack">
       <section className="panel">
@@ -1694,9 +1842,27 @@ function TimelineView({
           <span>転職や結婚など、金額をまだ決めない予定を年表に残すときに使います。</span>
         </div>
         </section>
+        <div className="list-toolbar" aria-label="イベントの検索と並び替え">
+          <label>
+            イベントを検索
+            <input value={eventSearch} onChange={(event) => setEventSearch(event.target.value)} placeholder="イベント名やメモで検索" />
+          </label>
+          <label>
+            並び替え
+            <select value={eventSort} onChange={(event) => setEventSort(event.target.value as "yearAsc" | "yearDesc" | "title" | "type")}>
+              <option value="yearAsc">時期が近い順</option>
+              <option value="yearDesc">時期が遠い順</option>
+              <option value="title">名前順</option>
+              <option value="type">種類順</option>
+            </select>
+          </label>
+          <span>{sortedEvents.length}件表示 / 全{plan.events.length}件</span>
+        </div>
         <div className="timeline">
-        {sortedEvents.length === 0 ? (
+        {plan.events.length === 0 ? (
           <EmptyState title="まだ年表イベントがありません" detail="転職、引越し、住宅購入などをテンプレートから追加すると、将来見通しに反映できます。" />
+        ) : sortedEvents.length === 0 ? (
+          <EmptyState title="条件に合うイベントがありません" detail="検索文字を変えるか、並び替えを戻して確認してください。" />
         ) : (
           sortedEvents.map((event) => (
             <div className="timeline-row" key={event.id}>
@@ -1969,11 +2135,22 @@ function SimulationView({
 
 function NotesView({
   plan,
-  updateNotes
+  updateNotes,
+  addReview,
+  updateReview,
+  removeReview
 }: {
   plan: LifePlan;
   updateNotes: <K extends keyof PlanNotes>(key: K, value: PlanNotes[K]) => void;
+  addReview: () => void;
+  updateReview: <K extends keyof ReviewNote>(id: string, key: K, value: ReviewNote[K]) => void;
+  removeReview: (id: string) => void;
 }) {
+  const sortedReviews = [...(plan.reviews || [])].sort((a, b) => b.date.localeCompare(a.date));
+  const chronologicalReviews = [...(plan.reviews || [])].sort((a, b) => a.date.localeCompare(b.date));
+  const previousReviewById = new Map<string, ReviewNote | undefined>();
+  chronologicalReviews.forEach((review, index) => previousReviewById.set(review.id, chronologicalReviews[index - 1]));
+
   return (
     <div className="view-stack">
       <section className="panel form-panel">
@@ -1996,6 +2173,78 @@ function NotesView({
             />
           </label>
         </div>
+      </section>
+
+      <section className="panel">
+        <div className="section-heading">
+          <div>
+            <h2>実績チェック</h2>
+            <p>予定として控えた数値と、実際の純資産・毎月貯蓄を比べて見直せます。</p>
+          </div>
+          <button type="button" onClick={addReview}>
+            実績を追加
+          </button>
+        </div>
+        {sortedReviews.length === 0 ? (
+          <EmptyState title="まだ実績がありません" detail="実績を追加すると、予定値と実績値、前回比を残せます。" />
+        ) : (
+          <div className="review-list">
+            {sortedReviews.map((review) => {
+              const previousReview = previousReviewById.get(review.id);
+              const actualNetAssets = review.actualNetAssets ?? 0;
+              const actualMonthlySavings = review.actualMonthlySavings ?? 0;
+              const plannedNetAssets = review.plannedNetAssets ?? 0;
+              const plannedMonthlySavings = review.plannedMonthlySavings ?? 0;
+              const netAssetGap = actualNetAssets - plannedNetAssets;
+              const monthlySavingsGap = actualMonthlySavings - plannedMonthlySavings;
+              const previousNetAssetGap =
+                previousReview?.actualNetAssets === undefined ? null : actualNetAssets - previousReview.actualNetAssets;
+
+              return (
+                <div className="review-record" key={review.id}>
+                  <div className="review-record-head">
+                    <label>
+                      確認日
+                      <input type="date" value={review.date} onChange={(event) => updateReview(review.id, "date", event.target.value)} />
+                    </label>
+                    <button type="button" className="text-button" onClick={() => removeReview(review.id)}>
+                      削除
+                    </button>
+                  </div>
+                  <div className="review-input-grid">
+                    <MoneyInput
+                      label="実際の純資産"
+                      value={actualNetAssets}
+                      onChange={(value) => updateReview(review.id, "actualNetAssets", value)}
+                    />
+                    <MoneyInput
+                      label="実際の毎月貯蓄"
+                      value={actualMonthlySavings}
+                      onChange={(value) => updateReview(review.id, "actualMonthlySavings", value)}
+                    />
+                    <label className="review-memo-field">
+                      メモ
+                      <input
+                        value={review.memo}
+                        onChange={(event) => updateReview(review.id, "memo", event.target.value)}
+                        placeholder="例: ボーナス支給、旅行支出、固定費見直しなど"
+                      />
+                    </label>
+                  </div>
+                  <div className="review-metrics">
+                    <Metric label="予定との差" value={manYen(netAssetGap)} helper={`予定純資産 ${manYen(plannedNetAssets)}`} />
+                    <Metric label="毎月貯蓄の差" value={manYen(monthlySavingsGap)} helper={`予定 ${manYen(plannedMonthlySavings)}`} />
+                    <Metric
+                      label="前回比"
+                      value={previousNetAssetGap === null ? "-" : manYen(previousNetAssetGap)}
+                      helper={previousReview ? `${previousReview.date} と比較` : "次回から表示"}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </section>
 
       <section className="panel">

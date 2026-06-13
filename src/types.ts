@@ -80,6 +80,10 @@ export type SimulationSettings = {
 export type ReviewNote = {
   id: string;
   date: string;
+  plannedNetAssets?: number;
+  plannedMonthlySavings?: number;
+  actualNetAssets?: number;
+  actualMonthlySavings?: number;
   memo: string;
 };
 

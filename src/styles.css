@@ -982,6 +982,30 @@ td select {
   padding: 0.55rem 0.75rem;
 }
 
+.list-toolbar {
+  display: grid;
+  grid-template-columns: minmax(13rem, 1.3fr) minmax(10rem, 0.8fr) auto;
+  gap: 0.75rem;
+  align-items: end;
+  margin: 1rem 0;
+  padding: 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+
+.list-toolbar label {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0;
+}
+
+.list-toolbar > span {
+  color: var(--muted);
+  font-size: 0.86rem;
+  white-space: nowrap;
+}
+
 .empty-state {
   display: grid;
   gap: 0.35rem;
@@ -1228,6 +1252,54 @@ td select {
   background: var(--primary);
 }
 
+.calendar-more {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.calendar-list-panel {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.calendar-list-row {
+  display: grid;
+  grid-template-columns: minmax(12rem, 1.3fr) minmax(10rem, 0.8fr) minmax(12rem, 1fr);
+  gap: 0.75rem;
+  align-items: center;
+  padding: 0.75rem;
+  border-left: 0.24rem solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.calendar-list-row.goal {
+  border-left-color: var(--primary);
+}
+
+.calendar-list-row.expense {
+  border-left-color: #c76f4a;
+}
+
+.calendar-list-row.income {
+  border-left-color: #4f8a6d;
+}
+
+.calendar-list-row.neutral {
+  border-left-color: var(--muted);
+}
+
+.calendar-list-row div {
+  display: grid;
+  gap: 0.18rem;
+}
+
+.calendar-list-row span,
+.calendar-list-row small {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
 .timeline {
   display: grid;
   gap: 0.9rem;
@@ -1403,6 +1475,49 @@ td select {
   margin-top: 0.2rem;
   color: var(--muted);
   line-height: 1.4;
+}
+
+.review-list {
+  display: grid;
+  gap: 1rem;
+}
+
+.review-record {
+  display: grid;
+  gap: 0.85rem;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+
+.review-record-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: end;
+}
+
+.review-record-head label {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0;
+}
+
+.review-input-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.review-memo-field {
+  min-width: 0;
+}
+
+.review-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
 }
 
 .status-list {
@@ -1667,13 +1782,16 @@ td select {
   }
 
   .form-grid,
+  .list-toolbar,
   .notes-grid,
   .boundary-grid,
   .setting-options,
   .settings-grid,
   .calculation-band,
   .calculation-band.compact,
-  .status-list {
+  .status-list,
+  .review-input-grid,
+  .review-metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -1840,6 +1958,7 @@ td select {
   .dashboard-lower,
   .calendar-next-list,
   .form-grid,
+  .list-toolbar,
   .quick-action-grid,
   .helper-grid,
   .notes-grid,
@@ -1854,7 +1973,10 @@ td select {
   .data-guide,
   .pro-grid,
   .pricing-grid,
-  .explanation-grid {
+  .explanation-grid,
+  .review-input-grid,
+  .review-metrics,
+  .calendar-list-row {
     grid-template-columns: 1fr;
   }
 
@@ -1892,6 +2014,15 @@ td select {
     max-height: none;
     overflow: visible;
     padding-right: 0;
+  }
+
+  .list-toolbar > span {
+    white-space: normal;
+  }
+
+  .review-record-head {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .metric {

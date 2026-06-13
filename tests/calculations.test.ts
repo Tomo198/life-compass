@@ -655,3 +655,31 @@ test("import validation rejects unrelated JSON and fills optional fields for leg
   });
   assert.deepEqual(imported.reviews, []);
 });
+
+test("import validation preserves review actual values and fills missing review fields", () => {
+  const imported = validateImportedPlan({
+    ...basePlan,
+    reviews: [
+      {
+        id: "review-1",
+        date: "2026-06-01",
+        plannedNetAssets: 1000000,
+        plannedMonthlySavings: 50000,
+        actualNetAssets: 1100000,
+        actualMonthlySavings: 60000,
+        memo: "monthly check"
+      },
+      {
+        id: "review-2",
+        date: "2026-07-01",
+        memo: ""
+      }
+    ]
+  });
+
+  assert.equal(imported.reviews.length, 2);
+  assert.equal(imported.reviews[0].actualNetAssets, 1100000);
+  assert.equal(imported.reviews[0].actualMonthlySavings, 60000);
+  assert.equal(imported.reviews[1].plannedNetAssets, undefined);
+  assert.equal(imported.reviews[1].actualNetAssets, undefined);
+});

@@ -1,5 +1,5 @@
 import { defaultPlan } from "../data/defaultPlan";
-import type { Goal, LifePlan } from "../types";
+import type { Goal, LifePlan, ReviewNote } from "../types";
 
 const STORAGE_KEY = "life-compass-plan-v1";
 
@@ -57,7 +57,7 @@ const normalizePlan = (plan: LifePlan): LifePlan => {
       general: plan.notes?.general || "",
       spendingReview: plan.notes?.spendingReview || ""
     },
-    reviews: plan.reviews || [],
+    reviews: Array.isArray(plan.reviews) ? plan.reviews.map(normalizeReview) : [],
     updatedAt: new Date().toISOString()
   };
 };
@@ -80,3 +80,15 @@ const normalizeGoal = (goal: Goal): Goal => {
     progress
   };
 };
+
+const finiteOptionalNumber = (value: unknown) => (typeof value === "number" && Number.isFinite(value) ? value : undefined);
+
+const normalizeReview = (review: ReviewNote): ReviewNote => ({
+  id: review.id || crypto.randomUUID(),
+  date: review.date || new Date().toISOString().slice(0, 10),
+  plannedNetAssets: finiteOptionalNumber(review.plannedNetAssets),
+  plannedMonthlySavings: finiteOptionalNumber(review.plannedMonthlySavings),
+  actualNetAssets: finiteOptionalNumber(review.actualNetAssets),
+  actualMonthlySavings: finiteOptionalNumber(review.actualMonthlySavings),
+  memo: review.memo || ""
+});
