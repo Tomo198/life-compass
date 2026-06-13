@@ -157,8 +157,9 @@ const normalizeNumericText = (value: string, allowDecimal = false) => {
 };
 
 const parseNumericText = (value: string) => {
-  if (value === "" || value === "-" || value === "." || value === "-.") return 0;
-  const parsed = Number(value);
+  const normalized = value.replace(/,/g, "");
+  if (normalized === "" || normalized === "-" || normalized === "." || normalized === "-.") return 0;
+  const parsed = Number(normalized);
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
@@ -2464,17 +2465,22 @@ function NumericInput({
   max?: number;
   allowDecimal?: boolean;
 }) {
-  const [draft, setDraft] = useState(formatNumericText(value, allowDecimal));
+  const initialDraft = formatNumericText(value, allowDecimal);
+  const [draft, setDraft] = useState(initialDraft);
+  const draftRef = useRef(initialDraft);
   const [isFocused, setIsFocused] = useState(false);
 
   useEffect(() => {
     if (!isFocused) {
-      setDraft(formatNumericText(value, allowDecimal));
+      const formatted = formatNumericText(value, allowDecimal);
+      draftRef.current = formatted;
+      setDraft(formatted);
     }
   }, [allowDecimal, isFocused, value]);
 
   const commitDraft = (nextDraft: string) => {
     const normalized = normalizeNumericText(nextDraft, allowDecimal);
+    draftRef.current = normalized;
     setDraft(normalized);
     onChange(clampNumber(parseNumericText(normalized), min, max));
   };
@@ -2486,15 +2492,22 @@ function NumericInput({
       onFocus={() => {
         setIsFocused(true);
         if (value === 0) {
+          draftRef.current = "";
           setDraft("");
+        } else {
+          const editable = normalizeNumericText(draftRef.current, allowDecimal);
+          draftRef.current = editable;
+          setDraft(editable);
         }
       }}
       onChange={(event) => commitDraft(event.target.value)}
       onBlur={() => {
         setIsFocused(false);
-        const nextValue = clampNumber(parseNumericText(draft), min, max);
+        const nextValue = clampNumber(parseNumericText(draftRef.current), min, max);
         onChange(nextValue);
-        setDraft(formatNumericText(nextValue, allowDecimal));
+        const formatted = formatNumericText(nextValue, allowDecimal);
+        draftRef.current = formatted;
+        setDraft(formatted);
       }}
     />
   );
