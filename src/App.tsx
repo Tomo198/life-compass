@@ -1242,6 +1242,7 @@ function GoalsView({
 }) {
   const [goalSearch, setGoalSearch] = useState("");
   const [goalSort, setGoalSort] = useState<"dueYear" | "priority" | "progress" | "title">("dueYear");
+  const [goalViewMode, setGoalViewMode] = useState<"detail" | "compact">("detail");
   const priorityRank: Record<Priority, number> = { high: 0, medium: 1, low: 2 };
   const goalAchievements = useMemo(() => {
     const normalizedSearch = goalSearch.trim().toLowerCase();
@@ -1295,9 +1296,66 @@ function GoalsView({
               <option value="title">名前順</option>
             </select>
           </label>
+          <label>
+            表示
+            <select value={goalViewMode} onChange={(event) => setGoalViewMode(event.target.value as "detail" | "compact")}>
+              <option value="detail">詳細編集</option>
+              <option value="compact">短いリスト</option>
+            </select>
+          </label>
           <span>{goalAchievements.length}件表示 / 全{plan.goals.length}件</span>
         </div>
-        <div className="table-wrap desktop-table">
+        {goalViewMode === "compact" ? (
+          <div className="compact-list" aria-label="目標の短いリスト">
+            {plan.goals.length === 0 ? (
+              <EmptyState title="まだ目標がありません" detail="テンプレートから1つ追加するか、目標を追加ボタンで自由に作れます。" />
+            ) : goalAchievements.length === 0 ? (
+              <EmptyState title="条件に合う目標がありません" detail="検索文字を変えるか、並び替えを戻して確認してください。" />
+            ) : (
+              goalAchievements.map(({ goal, achievement }) => {
+                const preparedPercent = getGoalPreparedPercent(goal);
+                return (
+                  <div className="compact-list-row" key={goal.id}>
+                    <label className="compact-title-field">
+                      目標名
+                      <input value={goal.title} onChange={(event) => updateGoal(goal.id, "title", event.target.value)} />
+                    </label>
+                    <div className="compact-summary">
+                      <span>{goal.goalType === "recurring" ? "繰り返し" : "1回限り"}</span>
+                      <strong>{goal.dueYear}年 / {getTargetAgeForYear(plan.profile.age, goal.dueYear)}歳頃</strong>
+                      <small>{achievement.status === "recurring" ? `年間必要額 ${manYen(achievement.annualRequiredAmount)}` : `残り ${manYen(achievement.shortfall)}`}</small>
+                    </div>
+                    <label>
+                      目標額
+                      <NumericInput value={goal.requiredAmount} min={0} onChange={(value) => updateGoal(goal.id, "requiredAmount", value)} />
+                    </label>
+                    <label>
+                      優先度
+                      <select value={goal.priority} onChange={(event) => updateGoal(goal.id, "priority", event.target.value as Priority)}>
+                        {Object.entries(priorityLabels).map(([value, label]) => (
+                          <option key={value} value={value}>
+                            {label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <div className="compact-progress">
+                      <span>{goal.goalType === "recurring" ? "年間準備率" : "達成率"} {preparedPercent}%</span>
+                      <div className="goal-progress-track">
+                        <span style={{ width: `${preparedPercent}%` }} />
+                      </div>
+                    </div>
+                    <button type="button" className="text-button" onClick={() => removeGoal(goal.id)}>
+                      削除
+                    </button>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        ) : (
+          <>
+          <div className="table-wrap desktop-table">
         <table>
           <thead>
             <tr>
@@ -1436,6 +1494,8 @@ function GoalsView({
           ))
         )}
         </div>
+          </>
+        )}
       </section>
       <StepFlowNav
         setActiveView={setActiveView}
@@ -1853,6 +1913,7 @@ function TimelineView({
 }) {
   const [eventSearch, setEventSearch] = useState("");
   const [eventSort, setEventSort] = useState<"yearAsc" | "yearDesc" | "title" | "type">("yearAsc");
+  const [eventViewMode, setEventViewMode] = useState<"detail" | "compact">("detail");
   const sortedEvents = useMemo(() => {
     const normalizedSearch = eventSearch.trim().toLowerCase();
     return [...plan.events]
@@ -1919,9 +1980,77 @@ function TimelineView({
               <option value="type">種類順</option>
             </select>
           </label>
+          <label>
+            表示
+            <select value={eventViewMode} onChange={(event) => setEventViewMode(event.target.value as "detail" | "compact")}>
+              <option value="detail">詳細編集</option>
+              <option value="compact">短いリスト</option>
+            </select>
+          </label>
           <span>{sortedEvents.length}件表示 / 全{plan.events.length}件</span>
         </div>
-        <div className="timeline">
+        {eventViewMode === "compact" ? (
+          <div className="compact-list" aria-label="イベントの短いリスト">
+            {plan.events.length === 0 ? (
+              <EmptyState title="まだ年表イベントがありません" detail="転職、引越し、住宅購入などをテンプレートから追加すると、将来見通しに反映できます。" />
+            ) : sortedEvents.length === 0 ? (
+              <EmptyState title="条件に合うイベントがありません" detail="検索文字を変えるか、並び替えを戻して確認してください。" />
+            ) : (
+              sortedEvents.map((event) => (
+                <div className="compact-list-row" key={event.id}>
+                  <label className="compact-title-field">
+                    イベント名
+                    <input value={event.title} onChange={(input) => updateEvent(event.id, "title", input.target.value)} />
+                  </label>
+                  <div className="compact-date-fields">
+                    <label>
+                      年
+                      <NumericInput value={event.year} min={new Date().getFullYear()} onChange={(value) => updateEventSchedule(event.id, value)} />
+                    </label>
+                    <label>
+                      月
+                      <select value={event.month} onChange={(input) => updateEvent(event.id, "month", Number(input.target.value))}>
+                        {monthLabels.map((label, index) => (
+                          <option value={index + 1} key={label}>
+                            {label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                  <label>
+                    種類
+                    <select value={event.category} onChange={(input) => updateEvent(event.id, "category", input.target.value as LifeEventCategory)}>
+                      {Object.entries(eventCategoryLabels).map(([value, label]) => (
+                        <option key={value} value={value}>
+                          {label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    金額
+                    <NumericInput value={event.amount} min={0} onChange={(value) => updateEvent(event.id, "amount", value)} />
+                  </label>
+                  <label>
+                    影響
+                    <select value={event.cashflowType} onChange={(input) => updateEvent(event.id, "cashflowType", input.target.value as CashflowType)}>
+                      {Object.entries(cashflowLabels).map(([value, label]) => (
+                        <option key={value} value={value}>
+                          {label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <button type="button" className="text-button" onClick={() => removeEvent(event.id)}>
+                    削除
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+        ) : (
+          <div className="timeline">
         {plan.events.length === 0 ? (
           <EmptyState title="まだ年表イベントがありません" detail="転職、引越し、住宅購入などをテンプレートから追加すると、将来見通しに反映できます。" />
         ) : sortedEvents.length === 0 ? (
@@ -2004,7 +2133,8 @@ function TimelineView({
             </div>
           ))
         )}
-        </div>
+          </div>
+        )}
       </section>
       <StepFlowNav
         setActiveView={setActiveView}

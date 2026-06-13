@@ -984,7 +984,7 @@ td select {
 
 .list-toolbar {
   display: grid;
-  grid-template-columns: minmax(13rem, 1.3fr) minmax(10rem, 0.8fr) auto;
+  grid-template-columns: minmax(13rem, 1.3fr) minmax(10rem, 0.75fr) minmax(9rem, 0.7fr) auto;
   gap: 0.75rem;
   align-items: end;
   margin: 1rem 0;
@@ -1004,6 +1004,61 @@ td select {
   color: var(--muted);
   font-size: 0.86rem;
   white-space: nowrap;
+}
+
+.compact-list {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.compact-list-row {
+  display: grid;
+  grid-template-columns: minmax(13rem, 1.35fr) minmax(11rem, 1fr) minmax(8rem, 0.75fr) minmax(7rem, 0.55fr) minmax(9rem, 0.75fr) auto;
+  gap: 0.75rem;
+  align-items: end;
+  padding: 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.compact-list-row label,
+.compact-title-field {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+  margin: 0;
+}
+
+.compact-summary {
+  display: grid;
+  gap: 0.2rem;
+  align-self: center;
+  min-width: 0;
+}
+
+.compact-summary span,
+.compact-summary small,
+.compact-progress span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.compact-summary strong {
+  overflow-wrap: anywhere;
+}
+
+.compact-date-fields {
+  display: grid;
+  grid-template-columns: minmax(5rem, 1fr) minmax(4.8rem, 0.8fr);
+  gap: 0.45rem;
+}
+
+.compact-progress {
+  display: grid;
+  gap: 0.38rem;
+  align-self: center;
 }
 
 .empty-state {
@@ -1875,6 +1930,7 @@ td select {
 
   .form-grid,
   .list-toolbar,
+  .compact-list-row,
   .notes-grid,
   .boundary-grid,
   .setting-options,
@@ -2055,6 +2111,7 @@ td select {
   .calendar-next-list,
   .form-grid,
   .list-toolbar,
+  .compact-list-row,
   .quick-action-grid,
   .helper-grid,
   .notes-grid,
@@ -2122,6 +2179,10 @@ td select {
 
   .list-toolbar > span {
     white-space: normal;
+  }
+
+  .compact-date-fields {
+    grid-template-columns: 1fr;
   }
 
   .review-record-head {
