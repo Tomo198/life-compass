@@ -144,6 +144,8 @@ const cashflowHelp: Record<CashflowType, string> = {
   neutral: "年表に残すだけで、試算には反映しません。"
 };
 
+const monthLabels = Array.from({ length: 12 }, (_, index) => `${index + 1}月`);
+
 const normalizeNumericText = (value: string, allowDecimal = false) => {
   const withoutCommas = value.replace(/,/g, "");
   const allowed = withoutCommas.replace(allowDecimal ? /[^\d.-]/g : /[^\d-]/g, "");
@@ -310,6 +312,7 @@ const eventTemplates: EventTemplate[] = [
     title: "転職",
     category: "career",
     yearsFromNow: 2,
+    month: 4,
     amount: 0,
     cashflowType: "neutral",
     memo: "年収や働き方の変化は家計入力も合わせて見直す"
@@ -318,6 +321,7 @@ const eventTemplates: EventTemplate[] = [
     title: "引越し",
     category: "move",
     yearsFromNow: 1,
+    month: 3,
     amount: 500000,
     cashflowType: "expense",
     memo: "初期費用、家具家電、移動費など"
@@ -326,6 +330,7 @@ const eventTemplates: EventTemplate[] = [
     title: "住宅購入",
     category: "home",
     yearsFromNow: 5,
+    month: 9,
     amount: 3000000,
     cashflowType: "expense",
     memo: "頭金や諸費用の概算。住宅ローンは資産入力の負債も確認する"
@@ -334,6 +339,7 @@ const eventTemplates: EventTemplate[] = [
     title: "車購入",
     category: "car",
     yearsFromNow: 3,
+    month: 6,
     amount: 2000000,
     cashflowType: "expense",
     memo: "購入費、維持費、保険料など"
@@ -342,6 +348,7 @@ const eventTemplates: EventTemplate[] = [
     title: "教育費",
     category: "education",
     yearsFromNow: 10,
+    month: 4,
     amount: 1000000,
     cashflowType: "expense",
     memo: "入学金、授業料、教材費など"
@@ -350,6 +357,7 @@ const eventTemplates: EventTemplate[] = [
     title: "親の介護",
     category: "care",
     yearsFromNow: 8,
+    month: 1,
     amount: 600000,
     cashflowType: "expense",
     memo: "支援額や頻度は状況に合わせて見直す"
@@ -484,6 +492,7 @@ function App() {
       title: "新しいライフイベント",
       category: "other",
       year,
+      month: new Date().getMonth() + 1,
       age: plan.profile.age + 1,
       amount: 0,
       cashflowType: "neutral",
@@ -499,6 +508,7 @@ function App() {
       title: template.title,
       category: template.category,
       year,
+      month: template.month,
       age: getTargetAgeForYear(plan.profile.age, year),
       amount: template.amount,
       cashflowType: template.cashflowType,
@@ -1591,6 +1601,7 @@ function GoalAchievementBadge({ achievement }: { achievement: ReturnType<typeof 
 type CalendarEntry = {
   id: string;
   year: number;
+  month: number;
   title: string;
   kind: "goal" | "event";
   detail: string;
@@ -1601,6 +1612,7 @@ type CalendarEntry = {
 
 function LifeCalendar({ plan }: { plan: LifePlan }) {
   const [rangeYears, setRangeYears] = useState<5 | 10 | 30>(10);
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [entrySearch, setEntrySearch] = useState("");
   const [entryKind, setEntryKind] = useState<"all" | "goal" | "event">("all");
   const [entrySort, setEntrySort] = useState<"yearAsc" | "yearDesc" | "title">("yearAsc");
@@ -1612,6 +1624,7 @@ function LifeCalendar({ plan }: { plan: LifePlan }) {
       return {
         id: `goal-${goal.id}`,
         year: goal.dueYear,
+        month: 12,
         title: goal.title,
         kind: "goal" as const,
         detail:
@@ -1627,6 +1640,7 @@ function LifeCalendar({ plan }: { plan: LifePlan }) {
     const eventEntries = plan.events.map((event) => ({
       id: `event-${event.id}`,
       year: event.year,
+      month: event.month,
       title: event.title,
       kind: "event" as const,
       detail: cashflowLabels[event.cashflowType],
@@ -1634,7 +1648,7 @@ function LifeCalendar({ plan }: { plan: LifePlan }) {
       tone: event.cashflowType
     }));
 
-    return [...goalEntries, ...eventEntries].sort((a, b) => a.year - b.year || a.title.localeCompare(b.title, "ja"));
+    return [...goalEntries, ...eventEntries].sort((a, b) => a.year - b.year || a.month - b.month || a.title.localeCompare(b.title, "ja"));
   }, [plan.events, plan.goals]);
   const visibleEntries = useMemo(() => {
     const normalizedSearch = entrySearch.trim().toLowerCase();
@@ -1643,12 +1657,13 @@ function LifeCalendar({ plan }: { plan: LifePlan }) {
       .filter((entry) => (entryKind === "all" ? true : entry.kind === entryKind))
       .filter((entry) => (normalizedSearch ? `${entry.title} ${entry.detail}`.toLowerCase().includes(normalizedSearch) : true))
       .sort((a, b) => {
-        if (entrySort === "yearDesc") return b.year - a.year || a.title.localeCompare(b.title, "ja");
-        if (entrySort === "title") return a.title.localeCompare(b.title, "ja") || a.year - b.year;
-        return a.year - b.year || a.title.localeCompare(b.title, "ja");
+        if (entrySort === "yearDesc") return b.year - a.year || b.month - a.month || a.title.localeCompare(b.title, "ja");
+        if (entrySort === "title") return a.title.localeCompare(b.title, "ja") || a.year - b.year || a.month - b.month;
+        return a.year - b.year || a.month - b.month || a.title.localeCompare(b.title, "ja");
       });
   }, [currentYear, entries, entryKind, entrySearch, entrySort, rangeYears]);
-  const upcomingEntries = [...visibleEntries].sort((a, b) => a.year - b.year || a.title.localeCompare(b.title, "ja")).slice(0, 4);
+  const upcomingEntries = [...visibleEntries].sort((a, b) => a.year - b.year || a.month - b.month || a.title.localeCompare(b.title, "ja")).slice(0, 4);
+  const selectedYearEntries = visibleEntries.filter((entry) => entry.year === selectedYear);
 
   return (
     <section className="life-calendar" aria-label="ライフカレンダー">
@@ -1677,7 +1692,7 @@ function LifeCalendar({ plan }: { plan: LifePlan }) {
             <div key={entry.id}>
               <span>{getYearsUntilLabel(entry.year)}</span>
               <strong>{entry.title}</strong>
-              <small>{entry.year}年 / {getTargetAgeForYear(plan.profile.age, entry.year)}歳頃</small>
+              <small>{entry.year}年{entry.month}月 / {getTargetAgeForYear(plan.profile.age, entry.year)}歳頃</small>
             </div>
           ))}
         </div>
@@ -1713,7 +1728,23 @@ function LifeCalendar({ plan }: { plan: LifePlan }) {
           const shownYearEntries = yearEntries.slice(0, 3);
           const hiddenCount = Math.max(0, yearEntries.length - shownYearEntries.length);
           return (
-            <div className={year === currentYear ? "calendar-year-card current" : "calendar-year-card"} key={year}>
+            <div
+              className={[
+                "calendar-year-card",
+                year === currentYear ? "current" : "",
+                year === selectedYear ? "selected" : ""
+              ].filter(Boolean).join(" ")}
+              key={year}
+              role="button"
+              tabIndex={0}
+              onClick={() => setSelectedYear(year)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  setSelectedYear(year);
+                }
+              }}
+            >
               <div className="calendar-year-head">
                 <strong>{year}</strong>
                 <span>{getTargetAgeForYear(plan.profile.age, year)}歳頃</span>
@@ -1725,7 +1756,7 @@ function LifeCalendar({ plan }: { plan: LifePlan }) {
                   {shownYearEntries.map((entry) => (
                     <div className={`calendar-entry ${entry.tone}`} key={entry.id}>
                       <div>
-                        <span>{entry.kind === "goal" ? "目標" : "イベント"}</span>
+                        <span>{entry.kind === "goal" ? "目標" : `${entry.month}月のイベント`}</span>
                         <strong>{entry.title}</strong>
                       </div>
                       <small>{entry.detail}</small>
@@ -1745,6 +1776,38 @@ function LifeCalendar({ plan }: { plan: LifePlan }) {
         })}
       </div>
 
+      <div className="calendar-year-detail" aria-label={`${selectedYear}年の月別予定`}>
+        <div className="calendar-detail-head">
+          <div>
+            <strong>{selectedYear}年の予定</strong>
+            <span>{getTargetAgeForYear(plan.profile.age, selectedYear)}歳頃 / {selectedYearEntries.length}件</span>
+          </div>
+          <small>年カードをタップすると、その年の月別予定を確認できます。</small>
+        </div>
+        <div className="calendar-month-grid">
+          {monthLabels.map((label, index) => {
+            const month = index + 1;
+            const monthEntries = selectedYearEntries.filter((entry) => entry.month === month);
+            return (
+              <div className="calendar-month-card" key={label}>
+                <strong>{label}</strong>
+                {monthEntries.length === 0 ? (
+                  <span>予定なし</span>
+                ) : (
+                  monthEntries.map((entry) => (
+                    <div className={`calendar-month-entry ${entry.tone}`} key={entry.id}>
+                      <span>{entry.kind === "goal" ? "目標" : "イベント"}</span>
+                      <strong>{entry.title}</strong>
+                      <small>{entry.detail}</small>
+                    </div>
+                  ))
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
       <div className="calendar-list-panel" aria-label="目標とイベントの一覧">
         {visibleEntries.length === 0 ? (
           <EmptyState title="条件に合う予定がありません" detail="検索条件や表示期間を変えて確認してください。" />
@@ -1756,7 +1819,7 @@ function LifeCalendar({ plan }: { plan: LifePlan }) {
                 <strong>{entry.title}</strong>
               </div>
               <div>
-                <span>{entry.year}年 / {getTargetAgeForYear(plan.profile.age, entry.year)}歳頃</span>
+                <span>{entry.year}年{entry.month}月 / {getTargetAgeForYear(plan.profile.age, entry.year)}歳頃</span>
                 <small>{getYearsUntilLabel(entry.year)}</small>
               </div>
               <div>
@@ -1795,14 +1858,14 @@ function TimelineView({
     return [...plan.events]
       .filter((event) =>
         normalizedSearch
-          ? `${event.title} ${event.memo} ${eventCategoryLabels[event.category]}`.toLowerCase().includes(normalizedSearch)
+          ? `${event.title} ${event.memo} ${event.month}月 ${eventCategoryLabels[event.category]}`.toLowerCase().includes(normalizedSearch)
           : true
       )
       .sort((a, b) => {
-        if (eventSort === "yearDesc") return b.year - a.year || a.title.localeCompare(b.title, "ja");
-        if (eventSort === "title") return a.title.localeCompare(b.title, "ja") || a.year - b.year;
-        if (eventSort === "type") return eventCategoryLabels[a.category].localeCompare(eventCategoryLabels[b.category], "ja") || a.year - b.year;
-        return a.year - b.year || a.title.localeCompare(b.title, "ja");
+        if (eventSort === "yearDesc") return b.year - a.year || b.month - a.month || a.title.localeCompare(b.title, "ja");
+        if (eventSort === "title") return a.title.localeCompare(b.title, "ja") || a.year - b.year || a.month - b.month;
+        if (eventSort === "type") return eventCategoryLabels[a.category].localeCompare(eventCategoryLabels[b.category], "ja") || a.year - b.year || a.month - b.month;
+        return a.year - b.year || a.month - b.month || a.title.localeCompare(b.title, "ja");
       });
   }, [eventSearch, eventSort, plan.events]);
   return (
@@ -1868,7 +1931,7 @@ function TimelineView({
             <div className="timeline-row" key={event.id}>
               <div className="timeline-year">
                 <strong>{event.year}</strong>
-                <span>{getTargetAgeForYear(plan.profile.age, event.year)}歳</span>
+                <span>{event.month}月 / {getTargetAgeForYear(plan.profile.age, event.year)}歳</span>
               </div>
               <div className="timeline-fields">
                 <label className="timeline-field title-field">
@@ -1899,6 +1962,17 @@ function TimelineView({
                     onChange={(value) => updateEventSchedule(event.id, value)}
                   />
                 </div>
+                <label className="timeline-field">
+                  予定月
+                  <select value={event.month} onChange={(input) => updateEvent(event.id, "month", Number(input.target.value))}>
+                    {monthLabels.map((label, index) => (
+                      <option value={index + 1} key={label}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                  <small>スケジュール帳のように月単位で整理します。</small>
+                </label>
                 <label className="timeline-field">
                   金額
                   <NumericInput value={event.amount} min={0} onChange={(value) => updateEvent(event.id, "amount", value)} />

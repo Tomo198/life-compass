@@ -153,6 +153,7 @@ test("asset projection applies monthly savings and life event impact by year", (
         title: "expense",
         category: "other",
         year: currentYear + 1,
+        month: 6,
         age: 36,
         amount: 120000,
         cashflowType: "expense",
@@ -192,6 +193,7 @@ test("asset projection combines expense, income, and neutral events in the same 
         title: "expense",
         category: "home",
         year: currentYear + 1,
+        month: 4,
         age: 36,
         amount: 300000,
         cashflowType: "expense",
@@ -202,6 +204,7 @@ test("asset projection combines expense, income, and neutral events in the same 
         title: "income",
         category: "career",
         year: currentYear + 1,
+        month: 4,
         age: 36,
         amount: 100000,
         cashflowType: "income",
@@ -212,6 +215,7 @@ test("asset projection combines expense, income, and neutral events in the same 
         title: "neutral",
         category: "other",
         year: currentYear + 1,
+        month: 4,
         age: 36,
         amount: 900000,
         cashflowType: "neutral",
@@ -252,6 +256,7 @@ test("annual projection rows expose savings and event markers for each year", ()
         title: "home repair",
         category: "home",
         year: currentYear + 1,
+        month: 12,
         age: 36,
         amount: 120000,
         cashflowType: "expense",
@@ -301,6 +306,7 @@ test("annual projection rows separate return impact from savings and event impac
 });
 
 test("monthly projection rows expose short-term savings changes", () => {
+  const eventDate = new Date(currentYear, new Date().getMonth() + 2, 1);
   const plan: LifePlan = {
     ...basePlan,
     household: {
@@ -317,7 +323,19 @@ test("monthly projection rows expose short-term savings changes", () => {
       other: 0,
       debt: 0
     },
-    events: [],
+    events: [
+      {
+        id: "event-monthly",
+        title: "monthly expense",
+        category: "other",
+        year: eventDate.getFullYear(),
+        month: eventDate.getMonth() + 1,
+        age: 35,
+        amount: 50000,
+        cashflowType: "expense",
+        memo: ""
+      }
+    ],
     simulation: { ...basePlan.simulation, annualReturnRate: 0 }
   };
 
@@ -326,8 +344,9 @@ test("monthly projection rows expose short-term savings changes", () => {
   assert.equal(rows.length, 3);
   assert.equal(rows[0].value, 1000000);
   assert.equal(rows[1].value, 1100000);
-  assert.equal(rows[2].value, 1200000);
+  assert.equal(rows[2].value, 1150000);
   assert.equal(rows[1].monthlySavings, 100000);
+  assert.equal(rows[2].eventImpact, -50000);
   assert.equal(rows[1].returnImpact, 0);
 });
 
@@ -637,6 +656,18 @@ test("import validation rejects unrelated JSON and fills optional fields for leg
   const imported = validateImportedPlan({
     ...basePlan,
     version: 0,
+    events: [
+      {
+        id: "legacy-event",
+        title: "legacy",
+        category: "other",
+        year: currentYear + 1,
+        age: 36,
+        amount: 0,
+        cashflowType: "neutral",
+        memo: ""
+      }
+    ],
     simulation: undefined,
     notes: undefined,
     reviews: undefined
@@ -653,6 +684,7 @@ test("import validation rejects unrelated JSON and fills optional fields for leg
     general: "",
     spendingReview: ""
   });
+  assert.equal(imported.events[0].month, 1);
   assert.deepEqual(imported.reviews, []);
 });
 

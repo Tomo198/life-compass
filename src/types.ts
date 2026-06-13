@@ -64,6 +64,7 @@ export type LifeEvent = {
   title: string;
   category: LifeEventCategory;
   year: number;
+  month: number;
   age: number;
   amount: number;
   cashflowType: CashflowType;

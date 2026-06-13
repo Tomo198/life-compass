@@ -1,5 +1,5 @@
 import { defaultPlan } from "../data/defaultPlan";
-import type { Goal, LifePlan, ReviewNote } from "../types";
+import type { Goal, LifeEvent, LifePlan, ReviewNote } from "../types";
 
 const STORAGE_KEY = "life-compass-plan-v1";
 
@@ -52,6 +52,7 @@ const normalizePlan = (plan: LifePlan): LifePlan => {
     ...plan,
     version: plan.version || 1,
     goals: Array.isArray(plan.goals) ? plan.goals.map(normalizeGoal) : [],
+    events: Array.isArray(plan.events) ? plan.events.map(normalizeEvent) : [],
     simulation: plan.simulation || defaultPlan.simulation,
     notes: {
       general: plan.notes?.general || "",
@@ -61,6 +62,16 @@ const normalizePlan = (plan: LifePlan): LifePlan => {
     updatedAt: new Date().toISOString()
   };
 };
+
+const normalizeMonth = (value: unknown) => {
+  if (typeof value !== "number" || !Number.isFinite(value)) return 1;
+  return Math.max(1, Math.min(12, Math.round(value)));
+};
+
+const normalizeEvent = (event: LifeEvent): LifeEvent => ({
+  ...event,
+  month: normalizeMonth(event.month)
+});
 
 const normalizeGoal = (goal: Goal): Goal => {
   const progress = Number.isFinite(goal.progress) ? goal.progress : 0;

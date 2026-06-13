@@ -167,6 +167,18 @@ const eventImpactForYear = (events: LifeEvent[], year: number) =>
 
 const eventsForYear = (events: LifeEvent[], year: number) => events.filter((event) => event.year === year);
 
+const eventImpactForMonth = (events: LifeEvent[], year: number, month: number) =>
+  events
+    .filter((event) => event.year === year && event.month === month)
+    .reduce((total, event) => {
+      if (event.cashflowType === "income") return total + event.amount;
+      if (event.cashflowType === "expense") return total - event.amount;
+      return total;
+    }, 0);
+
+const eventsForMonth = (events: LifeEvent[], year: number, month: number) =>
+  events.filter((event) => event.year === year && event.month === month);
+
 export const projectAssets = (plan: LifePlan, years: number): ProjectionPoint[] => {
   const cashflow = getCashflowSummary(plan.household);
   const { netAssets } = getAssetSummary(plan.assets);
@@ -222,8 +234,8 @@ export const getMonthlyProjectionRows = (plan: LifePlan, months: number): Monthl
     const month = targetDate.getMonth() + 1;
     const age = plan.profile.age + Math.floor(monthOffset / 12);
     const previousValue = rows[monthOffset - 1]?.value ?? value;
-    const eventImpact = monthOffset === 0 || month !== 12 ? 0 : eventImpactForYear(plan.events, year);
-    const monthEvents = monthOffset === 0 || month !== 12 ? [] : eventsForYear(plan.events, year);
+    const eventImpact = monthOffset === 0 ? 0 : eventImpactForMonth(plan.events, year, month);
+    const monthEvents = monthOffset === 0 ? [] : eventsForMonth(plan.events, year, month);
     const monthlySavings = monthOffset === 0 ? 0 : cashflow.monthlySavings;
 
     if (monthOffset > 0) {
