@@ -4,7 +4,10 @@ import { proPriceLabel } from "./features";
 import type {
   Assets,
   CashflowType,
+  EventOwner,
   FamilyType,
+  FixedCostCategory,
+  FixedCostItem,
   Goal,
   Household,
   Housing,
@@ -12,19 +15,24 @@ import type {
   LifeEventCategory,
   LifePlan,
   PlanNotes,
+  PlanScenario,
   Priority,
   Profile,
   RecurrenceInterval,
   ReviewNote,
+  ScenarioSnapshot,
+  ScenarioTag,
   SimulationSettings,
   ViewKey,
   WorkStyle
 } from "./types";
 import {
+  buildPlanFromScenario,
   getAssetSummary,
   getAnnualProjectionRows,
   getCashflowSummary,
   getEmergencyFundResult,
+  getFixedCostImpact,
   getGoalAchievement,
   getGoalAchievements,
   getGoalPreparedPercent,
@@ -33,9 +41,11 @@ import {
   getNextEvent,
   getPrimaryGoal,
   getRecurrenceLabel,
+  getContributionProjectionRows,
   manYen,
   percent,
   projectAssets,
+  simulateWithdrawal,
   simulateContribution
 } from "./utils/calculations";
 import { clearPlan, exportPlan, loadPlan, savePlan, validateImportedPlan } from "./utils/storage";
@@ -48,7 +58,10 @@ const navItems: { key: ViewKey; label: string }[] = [
   { key: "goals", label: "目標管理" },
   { key: "timeline", label: "年表" },
   { key: "simulation", label: "シミュレーション" },
+  { key: "scenarios", label: "シナリオ比較" },
+  { key: "diagnosis", label: "ライフプラン診断" },
   { key: "notes", label: "メモ" },
+  { key: "reviews", label: "レビュー履歴" },
   { key: "data", label: "データ管理" },
   { key: "pricing", label: "料金" },
   { key: "pro", label: "Pro機能" },
@@ -132,6 +145,15 @@ const eventCategoryLabels: Record<LifeEventCategory, string> = {
   other: "その他"
 };
 
+const eventOwnerLabels: Record<EventOwner, string> = {
+  self: "本人",
+  spouse: "配偶者",
+  child: "子ども",
+  parent: "親",
+  household: "世帯全体",
+  other: "その他"
+};
+
 const cashflowLabels: Record<CashflowType, string> = {
   expense: "支出として反映",
   income: "収入・資産増として反映",
@@ -142,6 +164,27 @@ const cashflowHelp: Record<CashflowType, string> = {
   expense: "その年の資産見通しから差し引きます。",
   income: "その年の資産見通しに加算します。",
   neutral: "年表に残すだけで、試算には反映しません。"
+};
+
+const fixedCostCategoryLabels: Record<FixedCostCategory, string> = {
+  insurance: "保険",
+  communication: "通信費",
+  rent: "家賃",
+  car: "車",
+  subscription: "サブスク",
+  utilities: "光熱費",
+  loan: "ローン",
+  other: "その他"
+};
+
+const scenarioTagLabels: Record<ScenarioTag, string> = {
+  current: "現状維持",
+  spending: "支出見直し",
+  career: "転職",
+  sideBusiness: "副業開始",
+  home: "住宅購入",
+  retirement: "早期退職",
+  custom: "自由入力"
 };
 
 const monthLabels = Array.from({ length: 12 }, (_, index) => `${index + 1}月`);
@@ -249,8 +292,109 @@ const createEmptyPlan = (): LifePlan => ({
     spendingReview: ""
   },
   reviews: [],
+  scenarios: [],
+  fixedCostItems: [],
   updatedAt: new Date().toISOString()
 });
+
+type ScenarioTemplate = {
+  tag: ScenarioTag;
+  name: string;
+  description: string;
+  apply: (snapshot: ScenarioSnapshot, plan: LifePlan) => ScenarioSnapshot;
+};
+
+const cloneScenarioSnapshot = (plan: LifePlan): ScenarioSnapshot => ({
+  household: { ...plan.household },
+  assets: { ...plan.assets },
+  goals: plan.goals.map((goal) => ({ ...goal })),
+  events: plan.events.map((event) => ({ ...event })),
+  simulation: { ...plan.simulation }
+});
+
+const createScenarioFromTemplate = (plan: LifePlan, template: ScenarioTemplate): PlanScenario => ({
+  id: createId(),
+  name: template.name,
+  description: template.description,
+  tag: template.tag,
+  createdAt: new Date().toISOString(),
+  snapshot: template.apply(cloneScenarioSnapshot(plan), plan)
+});
+
+const scenarioTemplates: ScenarioTemplate[] = [
+  {
+    tag: "current",
+    name: "現状維持",
+    description: "現在の入力条件をそのまま保存します。",
+    apply: (snapshot) => snapshot
+  },
+  {
+    tag: "spending",
+    name: "支出見直し",
+    description: "固定費を月3万円下げた場合の仮シナリオです。",
+    apply: (snapshot) => ({
+      ...snapshot,
+      household: { ...snapshot.household, fixedCost: Math.max(0, snapshot.household.fixedCost - 30000) }
+    })
+  },
+  {
+    tag: "career",
+    name: "転職",
+    description: "月収が5万円変わる前提の仮シナリオです。",
+    apply: (snapshot) => ({
+      ...snapshot,
+      household: { ...snapshot.household, monthlyIncome: snapshot.household.monthlyIncome + 50000 }
+    })
+  },
+  {
+    tag: "sideBusiness",
+    name: "副業開始",
+    description: "副業収入を月5万円として置いた仮シナリオです。",
+    apply: (snapshot) => ({
+      ...snapshot,
+      household: { ...snapshot.household, sideIncome: snapshot.household.sideIncome + 50000 }
+    })
+  },
+  {
+    tag: "home",
+    name: "住宅購入",
+    description: "5年後に住宅購入関連費用を置いた仮シナリオです。",
+    apply: (snapshot, plan) => {
+      const year = new Date().getFullYear() + 5;
+      return {
+        ...snapshot,
+        events: [
+          ...snapshot.events,
+          {
+            id: createId(),
+            title: "住宅購入関連費用",
+            owner: "household",
+            category: "home",
+            year,
+            month: 9,
+            age: getTargetAgeForYear(plan.profile.age, year),
+            amount: 3000000,
+            cashflowType: "expense",
+            memo: "Proシナリオ比較用の仮イベント"
+          }
+        ]
+      };
+    }
+  },
+  {
+    tag: "retirement",
+    name: "早期退職",
+    description: "収入と生活費を退職前提で見直すための仮シナリオです。",
+    apply: (snapshot) => ({
+      ...snapshot,
+      household: {
+        ...snapshot.household,
+        monthlyIncome: Math.max(0, snapshot.household.monthlyIncome - 100000),
+        fixedCost: Math.max(0, snapshot.household.fixedCost - 20000)
+      }
+    })
+  }
+];
 
 type GoalTemplate = Omit<Goal, "id" | "dueYear" | "progress"> & {
   yearsFromNow: number;
@@ -310,6 +454,7 @@ type EventTemplate = Omit<LifeEvent, "id" | "year" | "age"> & {
 const eventTemplates: EventTemplate[] = [
   {
     title: "転職",
+    owner: "self",
     category: "career",
     yearsFromNow: 2,
     month: 4,
@@ -319,6 +464,7 @@ const eventTemplates: EventTemplate[] = [
   },
   {
     title: "引越し",
+    owner: "household",
     category: "move",
     yearsFromNow: 1,
     month: 3,
@@ -328,6 +474,7 @@ const eventTemplates: EventTemplate[] = [
   },
   {
     title: "住宅購入",
+    owner: "household",
     category: "home",
     yearsFromNow: 5,
     month: 9,
@@ -337,6 +484,7 @@ const eventTemplates: EventTemplate[] = [
   },
   {
     title: "車購入",
+    owner: "household",
     category: "car",
     yearsFromNow: 3,
     month: 6,
@@ -346,6 +494,7 @@ const eventTemplates: EventTemplate[] = [
   },
   {
     title: "教育費",
+    owner: "child",
     category: "education",
     yearsFromNow: 10,
     month: 4,
@@ -355,6 +504,7 @@ const eventTemplates: EventTemplate[] = [
   },
   {
     title: "親の介護",
+    owner: "parent",
     category: "care",
     yearsFromNow: 8,
     month: 1,
@@ -420,10 +570,13 @@ function App() {
     const nextReview: ReviewNote = {
       id: createId(),
       date: new Date().toISOString().slice(0, 10),
+      reviewType: "monthly",
       plannedNetAssets: assets.netAssets,
       plannedMonthlySavings: cashflow.monthlySavings,
       actualNetAssets: assets.netAssets,
       actualMonthlySavings: cashflow.monthlySavings,
+      todo: "",
+      todoDone: false,
       memo: ""
     };
     commitPlan({ ...plan, reviews: [nextReview, ...(plan.reviews || [])] });
@@ -438,6 +591,45 @@ function App() {
 
   const removeReview = (id: string) => {
     commitPlan({ ...plan, reviews: (plan.reviews || []).filter((review) => review.id !== id) });
+  };
+
+  const addScenario = (template: ScenarioTemplate) => {
+    const nextScenario = createScenarioFromTemplate(plan, template);
+    commitPlan({ ...plan, scenarios: [...(plan.scenarios || []), nextScenario] });
+  };
+
+  const updateScenario = <K extends keyof PlanScenario>(id: string, key: K, value: PlanScenario[K]) => {
+    commitPlan({
+      ...plan,
+      scenarios: (plan.scenarios || []).map((scenario) => (scenario.id === id ? { ...scenario, [key]: value } : scenario))
+    });
+  };
+
+  const removeScenario = (id: string) => {
+    commitPlan({ ...plan, scenarios: (plan.scenarios || []).filter((scenario) => scenario.id !== id) });
+  };
+
+  const addFixedCostItem = () => {
+    const nextItem: FixedCostItem = {
+      id: createId(),
+      name: "見直し項目",
+      category: "other",
+      currentMonthlyCost: 0,
+      revisedMonthlyCost: 0,
+      memo: ""
+    };
+    commitPlan({ ...plan, fixedCostItems: [...(plan.fixedCostItems || []), nextItem] });
+  };
+
+  const updateFixedCostItem = <K extends keyof FixedCostItem>(id: string, key: K, value: FixedCostItem[K]) => {
+    commitPlan({
+      ...plan,
+      fixedCostItems: (plan.fixedCostItems || []).map((item) => (item.id === id ? { ...item, [key]: value } : item))
+    });
+  };
+
+  const removeFixedCostItem = (id: string) => {
+    commitPlan({ ...plan, fixedCostItems: (plan.fixedCostItems || []).filter((item) => item.id !== id) });
   };
 
   const addGoal = () => {
@@ -490,6 +682,7 @@ function App() {
     const nextEvent: LifeEvent = {
       id: createId(),
       title: "新しいライフイベント",
+      owner: "household",
       category: "other",
       year,
       month: new Date().getMonth() + 1,
@@ -506,6 +699,7 @@ function App() {
     const nextEvent: LifeEvent = {
       id: createId(),
       title: template.title,
+      owner: template.owner,
       category: template.category,
       year,
       month: template.month,
@@ -557,7 +751,16 @@ function App() {
       case "profile":
         return <ProfileView plan={plan} updateProfile={updateProfile} setActiveView={setActiveView} />;
       case "household":
-        return <HouseholdView plan={plan} updateHousehold={updateHousehold} setActiveView={setActiveView} />;
+        return (
+          <HouseholdView
+            plan={plan}
+            updateHousehold={updateHousehold}
+            addFixedCostItem={addFixedCostItem}
+            updateFixedCostItem={updateFixedCostItem}
+            removeFixedCostItem={removeFixedCostItem}
+            setActiveView={setActiveView}
+          />
+        );
       case "assets":
         return <AssetsView plan={plan} updateAssets={updateAssets} setActiveView={setActiveView} />;
       case "goals":
@@ -585,8 +788,39 @@ function App() {
         );
       case "simulation":
         return <SimulationView plan={plan} updateSimulation={updateSimulation} setActiveView={setActiveView} />;
+      case "scenarios":
+        return (
+          <ScenarioComparisonView
+            plan={plan}
+            addScenario={addScenario}
+            updateScenario={updateScenario}
+            removeScenario={removeScenario}
+          />
+        );
+      case "diagnosis":
+        return <LifePlanDiagnosisView plan={plan} setActiveView={setActiveView} />;
       case "notes":
-        return <NotesView plan={plan} updateNotes={updateNotes} addReview={addReview} updateReview={updateReview} removeReview={removeReview} />;
+        return (
+          <NotesView
+            mode="notes"
+            plan={plan}
+            updateNotes={updateNotes}
+            addReview={addReview}
+            updateReview={updateReview}
+            removeReview={removeReview}
+          />
+        );
+      case "reviews":
+        return (
+          <NotesView
+            mode="reviews"
+            plan={plan}
+            updateNotes={updateNotes}
+            addReview={addReview}
+            updateReview={updateReview}
+            removeReview={removeReview}
+          />
+        );
       case "data":
         return (
           <DataView
@@ -601,7 +835,18 @@ function App() {
       case "pricing":
         return <PricingView setActiveView={setActiveView} />;
       case "pro":
-        return <ProView plan={plan} />;
+        return (
+          <ProView
+            plan={plan}
+            setActiveView={setActiveView}
+            addScenario={addScenario}
+            updateScenario={updateScenario}
+            removeScenario={removeScenario}
+            addFixedCostItem={addFixedCostItem}
+            updateFixedCostItem={updateFixedCostItem}
+            removeFixedCostItem={removeFixedCostItem}
+          />
+        );
       case "settings":
         return <SettingsView settings={settings} updateSettings={updateSettings} setActiveView={setActiveView} />;
       case "legal":
@@ -1099,13 +1344,21 @@ function ProfileView({
 function HouseholdView({
   plan,
   updateHousehold,
+  addFixedCostItem,
+  updateFixedCostItem,
+  removeFixedCostItem,
   setActiveView
 }: {
   plan: LifePlan;
   updateHousehold: <K extends keyof Household>(key: K, value: Household[K]) => void;
+  addFixedCostItem: () => void;
+  updateFixedCostItem: <K extends keyof FixedCostItem>(id: string, key: K, value: FixedCostItem[K]) => void;
+  removeFixedCostItem: (id: string) => void;
   setActiveView: (view: ViewKey) => void;
 }) {
   const cashflow = getCashflowSummary(plan.household);
+  const fixedCostItems = plan.fixedCostItems || [];
+  const fixedCostImpact = getFixedCostImpact(fixedCostItems);
   const monthlySavingsTone =
     cashflow.monthlySavings < 0 ? "notice" : cashflow.savingsRate >= 20 ? "good" : cashflow.monthlySavings > 0 ? "check" : "neutral";
   return (
@@ -1160,11 +1413,91 @@ function HouseholdView({
           <span>旅行、家電、帰省、税金、車検など年に数回ある支出を年額で入れます。</span>
         </div>
       </section>
+      <section className="panel">
+        <div className="section-heading">
+          <div>
+            <h2>固定費見直しインパクト</h2>
+            <p>保険、通信費、家賃、車、サブスクなどの月額差分を整理します。表示は単純差額で、契約や商品を推奨するものではありません。</p>
+          </div>
+          <button type="button" onClick={addFixedCostItem}>
+            項目を追加
+          </button>
+        </div>
+        <div className="summary-grid compact">
+          <Metric label="月間改善額" value={manYen(fixedCostImpact.monthlyImprovement)} helper="現在額 - 見直し後" />
+          <Metric label="年間改善額" value={manYen(fixedCostImpact.annualImprovement)} helper="月間改善額 × 12" />
+          <Metric label="10年の単純差額" value={manYen(fixedCostImpact.tenYearSimpleImpact)} helper="利回り等は含めない" />
+          <Metric label="30年の単純差額" value={manYen(fixedCostImpact.thirtyYearSimpleImpact)} helper="前提条件に基づく試算" />
+        </div>
+        <FixedCostItemList
+          items={fixedCostItems}
+          updateFixedCostItem={updateFixedCostItem}
+          removeFixedCostItem={removeFixedCostItem}
+        />
+      </section>
       <StepFlowNav
         setActiveView={setActiveView}
         previous={{ view: "profile", label: "基本情報" }}
         next={{ view: "assets", label: "資産入力" }}
       />
+    </div>
+  );
+}
+
+function FixedCostItemList({
+  items,
+  updateFixedCostItem,
+  removeFixedCostItem
+}: {
+  items: FixedCostItem[];
+  updateFixedCostItem: <K extends keyof FixedCostItem>(id: string, key: K, value: FixedCostItem[K]) => void;
+  removeFixedCostItem: (id: string) => void;
+}) {
+  if (items.length === 0) {
+    return <EmptyState title="固定費見直し項目はまだありません" detail="項目を追加すると、月額差分と長期の単純差額を確認できます。" />;
+  }
+
+  return (
+    <div className="fixed-cost-list">
+      {items.map((item) => (
+        <div className="fixed-cost-row" key={item.id}>
+          <label>
+            項目名
+            <input value={item.name} onChange={(event) => updateFixedCostItem(item.id, "name", event.target.value)} />
+          </label>
+          <label>
+            種類
+            <select value={item.category} onChange={(event) => updateFixedCostItem(item.id, "category", event.target.value as FixedCostCategory)}>
+              {Object.entries(fixedCostCategoryLabels).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <MoneyInput
+            label="現在の月額"
+            value={item.currentMonthlyCost}
+            onChange={(value) => updateFixedCostItem(item.id, "currentMonthlyCost", value)}
+          />
+          <MoneyInput
+            label="見直し後の月額"
+            value={item.revisedMonthlyCost}
+            onChange={(value) => updateFixedCostItem(item.id, "revisedMonthlyCost", value)}
+          />
+          <label>
+            メモ
+            <input value={item.memo} onChange={(event) => updateFixedCostItem(item.id, "memo", event.target.value)} />
+          </label>
+          <div className="fixed-cost-impact-cell">
+            <span>月額差</span>
+            <strong>{manYen(Math.max(0, item.currentMonthlyCost - item.revisedMonthlyCost))}</strong>
+          </div>
+          <button type="button" className="text-button" onClick={() => removeFixedCostItem(item.id)}>
+            削除
+          </button>
+        </div>
+      ))}
     </div>
   );
 }
@@ -1663,6 +1996,7 @@ type CalendarEntry = {
   year: number;
   month: number;
   title: string;
+  owner: EventOwner | "goal";
   kind: "goal" | "event";
   detail: string;
   amount?: number;
@@ -1675,6 +2009,7 @@ function LifeCalendar({ plan }: { plan: LifePlan }) {
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [entrySearch, setEntrySearch] = useState("");
   const [entryKind, setEntryKind] = useState<"all" | "goal" | "event">("all");
+  const [entryOwner, setEntryOwner] = useState<EventOwner | "all">("all");
   const [entrySort, setEntrySort] = useState<"yearAsc" | "yearDesc" | "title">("yearAsc");
   const currentYear = new Date().getFullYear();
   const years = Array.from({ length: rangeYears + 1 }, (_, index) => currentYear + index);
@@ -1686,6 +2021,7 @@ function LifeCalendar({ plan }: { plan: LifePlan }) {
         year: goal.dueYear,
         month: 12,
         title: goal.title,
+        owner: "goal" as const,
         kind: "goal" as const,
         detail:
           goal.goalType === "recurring"
@@ -1702,8 +2038,9 @@ function LifeCalendar({ plan }: { plan: LifePlan }) {
       year: event.year,
       month: event.month,
       title: event.title,
+      owner: event.owner || "household",
       kind: "event" as const,
-      detail: cashflowLabels[event.cashflowType],
+      detail: `${eventOwnerLabels[event.owner || "household"]} / ${cashflowLabels[event.cashflowType]}`,
       amount: event.amount,
       tone: event.cashflowType
     }));
@@ -1715,13 +2052,14 @@ function LifeCalendar({ plan }: { plan: LifePlan }) {
     return entries
       .filter((entry) => entry.year >= currentYear && entry.year <= currentYear + rangeYears)
       .filter((entry) => (entryKind === "all" ? true : entry.kind === entryKind))
+      .filter((entry) => (entryOwner === "all" || entry.kind === "goal" ? true : entry.owner === entryOwner))
       .filter((entry) => (normalizedSearch ? `${entry.title} ${entry.detail}`.toLowerCase().includes(normalizedSearch) : true))
       .sort((a, b) => {
         if (entrySort === "yearDesc") return b.year - a.year || b.month - a.month || a.title.localeCompare(b.title, "ja");
         if (entrySort === "title") return a.title.localeCompare(b.title, "ja") || a.year - b.year || a.month - b.month;
         return a.year - b.year || a.month - b.month || a.title.localeCompare(b.title, "ja");
       });
-  }, [currentYear, entries, entryKind, entrySearch, entrySort, rangeYears]);
+  }, [currentYear, entries, entryKind, entryOwner, entrySearch, entrySort, rangeYears]);
   const upcomingEntries = [...visibleEntries].sort((a, b) => a.year - b.year || a.month - b.month || a.title.localeCompare(b.title, "ja")).slice(0, 4);
   const selectedYearEntries = visibleEntries.filter((entry) => entry.year === selectedYear);
 
@@ -1777,6 +2115,17 @@ function LifeCalendar({ plan }: { plan: LifePlan }) {
             <option value="yearAsc">時期が近い順</option>
             <option value="yearDesc">時期が遠い順</option>
             <option value="title">名前順</option>
+          </select>
+        </label>
+        <label>
+          対象者
+          <select value={entryOwner} onChange={(event) => setEntryOwner(event.target.value as EventOwner | "all")}>
+            <option value="all">すべて</option>
+            {Object.entries(eventOwnerLabels).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
           </select>
         </label>
         <span>{visibleEntries.length}件表示 / 全{entries.length}件</span>
@@ -1914,12 +2263,14 @@ function TimelineView({
   const [eventSearch, setEventSearch] = useState("");
   const [eventSort, setEventSort] = useState<"yearAsc" | "yearDesc" | "title" | "type">("yearAsc");
   const [eventViewMode, setEventViewMode] = useState<"detail" | "compact">("detail");
+  const [eventOwner, setEventOwner] = useState<EventOwner | "all">("all");
   const sortedEvents = useMemo(() => {
     const normalizedSearch = eventSearch.trim().toLowerCase();
     return [...plan.events]
+      .filter((event) => (eventOwner === "all" ? true : (event.owner || "household") === eventOwner))
       .filter((event) =>
         normalizedSearch
-          ? `${event.title} ${event.memo} ${event.month}月 ${eventCategoryLabels[event.category]}`.toLowerCase().includes(normalizedSearch)
+          ? `${event.title} ${event.memo} ${event.month}月 ${eventCategoryLabels[event.category]} ${eventOwnerLabels[event.owner || "household"]}`.toLowerCase().includes(normalizedSearch)
           : true
       )
       .sort((a, b) => {
@@ -1928,7 +2279,7 @@ function TimelineView({
         if (eventSort === "type") return eventCategoryLabels[a.category].localeCompare(eventCategoryLabels[b.category], "ja") || a.year - b.year || a.month - b.month;
         return a.year - b.year || a.month - b.month || a.title.localeCompare(b.title, "ja");
       });
-  }, [eventSearch, eventSort, plan.events]);
+  }, [eventOwner, eventSearch, eventSort, plan.events]);
   return (
     <div className="view-stack">
       <section className="panel">
@@ -1987,6 +2338,17 @@ function TimelineView({
               <option value="compact">短いリスト</option>
             </select>
           </label>
+          <label>
+            対象者
+            <select value={eventOwner} onChange={(event) => setEventOwner(event.target.value as EventOwner | "all")}>
+              <option value="all">すべて</option>
+              {Object.entries(eventOwnerLabels).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
           <span>{sortedEvents.length}件表示 / 全{plan.events.length}件</span>
         </div>
         {eventViewMode === "compact" ? (
@@ -2018,6 +2380,16 @@ function TimelineView({
                       </select>
                     </label>
                   </div>
+                  <label>
+                    対象者
+                    <select value={event.owner || "household"} onChange={(input) => updateEvent(event.id, "owner", input.target.value as EventOwner)}>
+                      {Object.entries(eventOwnerLabels).map(([value, label]) => (
+                        <option key={value} value={value}>
+                          {label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
                   <label>
                     種類
                     <select value={event.category} onChange={(input) => updateEvent(event.id, "category", input.target.value as LifeEventCategory)}>
@@ -2067,6 +2439,20 @@ function TimelineView({
                   イベント名
                   <input value={event.title} onChange={(input) => updateEvent(event.id, "title", input.target.value)} />
                   <small>例: 住宅購入、車購入、転職、旅行など</small>
+                </label>
+                <label className="timeline-field">
+                  対象者
+                  <select
+                    value={event.owner || "household"}
+                    onChange={(input) => updateEvent(event.id, "owner", input.target.value as EventOwner)}
+                  >
+                    {Object.entries(eventOwnerLabels).map(([value, label]) => (
+                      <option key={value} value={value}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                  <small>本人、配偶者、子ども、親など、誰に関する予定かを分けます。</small>
                 </label>
                 <label className="timeline-field">
                   種類
@@ -2154,19 +2540,61 @@ function SimulationView({
   updateSimulation: <K extends keyof SimulationSettings>(key: K, value: SimulationSettings[K]) => void;
   setActiveView: (view: ViewKey) => void;
 }) {
+  const [simulationTab, setSimulationTab] = useState<"basic" | "contribution" | "withdrawal">("basic");
   const [projectionMode, setProjectionMode] = useState<"annual" | "monthly">("annual");
   const [projectionYears, setProjectionYears] = useState<10 | 30>(30);
   const [projectionMonths, setProjectionMonths] = useState<12 | 24>(24);
+  const [withdrawalStartAge, setWithdrawalStartAge] = useState(Math.max(plan.profile.age + 1, 65));
+  const [withdrawalMonthlyCost, setWithdrawalMonthlyCost] = useState(getCashflowSummary(plan.household).monthlyLivingCost);
+  const [withdrawalPension, setWithdrawalPension] = useState(120000);
+  const [withdrawalReturnRate, setWithdrawalReturnRate] = useState(plan.simulation.annualReturnRate);
+  const [withdrawalInflationRate, setWithdrawalInflationRate] = useState(1);
   const projection10 = useMemo(() => projectAssets(plan, 10), [plan]);
   const projection30 = useMemo(() => projectAssets(plan, 30), [plan]);
   const annualRows = useMemo(() => getAnnualProjectionRows(plan, projectionYears), [plan, projectionYears]);
   const monthlyRows = useMemo(() => getMonthlyProjectionRows(plan, projectionMonths), [plan, projectionMonths]);
   const emergency = getEmergencyFundResult(plan);
   const contribution = simulateContribution(plan.simulation);
+  const contributionRows = useMemo(() => getContributionProjectionRows(plan.simulation), [plan.simulation]);
+  const withdrawalResult = useMemo(
+    () =>
+      simulateWithdrawal({
+        startAge: withdrawalStartAge,
+        currentAssets: getAssetSummary(plan.assets).netAssets,
+        monthlyLivingCost: withdrawalMonthlyCost,
+        monthlyPension: withdrawalPension,
+        annualReturnRate: withdrawalReturnRate,
+        inflationRate: withdrawalInflationRate,
+        years: 40
+      }),
+    [plan.assets, withdrawalInflationRate, withdrawalMonthlyCost, withdrawalPension, withdrawalReturnRate, withdrawalStartAge]
+  );
   const chartRows = projectionMode === "annual" ? annualRows : monthlyRows;
 
   return (
     <div className="view-stack">
+      <section className="panel">
+        <div className="section-heading">
+          <div>
+            <h2>シミュレーション種別</h2>
+            <p>基本見通し、詳細積立、退職後の取り崩しを切り替えて確認します。</p>
+          </div>
+          <div className="segmented-control" aria-label="シミュレーション種別">
+            <button type="button" className={simulationTab === "basic" ? "active" : ""} onClick={() => setSimulationTab("basic")}>
+              基本
+            </button>
+            <button type="button" className={simulationTab === "contribution" ? "active" : ""} onClick={() => setSimulationTab("contribution")}>
+              詳細積立
+            </button>
+            <button type="button" className={simulationTab === "withdrawal" ? "active" : ""} onClick={() => setSimulationTab("withdrawal")}>
+              取り崩し
+            </button>
+          </div>
+        </div>
+      </section>
+
+      {simulationTab === "basic" && (
+      <>
       <section className="panel">
         <div className="section-heading">
           <StepTitle step="6" title="基本資産推移" description="入力条件に基づく10年/30年の見通しです。" />
@@ -2271,9 +2699,12 @@ function SimulationView({
           </div>
         </div>
       </section>
+      </>
+      )}
 
+      {simulationTab === "contribution" && (
       <section className="panel form-panel">
-        <StepTitle step="8" title="簡易積立シミュレーション" description="前提条件に基づく参考試算です。個別の商品名は扱いません。" />
+        <StepTitle step="8" title="詳細積立シミュレーション" description="積立額、ボーナス積立、利回り、期間をもとに年ごとの見通しを確認します。" />
         <div className="form-grid">
           <MoneyInput
             label="毎月積立額"
@@ -2327,7 +2758,87 @@ function SimulationView({
             </tbody>
           </table>
         </div>
+        <div className="table-wrap projection-detail-table">
+          <table>
+            <thead>
+              <tr>
+                <th>年数</th>
+                <th>累計積立額</th>
+                <th>試算額</th>
+                <th>利回り等の影響</th>
+              </tr>
+            </thead>
+            <tbody>
+              {contributionRows.map((row) => (
+                <tr key={row.year}>
+                  <td>{row.year}年目</td>
+                  <td>{manYen(row.contribution)}</td>
+                  <td>{manYen(row.value)}</td>
+                  <td>{row.returnImpact ? manYen(row.returnImpact) : "-"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </section>
+      )}
+
+      {simulationTab === "withdrawal" && (
+      <section className="panel form-panel">
+        <StepTitle step="8" title="退職後の取り崩しシミュレーション" description="退職後の生活費、年金見込み、利回り、インフレを置いた参考試算です。" />
+        <div className="form-grid">
+          <label>
+            取り崩し開始年齢
+            <NumericInput value={withdrawalStartAge} min={plan.profile.age} onChange={setWithdrawalStartAge} />
+          </label>
+          <MoneyInput label="退職後生活費 月額" value={withdrawalMonthlyCost} onChange={setWithdrawalMonthlyCost} />
+          <MoneyInput label="年金等 月額" value={withdrawalPension} onChange={setWithdrawalPension} />
+          <label>
+            想定利回り %
+            <NumericInput value={withdrawalReturnRate} min={0} allowDecimal onChange={setWithdrawalReturnRate} />
+          </label>
+          <label>
+            インフレ率 %
+            <NumericInput value={withdrawalInflationRate} min={0} allowDecimal onChange={setWithdrawalInflationRate} />
+          </label>
+        </div>
+        <div className="calculation-band compact">
+          <Metric label="現在純資産" value={manYen(getAssetSummary(plan.assets).netAssets)} helper="資産合計 - 負債" />
+          <Metric label="年間取り崩し目安" value={manYen(Math.max(0, withdrawalMonthlyCost * 12 - withdrawalPension * 12))} helper="生活費 - 年金等" />
+          <Metric
+            label="資産が尽きる目安"
+            value={withdrawalResult.depletedAge ? `${withdrawalResult.depletedAge}歳` : "40年以上"}
+            helper="前提条件に基づく試算"
+          />
+          <Metric label="40年後の試算額" value={manYen(withdrawalResult.finalAssets)} helper="運用しながら取り崩す前提" />
+        </div>
+        <div className="table-wrap projection-detail-table">
+          <table>
+            <thead>
+              <tr>
+                <th>年齢</th>
+                <th>年末資産</th>
+                <th>年間生活費</th>
+                <th>年金等</th>
+                <th>取り崩し額</th>
+              </tr>
+            </thead>
+            <tbody>
+              {withdrawalResult.rows.map((row) => (
+                <tr key={row.yearIndex}>
+                  <td>{row.age}歳</td>
+                  <td>{manYen(row.assets)}</td>
+                  <td>{manYen(row.annualLivingCost)}</td>
+                  <td>{manYen(row.annualPension)}</td>
+                  <td>{manYen(row.withdrawalAmount)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+      )}
+
       <StepFlowNav
         setActiveView={setActiveView}
         previous={{ view: "timeline", label: "年表" }}
@@ -2338,12 +2849,14 @@ function SimulationView({
 }
 
 function NotesView({
+  mode,
   plan,
   updateNotes,
   addReview,
   updateReview,
   removeReview
 }: {
+  mode: "notes" | "reviews";
   plan: LifePlan;
   updateNotes: <K extends keyof PlanNotes>(key: K, value: PlanNotes[K]) => void;
   addReview: () => void;
@@ -2354,9 +2867,17 @@ function NotesView({
   const chronologicalReviews = [...(plan.reviews || [])].sort((a, b) => a.date.localeCompare(b.date));
   const previousReviewById = new Map<string, ReviewNote | undefined>();
   chronologicalReviews.forEach((review, index) => previousReviewById.set(review.id, chronologicalReviews[index - 1]));
+  const latestReview = sortedReviews[0];
+  const latestPreviousReview = latestReview ? previousReviewById.get(latestReview.id) : undefined;
+  const latestNetAssetDiff =
+    latestReview?.actualNetAssets === undefined || latestPreviousReview?.actualNetAssets === undefined
+      ? null
+      : latestReview.actualNetAssets - latestPreviousReview.actualNetAssets;
+  const openTodoCount = (plan.reviews || []).filter((review) => review.todo && !review.todoDone).length;
 
   return (
     <div className="view-stack">
+      {mode === "notes" && (
       <section className="panel form-panel">
         <StepTitle step="9" title="メモ" description="無料版では、今の前提や次の見直しを1つのプラン内に保存できます。" />
         <div className="notes-grid">
@@ -2378,20 +2899,29 @@ function NotesView({
           </label>
         </div>
       </section>
+      )}
 
+      {mode === "reviews" && (
       <section className="panel">
         <div className="section-heading">
           <div>
-            <h2>実績チェック</h2>
-            <p>予定として控えた数値と、実際の純資産・毎月貯蓄を比べて見直せます。</p>
+            <h2>レビュー履歴</h2>
+            <p>月次・四半期で、予定値と実績値、前回比、次回TODOを残します。</p>
           </div>
           <button type="button" onClick={addReview}>
-            実績を追加
+            レビューを追加
           </button>
         </div>
         {sortedReviews.length === 0 ? (
-          <EmptyState title="まだ実績がありません" detail="実績を追加すると、予定値と実績値、前回比を残せます。" />
+          <EmptyState title="まだレビューがありません" detail="レビューを追加すると、予定値と実績値、前回比、次回TODOを残せます。" />
         ) : (
+          <>
+          <div className="calculation-band compact">
+            <Metric label="レビュー件数" value={`${sortedReviews.length}件`} helper="ブラウザ内保存" />
+            <Metric label="未完了TODO" value={`${openTodoCount}件`} helper="次回確認すること" />
+            <Metric label="最新の前回比" value={latestNetAssetDiff === null ? "-" : manYen(latestNetAssetDiff)} helper="実際の純資産" />
+            <Metric label="最新確認日" value={latestReview?.date || "-"} helper={latestReview?.reviewType === "quarterly" ? "四半期レビュー" : "月次レビュー"} />
+          </div>
           <div className="review-list">
             {sortedReviews.map((review) => {
               const previousReview = previousReviewById.get(review.id);
@@ -2410,6 +2940,16 @@ function NotesView({
                     <label>
                       確認日
                       <input type="date" value={review.date} onChange={(event) => updateReview(review.id, "date", event.target.value)} />
+                    </label>
+                    <label>
+                      確認区分
+                      <select
+                        value={review.reviewType || "monthly"}
+                        onChange={(event) => updateReview(review.id, "reviewType", event.target.value as ReviewNote["reviewType"])}
+                      >
+                        <option value="monthly">月次レビュー</option>
+                        <option value="quarterly">四半期レビュー</option>
+                      </select>
                     </label>
                     <button type="button" className="text-button" onClick={() => removeReview(review.id)}>
                       削除
@@ -2434,6 +2974,22 @@ function NotesView({
                         placeholder="例: ボーナス支給、旅行支出、固定費見直しなど"
                       />
                     </label>
+                    <label className="review-memo-field">
+                      次回TODO
+                      <input
+                        value={review.todo || ""}
+                        onChange={(event) => updateReview(review.id, "todo", event.target.value)}
+                        placeholder="例: 通信費を確認、目標額を見直す"
+                      />
+                    </label>
+                    <label className="todo-check-field">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(review.todoDone)}
+                        onChange={(event) => updateReview(review.id, "todoDone", event.target.checked)}
+                      />
+                      <span>TODO完了</span>
+                    </label>
                   </div>
                   <div className="review-metrics">
                     <Metric label="予定との差" value={manYen(netAssetGap)} helper={`予定純資産 ${manYen(plannedNetAssets)}`} />
@@ -2448,9 +3004,12 @@ function NotesView({
               );
             })}
           </div>
+          </>
         )}
       </section>
+      )}
 
+      {mode === "reviews" && (
       <section className="panel">
         <h2>無料版とPro版の境界</h2>
         <div className="boundary-grid">
@@ -2460,10 +3019,11 @@ function NotesView({
           </div>
           <div>
             <strong>Pro予定</strong>
-            <p>月次/四半期レビュー、前回との差分、TODO、PDFレポートへの反映を追加予定です。</p>
+            <p>複数回のレビュー履歴、前回との差分、TODO管理、シナリオ別の見直し記録を拡張予定です。</p>
           </div>
         </div>
       </section>
+      )}
     </div>
   );
 }
@@ -2621,9 +3181,10 @@ function PricingView({ setActiveView }: { setActiveView: (view: ViewKey) => void
           <ul>
             <li>複数シナリオ保存と比較</li>
             <li>固定費見直しインパクト</li>
+            <li>ライフプラン診断と世帯イベント管理</li>
             <li>見直し履歴と月次/四半期レビュー</li>
             <li>詳細取り崩しシミュレーション</li>
-            <li>PDFレポートとクラウド保存予定</li>
+            <li>クラウド保存、ログイン、課金連携の拡張予定</li>
           </ul>
           <button type="button" className="secondary" onClick={() => setActiveView("pro")}>
             Pro予定を見る
@@ -2648,63 +3209,619 @@ function PricingView({ setActiveView }: { setActiveView: (view: ViewKey) => void
   );
 }
 
-function ProView({ plan }: { plan: LifePlan }) {
-  const projection = projectAssets(plan, 30);
-  const tenYear = projection[10]?.value ?? 0;
-  const thirtyYear = projection[30]?.value ?? 0;
+type ScenarioComparisonViewProps = {
+  plan: LifePlan;
+  addScenario: (template: ScenarioTemplate) => void;
+  updateScenario: <K extends keyof PlanScenario>(id: string, key: K, value: PlanScenario[K]) => void;
+  removeScenario: (id: string) => void;
+};
+
+function getScenarioComparisonMetrics(plan: LifePlan) {
+  const scenarios = plan.scenarios || [];
+  const comparisonPlans = [
+    { id: "current", name: "現在プラン", plan },
+    ...scenarios.map((scenario) => ({
+      id: scenario.id,
+      name: scenario.name,
+      plan: buildPlanFromScenario(plan, scenario)
+    }))
+  ];
+
+  return comparisonPlans.map((item) => {
+    const cashflow = getCashflowSummary(item.plan.household);
+    const assets = getAssetSummary(item.plan.assets);
+    const projection = projectAssets(item.plan, 30);
+    const primaryGoal = getPrimaryGoal(item.plan);
+    const goalAchievement = primaryGoal ? getGoalAchievement(item.plan, primaryGoal) : null;
+    const emergency = getEmergencyFundResult(item.plan);
+    const goalLabel = !primaryGoal
+      ? "目標未設定"
+      : goalAchievement?.status === "achieved"
+        ? "達成済み"
+        : goalAchievement?.status === "unreachable"
+          ? "毎月の準備額未設定"
+          : goalAchievement?.status === "recurring"
+            ? `${primaryGoal.title}: 継続目標`
+            : `${primaryGoal.title}: ${goalAchievement?.targetAge}歳目安`;
+    const emergencyLabel =
+      emergency.status === "short"
+        ? `${emergency.lowerMonths}ヶ月分まであと${manYen(emergency.shortageToLower)}`
+        : emergency.status === "above"
+          ? `${emergency.upperMonths}ヶ月分を上回る`
+          : `${emergency.lowerMonths}ヶ月分の目安内`;
+
+    return {
+      id: item.id,
+      name: item.name,
+      monthlySavings: cashflow.monthlySavings,
+      annualBalance: cashflow.annualIncome - cashflow.annualLivingCost,
+      netAssets: assets.netAssets,
+      tenYear: projection[10]?.value ?? 0,
+      thirtyYear: projection[30]?.value ?? 0,
+      goalLabel,
+      emergencyLabel
+    };
+  });
+}
+
+function ScenarioComparisonView({ plan, addScenario, updateScenario, removeScenario }: ScenarioComparisonViewProps) {
+  const scenarios = plan.scenarios || [];
+  const [selectedScenarioId, setSelectedScenarioId] = useState("current");
+  const comparisonMetrics = getScenarioComparisonMetrics(plan);
+  const scenarioOptions = [
+    { id: "current", name: "現在プラン", plan },
+    ...scenarios.map((scenario) => ({ id: scenario.id, name: scenario.name, plan: buildPlanFromScenario(plan, scenario) }))
+  ];
+  const selectedScenario = scenarioOptions.find((item) => item.id === selectedScenarioId) || scenarioOptions[0];
+  const selectedScenarioRows = getAnnualProjectionRows(selectedScenario.plan, 30);
+
   return (
     <div className="view-stack">
       <section className="pro-hero">
         <div>
-          <p className="eyebrow">Coming soon</p>
-          <h2>複数シナリオを比較し、定期的に見直すPro版</h2>
-          <p>{proPriceLabel}。初期版では課金機能を実装せず、無料版との機能境界を明確にしています。</p>
+          <p className="eyebrow">Pro予定 / シナリオ比較</p>
+          <h2>選択肢ごとの将来見通しを横並びで確認</h2>
+          <p>現状維持、支出見直し、転職、副業、住宅購入、早期退職などを同じ入力条件から分けて保存します。</p>
         </div>
-        <span className="lock-badge">Pro予定</span>
+        <span className="lock-badge">Coming soon</span>
       </section>
 
       <section className="panel">
-        <h2>シナリオ比較プレビュー</h2>
+        <div className="section-heading">
+          <div>
+            <h2>シナリオを追加</h2>
+            <p>テンプレートは仮条件です。個別の助言ではなく、前提条件に基づく比較用のたたき台として使います。</p>
+          </div>
+          <span className="status-pill recurring">{scenarios.length}件</span>
+        </div>
+        <div className="template-actions">
+          {scenarioTemplates.map((template) => (
+            <button key={template.tag} type="button" className="secondary" onClick={() => addScenario(template)}>
+              {template.name}
+            </button>
+          ))}
+        </div>
+        {scenarios.length === 0 ? (
+          <EmptyState title="シナリオはまだありません" detail="まずは現状維持と、気になる変更案を1つ追加すると比較しやすくなります。" />
+        ) : (
+          <div className="scenario-list">
+            {scenarios.map((scenario) => (
+              <div className="scenario-row" key={scenario.id}>
+                <label>
+                  シナリオ名
+                  <input value={scenario.name} onChange={(event) => updateScenario(scenario.id, "name", event.target.value)} />
+                </label>
+                <label>
+                  種類
+                  <select
+                    value={scenario.tag}
+                    onChange={(event) => updateScenario(scenario.id, "tag", event.target.value as ScenarioTag)}
+                  >
+                    {Object.entries(scenarioTagLabels).map(([value, label]) => (
+                      <option key={value} value={value}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="scenario-description-field">
+                  前提メモ
+                  <input
+                    value={scenario.description}
+                    onChange={(event) => updateScenario(scenario.id, "description", event.target.value)}
+                    placeholder="例: 固定費を月3万円見直す"
+                  />
+                </label>
+                <button type="button" className="text-button" onClick={() => removeScenario(scenario.id)}>
+                  削除
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="panel">
+        <div className="section-heading">
+          <div>
+            <h2>シナリオ別の年次グラフ</h2>
+            <p>選んだシナリオの30年見通しをグラフで確認します。</p>
+          </div>
+          <label className="compact-select">
+            表示シナリオ
+            <select value={selectedScenarioId} onChange={(event) => setSelectedScenarioId(event.target.value)}>
+              {scenarioOptions.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <LineChart points={selectedScenarioRows} />
+      </section>
+
+      <section className="panel">
+        <h2>比較表</h2>
+        <p>入力条件に基づく参考試算として、主要な差分を確認します。</p>
         <div className="table-wrap">
           <table>
             <thead>
               <tr>
                 <th>比較項目</th>
-                <th>現状プラン</th>
-                <th>変更プラン例</th>
+                {comparisonMetrics.map((item) => (
+                  <th key={item.id}>{item.name}</th>
+                ))}
               </tr>
             </thead>
             <tbody>
-              <tr>
-                <td>毎月貯蓄額</td>
-                <td>{manYen(getCashflowSummary(plan.household).monthlySavings)}</td>
-                <td>固定費見直し後の差分を表示予定</td>
-              </tr>
-              <tr>
-                <td>10年後資産</td>
-                <td>{manYen(tenYear)}</td>
-                <td>支出削減・転職・副業などの差分を表示予定</td>
-              </tr>
-              <tr>
-                <td>30年後資産</td>
-                <td>{manYen(thirtyYear)}</td>
-                <td>複数シナリオを横並び比較予定</td>
-              </tr>
+              {[
+                { label: "月間貯蓄額", getValue: (item: (typeof comparisonMetrics)[number]) => manYen(item.monthlySavings) },
+                { label: "年間収支", getValue: (item: (typeof comparisonMetrics)[number]) => manYen(item.annualBalance) },
+                { label: "現在純資産", getValue: (item: (typeof comparisonMetrics)[number]) => manYen(item.netAssets) },
+                { label: "10年後資産", getValue: (item: (typeof comparisonMetrics)[number]) => manYen(item.tenYear) },
+                { label: "30年後資産", getValue: (item: (typeof comparisonMetrics)[number]) => manYen(item.thirtyYear) },
+                { label: "主要目標の達成目安", getValue: (item: (typeof comparisonMetrics)[number]) => item.goalLabel },
+                { label: "生活防衛資金の状態", getValue: (item: (typeof comparisonMetrics)[number]) => item.emergencyLabel }
+              ].map((row) => (
+                <tr key={row.label}>
+                  <td>{row.label}</td>
+                  {comparisonMetrics.map((item) => (
+                    <td key={`${row.label}-${item.id}`}>{row.getValue(item)}</td>
+                  ))}
+                </tr>
+              ))}
             </tbody>
           </table>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+type DiagnosisItem = {
+  title: string;
+  detail: string;
+  tone: "good" | "check" | "notice";
+  view: ViewKey;
+};
+
+function getLifePlanDiagnosis(plan: LifePlan): DiagnosisItem[] {
+  const cashflow = getCashflowSummary(plan.household);
+  const assets = getAssetSummary(plan.assets);
+  const emergency = getEmergencyFundResult(plan);
+  const goalAchievements = getGoalAchievements(plan);
+  const currentYear = new Date().getFullYear();
+  const eventYears = new Map<number, { count: number; impact: number }>();
+
+  plan.events.forEach((event) => {
+    const current = eventYears.get(event.year) || { count: 0, impact: 0 };
+    const impact = event.cashflowType === "expense" ? -event.amount : event.cashflowType === "income" ? event.amount : 0;
+    eventYears.set(event.year, { count: current.count + 1, impact: current.impact + impact });
+  });
+
+  const concentratedYear = [...eventYears.entries()].sort((a, b) => b[1].count - a[1].count || Math.abs(b[1].impact) - Math.abs(a[1].impact))[0];
+  const ownerCounts = plan.events.reduce<Record<EventOwner, number>>(
+    (counts, event) => {
+      counts[event.owner || "household"] += 1;
+      return counts;
+    },
+    { self: 0, spouse: 0, child: 0, parent: 0, household: 0, other: 0 }
+  );
+  const latestReview = [...(plan.reviews || [])].sort((a, b) => b.date.localeCompare(a.date))[0];
+  const daysSinceReview = latestReview
+    ? Math.floor((Date.now() - new Date(latestReview.date).getTime()) / (1000 * 60 * 60 * 24))
+    : null;
+  const openTodos = (plan.reviews || []).filter((review) => review.todo && !review.todoDone).length;
+  const backupDays = plan.updatedAt ? Math.floor((Date.now() - new Date(plan.updatedAt).getTime()) / (1000 * 60 * 60 * 24)) : null;
+  const items: DiagnosisItem[] = [];
+
+  items.push({
+    title: emergency.status === "short" ? "生活防衛資金に不足があります" : "生活防衛資金の目安を確認済みです",
+    detail:
+      emergency.status === "short"
+        ? `${emergency.lowerMonths}ヶ月分まであと${manYen(emergency.shortageToLower)}です。固定費や毎月貯蓄額と合わせて確認します。`
+        : `${emergency.lowerMonths}〜${emergency.upperMonths}ヶ月分の目安と現在の現金を比較しています。`,
+    tone: emergency.status === "short" ? "notice" : "good",
+    view: "simulation"
+  });
+
+  items.push({
+    title: cashflow.monthlySavings < 0 ? "毎月収支がマイナスの前提です" : "毎月貯蓄額が入力されています",
+    detail:
+      cashflow.monthlySavings < 0
+        ? `毎月${manYen(Math.abs(cashflow.monthlySavings))}の不足です。固定費、変動費、特別支出の入力を確認します。`
+        : `毎月${manYen(cashflow.monthlySavings)}、貯蓄率${percent(cashflow.savingsRate)}の前提です。`,
+    tone: cashflow.monthlySavings < 0 ? "notice" : "check",
+    view: "household"
+  });
+
+  if (assets.netAssets < 0) {
+    items.push({
+      title: "純資産がマイナスの前提です",
+      detail: `現在純資産は${manYen(assets.netAssets)}です。資産入力の負債やその他資産を確認します。`,
+      tone: "notice",
+      view: "assets"
+    });
+  }
+
+  const unreachableGoals = goalAchievements.filter(({ achievement }) => achievement.status === "unreachable");
+  if (unreachableGoals.length > 0) {
+    items.push({
+      title: "達成目安が出ない目標があります",
+      detail: `${unreachableGoals.length}件の目標で、毎月この目標に回す額が未入力です。`,
+      tone: "check",
+      view: "goals"
+    });
+  } else if (plan.goals.length > 0) {
+    items.push({
+      title: "目標の達成目安を確認できます",
+      detail: `${plan.goals.length}件の目標について、期限や準備額をもとに確認できます。`,
+      tone: "good",
+      view: "goals"
+    });
+  }
+
+  if (concentratedYear && concentratedYear[1].count >= 3) {
+    items.push({
+      title: "イベントが集中している年があります",
+      detail: `${concentratedYear[0]}年に${concentratedYear[1].count}件のイベントがあります。支出・収入変化の重なりを確認します。`,
+      tone: "check",
+      view: "timeline"
+    });
+  }
+
+  if (ownerCounts.child > 0 || ownerCounts.parent > 0 || ownerCounts.spouse > 0) {
+    items.push({
+      title: "世帯メンバー別のイベントがあります",
+      detail: `子ども${ownerCounts.child}件、親${ownerCounts.parent}件、配偶者${ownerCounts.spouse}件。対象者フィルターで確認できます。`,
+      tone: "good",
+      view: "timeline"
+    });
+  } else {
+    items.push({
+      title: "対象者別イベントはまだ少なめです",
+      detail: "配偶者、子ども、親に関する予定がある場合は、年表で対象者を分けると見返しやすくなります。",
+      tone: "check",
+      view: "timeline"
+    });
+  }
+
+  items.push({
+    title: latestReview ? "レビュー履歴があります" : "レビュー履歴はまだありません",
+    detail: latestReview
+      ? `最新レビューは${latestReview.date}です。${daysSinceReview !== null ? `${daysSinceReview}日前の記録です。` : ""}`
+      : "月次・四半期レビューを残すと、前回との差分とTODOを確認できます。",
+    tone: latestReview ? "good" : "check",
+    view: "reviews"
+  });
+
+  if (openTodos > 0) {
+    items.push({
+      title: "未完了TODOがあります",
+      detail: `${openTodos}件のTODOが未完了です。次回の見直しで確認できます。`,
+      tone: "check",
+      view: "reviews"
+    });
+  }
+
+  items.push({
+    title: (plan.scenarios || []).length > 0 ? "比較シナリオがあります" : "比較シナリオはまだありません",
+    detail:
+      (plan.scenarios || []).length > 0
+        ? `${plan.scenarios.length}件のシナリオを保存しています。年次グラフと比較表で確認できます。`
+        : "転職、副業、住宅購入などの変更案を保存すると、現状プランと比較できます。",
+    tone: (plan.scenarios || []).length > 0 ? "good" : "check",
+    view: "scenarios"
+  });
+
+  if (backupDays !== null && backupDays >= 30) {
+    items.push({
+      title: "バックアップ確認の時期です",
+      detail: `最終保存から約${backupDays}日です。必要に応じてJSONエクスポートを確認します。`,
+      tone: "check",
+      view: "data"
+    });
+  }
+
+  return items;
+}
+
+function LifePlanDiagnosisView({ plan, setActiveView }: { plan: LifePlan; setActiveView: (view: ViewKey) => void }) {
+  const diagnosisItems = getLifePlanDiagnosis(plan);
+  const counts = {
+    good: diagnosisItems.filter((item) => item.tone === "good").length,
+    check: diagnosisItems.filter((item) => item.tone === "check").length,
+    notice: diagnosisItems.filter((item) => item.tone === "notice").length
+  };
+
+  return (
+    <div className="view-stack">
+      <section className="pro-hero">
+        <div>
+          <p className="eyebrow">Pro予定 / ライフプラン診断</p>
+          <h2>入力条件の確認ポイントを横断整理</h2>
+          <p>家計、資産、目標、イベント、レビュー履歴をまとめて確認します。結果は助言ではなく、入力条件に基づく参考メモです。</p>
+        </div>
+        <span className="lock-badge">Coming soon</span>
+      </section>
+
+      <section className="calculation-band compact">
+        <Metric label="確認済み" value={`${counts.good}件`} helper="整っている項目" />
+        <Metric label="見直し候補" value={`${counts.check}件`} helper="確認するとよい項目" />
+        <Metric label="注意して確認" value={`${counts.notice}件`} helper="入力条件上の不足や赤字" />
+        <Metric label="診断項目" value={`${diagnosisItems.length}件`} helper="前提条件に基づく整理" />
+      </section>
+
+      <section className="panel">
+        <h2>確認ポイント</h2>
+        <div className="diagnosis-list">
+          {diagnosisItems.map((item) => (
+            <button type="button" className={`diagnosis-item ${item.tone}`} key={item.title} onClick={() => setActiveView(item.view)}>
+              <div>
+                <span>{item.tone === "good" ? "確認済み" : item.tone === "notice" ? "注意して確認" : "見直し候補"}</span>
+                <strong>{item.title}</strong>
+                <small>{item.detail}</small>
+              </div>
+              <span>開く</span>
+            </button>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+type ProViewProps = {
+  plan: LifePlan;
+  setActiveView: (view: ViewKey) => void;
+  addScenario: (template: ScenarioTemplate) => void;
+  updateScenario: <K extends keyof PlanScenario>(id: string, key: K, value: PlanScenario[K]) => void;
+  removeScenario: (id: string) => void;
+  addFixedCostItem: () => void;
+  updateFixedCostItem: <K extends keyof FixedCostItem>(id: string, key: K, value: FixedCostItem[K]) => void;
+  removeFixedCostItem: (id: string) => void;
+};
+
+function ProView({
+  plan,
+  setActiveView,
+  addScenario,
+  updateScenario,
+  removeScenario,
+  addFixedCostItem,
+  updateFixedCostItem,
+  removeFixedCostItem
+}: ProViewProps) {
+  const scenarios = plan.scenarios || [];
+  const fixedCostItems = plan.fixedCostItems || [];
+  const fixedCostImpact = getFixedCostImpact(fixedCostItems);
+  const comparisonPlans = [
+    { id: "current", name: "現在プラン", plan },
+    ...scenarios.map((scenario) => ({
+      id: scenario.id,
+      name: scenario.name,
+      plan: buildPlanFromScenario(plan, scenario)
+    }))
+  ];
+  const comparisonMetrics = comparisonPlans.map((item) => {
+    const cashflow = getCashflowSummary(item.plan.household);
+    const assets = getAssetSummary(item.plan.assets);
+    const projection = projectAssets(item.plan, 30);
+    const primaryGoal = getPrimaryGoal(item.plan);
+    const goalAchievement = primaryGoal ? getGoalAchievement(item.plan, primaryGoal) : null;
+    const emergency = getEmergencyFundResult(item.plan);
+    const goalLabel = !primaryGoal
+      ? "目標未設定"
+      : goalAchievement?.status === "achieved"
+        ? "達成済み"
+        : goalAchievement?.status === "unreachable"
+          ? "毎月の準備額未設定"
+          : goalAchievement?.status === "recurring"
+            ? `${primaryGoal.title}: 継続目標`
+            : `${primaryGoal.title}: ${goalAchievement?.targetAge}歳目安`;
+    const emergencyLabel =
+      emergency.status === "short"
+        ? `${emergency.lowerMonths}ヶ月分まであと${manYen(emergency.shortageToLower)}`
+        : emergency.status === "above"
+          ? `${emergency.upperMonths}ヶ月分を上回る`
+          : `${emergency.lowerMonths}ヶ月分の目安内`;
+
+    return {
+      id: item.id,
+      name: item.name,
+      monthlySavings: cashflow.monthlySavings,
+      annualBalance: cashflow.annualIncome - cashflow.annualLivingCost,
+      netAssets: assets.netAssets,
+      tenYear: projection[10]?.value ?? 0,
+      thirtyYear: projection[30]?.value ?? 0,
+      goalLabel,
+      emergencyLabel
+    };
+  });
+
+  return (
+    <div className="view-stack">
+      <section className="pro-hero">
+        <div>
+          <p className="eyebrow">Proプレビュー / Coming soon</p>
+          <h2>複数シナリオを比較し、見直しを続けるためのPro基盤</h2>
+          <p>{proPriceLabel}。現在は課金機能を実装せず、将来のサブスク導入に備えて機能境界とデータ構造を先に整えています。</p>
+          <div className="button-row">
+            <button type="button" className="secondary hero-action" onClick={() => setActiveView("scenarios")}>
+              シナリオ比較を開く
+            </button>
+            <button type="button" className="secondary hero-action" onClick={() => setActiveView("reviews")}>
+              レビュー履歴を開く
+            </button>
+            <button type="button" className="secondary hero-action" onClick={() => setActiveView("diagnosis")}>
+              ライフプラン診断を開く
+            </button>
+          </div>
+        </div>
+        <span className="lock-badge">課金なし</span>
+      </section>
+
+      <section className="panel">
+        <div className="section-heading">
+          <div>
+            <h2>複数シナリオ保存</h2>
+            <p>現在の入力条件をもとに、比較用の仮シナリオを保存します。後から正式なPro制限を掛けられる構造です。</p>
+          </div>
+          <span className="status-pill recurring">Pro予定</span>
+        </div>
+        <div className="template-actions">
+          {scenarioTemplates.map((template) => (
+            <button key={template.tag} type="button" className="secondary" onClick={() => addScenario(template)}>
+              {template.name}
+            </button>
+          ))}
+        </div>
+        {scenarios.length === 0 ? (
+          <EmptyState title="シナリオはまだありません" detail="上のテンプレートから、現状維持・支出見直し・転職などの比較用シナリオを追加できます。" />
+        ) : (
+          <div className="scenario-list">
+            {scenarios.map((scenario) => (
+              <div className="scenario-row" key={scenario.id}>
+                <label>
+                  シナリオ名
+                  <input value={scenario.name} onChange={(event) => updateScenario(scenario.id, "name", event.target.value)} />
+                </label>
+                <label>
+                  種類
+                  <select
+                    value={scenario.tag}
+                    onChange={(event) => updateScenario(scenario.id, "tag", event.target.value as ScenarioTag)}
+                  >
+                    {Object.entries(scenarioTagLabels).map(([value, label]) => (
+                      <option key={value} value={value}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="scenario-description-field">
+                  メモ
+                  <input
+                    value={scenario.description}
+                    onChange={(event) => updateScenario(scenario.id, "description", event.target.value)}
+                    placeholder="このシナリオの前提メモ"
+                  />
+                </label>
+                <button type="button" className="text-button" onClick={() => removeScenario(scenario.id)}>
+                  削除
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="panel">
+        <h2>シナリオ比較</h2>
+        <p>入力条件に基づく参考試算として、現在プランと保存済みシナリオを横並びで確認します。</p>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>比較項目</th>
+                {comparisonMetrics.map((item) => (
+                  <th key={item.id}>{item.name}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {[
+                { label: "月間貯蓄額", getValue: (item: (typeof comparisonMetrics)[number]) => manYen(item.monthlySavings) },
+                { label: "年間収支", getValue: (item: (typeof comparisonMetrics)[number]) => manYen(item.annualBalance) },
+                { label: "現在純資産", getValue: (item: (typeof comparisonMetrics)[number]) => manYen(item.netAssets) },
+                { label: "10年後資産", getValue: (item: (typeof comparisonMetrics)[number]) => manYen(item.tenYear) },
+                { label: "30年後資産", getValue: (item: (typeof comparisonMetrics)[number]) => manYen(item.thirtyYear) },
+                { label: "主要目標の達成目安", getValue: (item: (typeof comparisonMetrics)[number]) => item.goalLabel },
+                { label: "生活防衛資金の状態", getValue: (item: (typeof comparisonMetrics)[number]) => item.emergencyLabel }
+              ].map((row) => (
+                <tr key={row.label}>
+                  <td>{row.label}</td>
+                  {comparisonMetrics.map((item) => (
+                    <td key={`${row.label}-${item.id}`}>{row.getValue(item)}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="panel">
+        <div className="section-heading">
+          <div>
+            <h2>固定費見直しインパクト</h2>
+            <p>月額の差分を、年間・10年・30年の単純差額として確認します。利回り、税金、契約条件などは含めません。</p>
+          </div>
+          <button type="button" onClick={addFixedCostItem}>
+            項目を追加
+          </button>
+        </div>
+        <div className="summary-grid compact">
+          <Metric label="月間改善額" value={manYen(fixedCostImpact.monthlyImprovement)} helper="現在額 - 見直し後" />
+          <Metric label="年間改善額" value={manYen(fixedCostImpact.annualImprovement)} helper="月間改善額 × 12" />
+          <Metric label="10年の単純差額" value={manYen(fixedCostImpact.tenYearSimpleImpact)} helper="運用益等は含めない" />
+          <Metric label="30年の単純差額" value={manYen(fixedCostImpact.thirtyYearSimpleImpact)} helper="前提条件に基づく試算" />
+        </div>
+        <FixedCostItemList
+          items={fixedCostItems}
+          updateFixedCostItem={updateFixedCostItem}
+          removeFixedCostItem={removeFixedCostItem}
+        />
+      </section>
+
+      <section className="panel">
+        <h2>レビュー履歴のPro拡張</h2>
+        <div className="boundary-grid">
+          <div>
+            <strong>現在入っている基盤</strong>
+            <p>月次/四半期、予定値と実績値、前回比、次回TODOをブラウザ内に保存できます。</p>
+          </div>
+          <div>
+            <strong>将来のPro制限ポイント</strong>
+            <p>レビュー件数、シナリオ別レビュー、差分の詳細表示、クラウド同期をサブスク機能として分けられます。</p>
+          </div>
         </div>
       </section>
 
       <section className="pro-grid">
         {[
           "複数シナリオ保存",
+          "シナリオ比較",
+          "ライフプラン診断",
+          "世帯イベント管理",
           "固定費見直しインパクト",
           "詳細収入変化",
           "詳細取り崩しシミュレーション",
           "月次/四半期レビュー",
           "家族/世帯モード",
-          "PDFレポート",
-          "クラウド保存予定"
+          "クラウド保存予定",
+          "ログイン・課金連携予定"
         ].map((feature) => (
           <div className="pro-item" key={feature}>
             <strong>{feature}</strong>
@@ -2771,7 +3888,7 @@ function SettingsView({
         </div>
         <div className="panel">
           <h2>Pro機能</h2>
-          <p>複数シナリオ比較、見直し履歴、PDFレポートなどを予定しています。初期版では課金処理は実装していません。</p>
+          <p>複数シナリオ比較、固定費見直しインパクト、見直し履歴の拡張などを予定しています。初期版では課金処理は実装していません。</p>
           <div className="button-row">
             <button type="button" className="secondary" onClick={() => setActiveView("pricing")}>
               料金を見る

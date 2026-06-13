@@ -1,5 +1,5 @@
 import { defaultPlan } from "../data/defaultPlan";
-import type { Goal, LifeEvent, LifePlan, ReviewNote } from "../types";
+import type { FixedCostItem, Goal, LifeEvent, LifePlan, PlanScenario, ReviewNote, ScenarioSnapshot } from "../types";
 
 const STORAGE_KEY = "life-compass-plan-v1";
 
@@ -59,6 +59,8 @@ const normalizePlan = (plan: LifePlan): LifePlan => {
       spendingReview: plan.notes?.spendingReview || ""
     },
     reviews: Array.isArray(plan.reviews) ? plan.reviews.map(normalizeReview) : [],
+    scenarios: Array.isArray(plan.scenarios) ? plan.scenarios.map(normalizeScenario) : [],
+    fixedCostItems: Array.isArray(plan.fixedCostItems) ? plan.fixedCostItems.map(normalizeFixedCostItem) : [],
     updatedAt: new Date().toISOString()
   };
 };
@@ -70,6 +72,7 @@ const normalizeMonth = (value: unknown) => {
 
 const normalizeEvent = (event: LifeEvent): LifeEvent => ({
   ...event,
+  owner: event.owner || "household",
   month: normalizeMonth(event.month)
 });
 
@@ -97,9 +100,38 @@ const finiteOptionalNumber = (value: unknown) => (typeof value === "number" && N
 const normalizeReview = (review: ReviewNote): ReviewNote => ({
   id: review.id || crypto.randomUUID(),
   date: review.date || new Date().toISOString().slice(0, 10),
+  reviewType: review.reviewType === "quarterly" ? "quarterly" : "monthly",
   plannedNetAssets: finiteOptionalNumber(review.plannedNetAssets),
   plannedMonthlySavings: finiteOptionalNumber(review.plannedMonthlySavings),
   actualNetAssets: finiteOptionalNumber(review.actualNetAssets),
   actualMonthlySavings: finiteOptionalNumber(review.actualMonthlySavings),
+  todo: review.todo || "",
+  todoDone: Boolean(review.todoDone),
   memo: review.memo || ""
+});
+
+const normalizeScenarioSnapshot = (snapshot: ScenarioSnapshot | undefined): ScenarioSnapshot => ({
+  household: snapshot?.household || defaultPlan.household,
+  assets: snapshot?.assets || defaultPlan.assets,
+  goals: Array.isArray(snapshot?.goals) ? snapshot.goals.map(normalizeGoal) : [],
+  events: Array.isArray(snapshot?.events) ? snapshot.events.map(normalizeEvent) : [],
+  simulation: snapshot?.simulation || defaultPlan.simulation
+});
+
+const normalizeScenario = (scenario: PlanScenario): PlanScenario => ({
+  id: scenario.id || crypto.randomUUID(),
+  name: scenario.name || "シナリオ",
+  description: scenario.description || "",
+  tag: scenario.tag || "custom",
+  createdAt: scenario.createdAt || new Date().toISOString(),
+  snapshot: normalizeScenarioSnapshot(scenario.snapshot)
+});
+
+const normalizeFixedCostItem = (item: FixedCostItem): FixedCostItem => ({
+  id: item.id || crypto.randomUUID(),
+  name: item.name || "見直し項目",
+  category: item.category || "other",
+  currentMonthlyCost: typeof item.currentMonthlyCost === "number" && Number.isFinite(item.currentMonthlyCost) ? item.currentMonthlyCost : 0,
+  revisedMonthlyCost: typeof item.revisedMonthlyCost === "number" && Number.isFinite(item.revisedMonthlyCost) ? item.revisedMonthlyCost : 0,
+  memo: item.memo || ""
 });

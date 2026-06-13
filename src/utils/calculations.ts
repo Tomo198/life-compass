@@ -1,9 +1,11 @@
 import type {
   Assets,
+  FixedCostItem,
   Goal,
   Household,
   LifeEvent,
   LifePlan,
+  PlanScenario,
   Profile,
   RecurrenceInterval,
   SimulationSettings,
@@ -61,6 +63,46 @@ export type ContributionResult = {
   rateComparisons: { rate: number; value: number }[];
 };
 
+export type ContributionProjectionRow = {
+  year: number;
+  contribution: number;
+  value: number;
+  returnImpact: number;
+};
+
+export type WithdrawalSettings = {
+  startAge: number;
+  currentAssets: number;
+  monthlyLivingCost: number;
+  monthlyPension: number;
+  annualReturnRate: number;
+  inflationRate: number;
+  years: number;
+};
+
+export type WithdrawalProjectionRow = {
+  age: number;
+  yearIndex: number;
+  assets: number;
+  annualLivingCost: number;
+  annualPension: number;
+  withdrawalAmount: number;
+  returnImpact: number;
+};
+
+export type WithdrawalResult = {
+  rows: WithdrawalProjectionRow[];
+  depletedAge: number | null;
+  finalAssets: number;
+};
+
+export type FixedCostImpact = {
+  monthlyImprovement: number;
+  annualImprovement: number;
+  tenYearSimpleImpact: number;
+  thirtyYearSimpleImpact: number;
+};
+
 export type GoalAchievement = {
   goalId: string;
   status: "achieved" | "reachable" | "unreachable" | "recurring";
@@ -109,6 +151,30 @@ export const getAssetSummary = (assets: Assets) => {
   const grossAssets = assets.cash + assets.investment + assets.other;
   const netAssets = grossAssets - assets.debt;
   return { grossAssets, netAssets };
+};
+
+export const buildPlanFromScenario = (basePlan: LifePlan, scenario: PlanScenario): LifePlan => ({
+  ...basePlan,
+  household: scenario.snapshot.household,
+  assets: scenario.snapshot.assets,
+  goals: scenario.snapshot.goals,
+  events: scenario.snapshot.events,
+  simulation: scenario.snapshot.simulation
+});
+
+export const getFixedCostImpact = (items: FixedCostItem[]): FixedCostImpact => {
+  const monthlyImprovement = items.reduce(
+    (total, item) => total + Math.max(0, item.currentMonthlyCost - item.revisedMonthlyCost),
+    0
+  );
+  const annualImprovement = monthlyImprovement * 12;
+
+  return {
+    monthlyImprovement,
+    annualImprovement,
+    tenYearSimpleImpact: annualImprovement * 10,
+    thirtyYearSimpleImpact: annualImprovement * 30
+  };
 };
 
 const isFamilyHousehold = (profile: Profile) =>
@@ -409,6 +475,69 @@ export const simulateContribution = (settings: SimulationSettings): Contribution
     noReturnValue,
     increasedByTenThousand,
     rateComparisons
+  };
+};
+
+export const getContributionProjectionRows = (settings: SimulationSettings): ContributionProjectionRow[] => {
+  const rows: ContributionProjectionRow[] = [];
+  const monthlyRate = settings.annualReturnRate / 100 / 12;
+  let value = 0;
+  let totalContribution = 0;
+
+  for (let year = 1; year <= settings.years; year += 1) {
+    const previousValue = value;
+    const annualContribution = settings.monthlyContribution * 12 + settings.bonusContribution;
+    for (let month = 1; month <= 12; month += 1) {
+      value = value * (1 + monthlyRate) + settings.monthlyContribution;
+      if (month === 12) value += settings.bonusContribution;
+    }
+    totalContribution += annualContribution;
+    rows.push({
+      year,
+      contribution: totalContribution,
+      value,
+      returnImpact: value - previousValue - annualContribution
+    });
+  }
+
+  return rows;
+};
+
+export const simulateWithdrawal = (settings: WithdrawalSettings): WithdrawalResult => {
+  const rows: WithdrawalProjectionRow[] = [];
+  const annualReturnRate = settings.annualReturnRate / 100;
+  const inflationRate = settings.inflationRate / 100;
+  let assets = settings.currentAssets;
+  let depletedAge: number | null = null;
+
+  for (let yearIndex = 1; yearIndex <= settings.years; yearIndex += 1) {
+    const age = settings.startAge + yearIndex - 1;
+    const annualLivingCost = settings.monthlyLivingCost * 12 * (1 + inflationRate) ** (yearIndex - 1);
+    const annualPension = settings.monthlyPension * 12;
+    const withdrawalAmount = Math.max(0, annualLivingCost - annualPension);
+    const beforeReturn = assets - withdrawalAmount;
+    const returnImpact = beforeReturn * annualReturnRate;
+    assets = beforeReturn + returnImpact;
+
+    if (assets <= 0 && depletedAge === null) {
+      depletedAge = age;
+    }
+
+    rows.push({
+      age,
+      yearIndex,
+      assets,
+      annualLivingCost,
+      annualPension,
+      withdrawalAmount,
+      returnImpact
+    });
+  }
+
+  return {
+    rows,
+    depletedAge,
+    finalAssets: rows[rows.length - 1]?.assets ?? settings.currentAssets
   };
 };
 

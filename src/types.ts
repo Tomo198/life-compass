@@ -5,6 +5,18 @@ export type Priority = "high" | "medium" | "low";
 export type CashflowType = "expense" | "income" | "neutral";
 export type GoalType = "oneTime" | "recurring";
 export type RecurrenceInterval = "monthly" | "quarterly" | "halfYearly" | "yearly";
+export type ScenarioTag = "current" | "spending" | "career" | "sideBusiness" | "home" | "retirement" | "custom";
+export type EventOwner = "self" | "spouse" | "child" | "parent" | "household" | "other";
+export type FixedCostCategory =
+  | "insurance"
+  | "communication"
+  | "rent"
+  | "car"
+  | "subscription"
+  | "utilities"
+  | "loan"
+  | "other";
+export type ReviewType = "monthly" | "quarterly";
 
 export type LifeEventCategory =
   | "career"
@@ -62,6 +74,7 @@ export type Goal = {
 export type LifeEvent = {
   id: string;
   title: string;
+  owner?: EventOwner;
   category: LifeEventCategory;
   year: number;
   month: number;
@@ -81,10 +94,39 @@ export type SimulationSettings = {
 export type ReviewNote = {
   id: string;
   date: string;
+  reviewType: ReviewType;
   plannedNetAssets?: number;
   plannedMonthlySavings?: number;
   actualNetAssets?: number;
   actualMonthlySavings?: number;
+  todo: string;
+  todoDone: boolean;
+  memo: string;
+};
+
+export type ScenarioSnapshot = {
+  household: Household;
+  assets: Assets;
+  goals: Goal[];
+  events: LifeEvent[];
+  simulation: SimulationSettings;
+};
+
+export type PlanScenario = {
+  id: string;
+  name: string;
+  description: string;
+  tag: ScenarioTag;
+  createdAt: string;
+  snapshot: ScenarioSnapshot;
+};
+
+export type FixedCostItem = {
+  id: string;
+  name: string;
+  category: FixedCostCategory;
+  currentMonthlyCost: number;
+  revisedMonthlyCost: number;
   memo: string;
 };
 
@@ -103,6 +145,8 @@ export type LifePlan = {
   simulation: SimulationSettings;
   notes: PlanNotes;
   reviews: ReviewNote[];
+  scenarios: PlanScenario[];
+  fixedCostItems: FixedCostItem[];
   updatedAt: string;
 };
 
@@ -114,7 +158,10 @@ export type ViewKey =
   | "goals"
   | "timeline"
   | "simulation"
+  | "scenarios"
+  | "diagnosis"
   | "notes"
+  | "reviews"
   | "data"
   | "pricing"
   | "pro"

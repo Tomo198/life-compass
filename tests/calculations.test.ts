@@ -2,16 +2,20 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import type { LifePlan } from "../src/types";
 import {
+  buildPlanFromScenario,
   getAssetSummary,
   getAnnualProjectionRows,
   getCashflowSummary,
   getEmergencyFundMonths,
   getEmergencyFundResult,
+  getFixedCostImpact,
+  getContributionProjectionRows,
   getGoalAchievement,
   getGoalPreparedPercent,
   getInputCompletion,
   getMonthlyProjectionRows,
   projectAssets,
+  simulateWithdrawal,
   simulateContribution
 } from "../src/utils/calculations";
 import { validateImportedPlan } from "../src/utils/storage";
@@ -54,6 +58,8 @@ const basePlan: LifePlan = {
     spendingReview: ""
   },
   reviews: [],
+  scenarios: [],
+  fixedCostItems: [],
   updatedAt: new Date().toISOString()
 };
 
@@ -89,6 +95,52 @@ test("net assets are cash plus investment plus other assets minus debt", () => {
 
   assert.equal(summary.grossAssets, 2300000);
   assert.equal(summary.netAssets, 1400000);
+});
+
+test("fixed cost impact uses positive monthly review differences only", () => {
+  const impact = getFixedCostImpact([
+    {
+      id: "cost-1",
+      name: "insurance",
+      category: "insurance",
+      currentMonthlyCost: 15000,
+      revisedMonthlyCost: 10000,
+      memo: ""
+    },
+    {
+      id: "cost-2",
+      name: "subscription",
+      category: "subscription",
+      currentMonthlyCost: 3000,
+      revisedMonthlyCost: 5000,
+      memo: ""
+    }
+  ]);
+
+  assert.equal(impact.monthlyImprovement, 5000);
+  assert.equal(impact.annualImprovement, 60000);
+  assert.equal(impact.tenYearSimpleImpact, 600000);
+  assert.equal(impact.thirtyYearSimpleImpact, 1800000);
+});
+
+test("scenario snapshots can be compared without mutating the base plan", () => {
+  const scenarioPlan = buildPlanFromScenario(basePlan, {
+    id: "scenario-1",
+    name: "spending review",
+    description: "",
+    tag: "spending",
+    createdAt: new Date().toISOString(),
+    snapshot: {
+      household: { ...basePlan.household, fixedCost: basePlan.household.fixedCost - 30000 },
+      assets: { ...basePlan.assets },
+      goals: [],
+      events: [],
+      simulation: { ...basePlan.simulation }
+    }
+  });
+
+  assert.equal(getCashflowSummary(scenarioPlan.household).monthlySavings, getCashflowSummary(basePlan.household).monthlySavings + 30000);
+  assert.equal(basePlan.household.fixedCost, 130000);
 });
 
 test("emergency fund months follow work style, family, and mortgage rules", () => {
@@ -555,6 +607,38 @@ test("positive-return contribution simulation follows monthly compound assumptio
   assert.ok(result.finalValue > result.noReturnValue);
 });
 
+test("contribution projection rows expose yearly contribution and return impact", () => {
+  const rows = getContributionProjectionRows({
+    monthlyContribution: 10000,
+    bonusContribution: 120000,
+    annualReturnRate: 0,
+    years: 2
+  });
+
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].contribution, 240000);
+  assert.equal(rows[0].value, 240000);
+  assert.equal(rows[0].returnImpact, 0);
+  assert.equal(rows[1].contribution, 480000);
+  assert.equal(rows[1].value, 480000);
+});
+
+test("withdrawal simulation reports depletion age and final assets from assumptions", () => {
+  const result = simulateWithdrawal({
+    startAge: 65,
+    currentAssets: 1000000,
+    monthlyLivingCost: 200000,
+    monthlyPension: 100000,
+    annualReturnRate: 0,
+    inflationRate: 0,
+    years: 5
+  });
+
+  assert.equal(result.rows[0].withdrawalAmount, 1200000);
+  assert.equal(result.depletedAge, 65);
+  assert.equal(result.finalAssets, -5000000);
+});
+
 test("negative monthly cashflow does not produce emergency-fund arrival months", () => {
   const plan: LifePlan = {
     ...basePlan,
@@ -670,7 +754,9 @@ test("import validation rejects unrelated JSON and fills optional fields for leg
     ],
     simulation: undefined,
     notes: undefined,
-    reviews: undefined
+    reviews: undefined,
+    scenarios: undefined,
+    fixedCostItems: undefined
   });
 
   assert.equal(imported.version, 1);
@@ -685,7 +771,10 @@ test("import validation rejects unrelated JSON and fills optional fields for leg
     spendingReview: ""
   });
   assert.equal(imported.events[0].month, 1);
+  assert.equal(imported.events[0].owner, "household");
   assert.deepEqual(imported.reviews, []);
+  assert.deepEqual(imported.scenarios, []);
+  assert.deepEqual(imported.fixedCostItems, []);
 });
 
 test("import validation preserves review actual values and fills missing review fields", () => {
@@ -699,6 +788,9 @@ test("import validation preserves review actual values and fills missing review 
         plannedMonthlySavings: 50000,
         actualNetAssets: 1100000,
         actualMonthlySavings: 60000,
+        reviewType: "quarterly",
+        todo: "next check",
+        todoDone: true,
         memo: "monthly check"
       },
       {
@@ -710,8 +802,14 @@ test("import validation preserves review actual values and fills missing review 
   });
 
   assert.equal(imported.reviews.length, 2);
+  assert.equal(imported.reviews[0].reviewType, "quarterly");
+  assert.equal(imported.reviews[0].todo, "next check");
+  assert.equal(imported.reviews[0].todoDone, true);
   assert.equal(imported.reviews[0].actualNetAssets, 1100000);
   assert.equal(imported.reviews[0].actualMonthlySavings, 60000);
+  assert.equal(imported.reviews[1].reviewType, "monthly");
+  assert.equal(imported.reviews[1].todo, "");
+  assert.equal(imported.reviews[1].todoDone, false);
   assert.equal(imported.reviews[1].plannedNetAssets, undefined);
   assert.equal(imported.reviews[1].actualNetAssets, undefined);
 });

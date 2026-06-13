@@ -64,6 +64,7 @@ export const defaultPlan: LifePlan = {
     {
       id: createId(),
       title: "資格取得",
+      owner: "self",
       category: "qualification",
       year: currentYear + 1,
       month: 4,
@@ -75,6 +76,7 @@ export const defaultPlan: LifePlan = {
     {
       id: createId(),
       title: "住まいの見直し",
+      owner: "household",
       category: "move",
       year: currentYear + 3,
       month: 9,
@@ -95,5 +97,32 @@ export const defaultPlan: LifePlan = {
     spendingReview: "例: 通信費、サブスク、保険、車、家賃など。詳細な影響試算はPro機能で追加予定です。"
   },
   reviews: [],
+  scenarios: [],
+  fixedCostItems: [
+    {
+      id: createId(),
+      name: "保険",
+      category: "insurance",
+      currentMonthlyCost: 15000,
+      revisedMonthlyCost: 10000,
+      memo: "見直し後の仮入力。必要性や保障内容は別途確認する"
+    },
+    {
+      id: createId(),
+      name: "通信費",
+      category: "communication",
+      currentMonthlyCost: 12000,
+      revisedMonthlyCost: 8000,
+      memo: "家族構成や利用状況に合わせて調整する"
+    },
+    {
+      id: createId(),
+      name: "サブスク",
+      category: "subscription",
+      currentMonthlyCost: 5000,
+      revisedMonthlyCost: 3000,
+      memo: "使っていない契約がないか確認する"
+    }
+  ],
   updatedAt: new Date().toISOString()
 };

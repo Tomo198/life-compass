@@ -325,6 +325,11 @@ td select {
   gap: 0.85rem;
 }
 
+.summary-grid.compact {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 1rem 0;
+}
+
 .metric {
   display: grid;
   gap: 0.45rem;
@@ -984,7 +989,7 @@ td select {
 
 .list-toolbar {
   display: grid;
-  grid-template-columns: minmax(13rem, 1.3fr) minmax(10rem, 0.75fr) minmax(9rem, 0.7fr) auto;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
   gap: 0.75rem;
   align-items: end;
   margin: 1rem 0;
@@ -1667,6 +1672,23 @@ td select {
   gap: 0.75rem;
 }
 
+.todo-check-field {
+  display: flex;
+  gap: 0.55rem;
+  align-items: center;
+  min-height: 2.75rem;
+  padding: 0.68rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.todo-check-field input {
+  width: auto;
+  min-height: auto;
+}
+
 .status-list {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1688,6 +1710,50 @@ td select {
 .status-list dd {
   margin: 0.3rem 0 0;
   font-weight: 700;
+}
+
+.diagnosis-list {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.diagnosis-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: center;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  text-align: left;
+}
+
+.diagnosis-item:hover {
+  background: var(--surface-soft);
+}
+
+.diagnosis-item div {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.diagnosis-item span,
+.diagnosis-item small {
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.diagnosis-item.good {
+  border-color: #a9c0b3;
+}
+
+.diagnosis-item.check {
+  border-color: #d7b8a4;
+}
+
+.diagnosis-item.notice {
+  border-color: rgba(162, 59, 59, 0.32);
 }
 
 .data-status-grid,
@@ -1771,10 +1837,68 @@ td select {
   color: #fff;
 }
 
+.compact-select {
+  min-width: min(18rem, 100%);
+}
+
+.hero-action {
+  background: rgba(255, 255, 255, 0.94);
+  color: var(--primary-dark);
+}
+
 .pro-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0.8rem;
+}
+
+.scenario-list,
+.fixed-cost-list {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.scenario-row,
+.fixed-cost-row {
+  display: grid;
+  gap: 0.75rem;
+  align-items: end;
+  padding: 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+
+.scenario-row {
+  grid-template-columns: minmax(10rem, 0.9fr) minmax(9rem, 0.6fr) minmax(14rem, 1.4fr) auto;
+}
+
+.fixed-cost-row {
+  grid-template-columns: minmax(8rem, 0.8fr) minmax(8rem, 0.7fr) minmax(8rem, 0.8fr) minmax(8rem, 0.8fr) minmax(12rem, 1.1fr) minmax(7rem, 0.55fr) auto;
+}
+
+.scenario-description-field {
+  min-width: 0;
+}
+
+.fixed-cost-impact-cell {
+  display: grid;
+  gap: 0.25rem;
+  min-height: 2.75rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.fixed-cost-impact-cell span {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.fixed-cost-impact-cell strong {
+  overflow-wrap: anywhere;
 }
 
 .pro-item {
@@ -1911,6 +2035,7 @@ td select {
   }
 
   .summary-grid,
+  .summary-grid.compact,
   .dashboard-lower,
   .calendar-next-list,
   .quick-action-grid,
@@ -1940,6 +2065,11 @@ td select {
   .status-list,
   .review-input-grid,
   .review-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .scenario-row,
+  .fixed-cost-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -2108,6 +2238,7 @@ td select {
   }
 
   .dashboard-lower,
+  .summary-grid.compact,
   .calendar-next-list,
   .form-grid,
   .list-toolbar,
@@ -2129,6 +2260,8 @@ td select {
   .explanation-grid,
   .review-input-grid,
   .review-metrics,
+  .scenario-row,
+  .fixed-cost-row,
   .calendar-list-row {
     grid-template-columns: 1fr;
   }
