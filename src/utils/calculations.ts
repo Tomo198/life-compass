@@ -1,5 +1,8 @@
 import type {
   Assets,
+  BudgetCategory,
+  BudgetFrequency,
+  BudgetItem,
   FixedCostItem,
   Goal,
   Household,
@@ -96,6 +99,24 @@ export type WithdrawalResult = {
   finalAssets: number;
 };
 
+export type BudgetCategorySummary = {
+  category: BudgetCategory;
+  plannedMonthlyAverage: number;
+  actual: number;
+  variance: number;
+};
+
+export type BudgetSummary = {
+  plannedMonthlyAverage: number;
+  actual: number;
+  variance: number;
+  annualPlan: number;
+  fixedCost: number;
+  variableCost: number;
+  annualSpecialCost: number;
+  categoryRows: BudgetCategorySummary[];
+};
+
 export type FixedCostImpact = {
   monthlyImprovement: number;
   annualImprovement: number;
@@ -174,6 +195,62 @@ export const getFixedCostImpact = (items: FixedCostItem[]): FixedCostImpact => {
     annualImprovement,
     tenYearSimpleImpact: annualImprovement * 10,
     thirtyYearSimpleImpact: annualImprovement * 30
+  };
+};
+
+export const getBudgetAnnualPlan = (item: BudgetItem) => {
+  if (item.frequency === "monthlyFixed" || item.frequency === "monthlyVariable") return item.budgetAmount * 12;
+  return item.budgetAmount;
+};
+
+export const getBudgetMonthlyAverage = (item: BudgetItem) => getBudgetAnnualPlan(item) / 12;
+
+export const getBudgetHouseholdInputs = (items: BudgetItem[]) => {
+  const fixedCost = items
+    .filter((item) => item.frequency === "monthlyFixed")
+    .reduce((total, item) => total + item.budgetAmount, 0);
+  const variableCost = items
+    .filter((item) => item.frequency === "monthlyVariable")
+    .reduce((total, item) => total + item.budgetAmount, 0);
+  const annualSpecialCost = items
+    .filter(
+      (item) =>
+        item.frequency !== "monthlyFixed" && item.frequency !== "monthlyVariable" && item.frequency !== "oneTime"
+    )
+    .reduce((total, item) => total + getBudgetAnnualPlan(item), 0);
+
+  return { fixedCost, variableCost, annualSpecialCost };
+};
+
+export const getBudgetSummary = (items: BudgetItem[], monthKey: string): BudgetSummary => {
+  const categoryMap = new Map<BudgetCategory, BudgetCategorySummary>();
+  const householdInputs = getBudgetHouseholdInputs(items);
+
+  items.forEach((item) => {
+    const plannedMonthlyAverage = getBudgetMonthlyAverage(item);
+    const actual = item.actuals?.[monthKey] || 0;
+    const current = categoryMap.get(item.category) || {
+      category: item.category,
+      plannedMonthlyAverage: 0,
+      actual: 0,
+      variance: 0
+    };
+    current.plannedMonthlyAverage += plannedMonthlyAverage;
+    current.actual += actual;
+    current.variance = current.actual - current.plannedMonthlyAverage;
+    categoryMap.set(item.category, current);
+  });
+
+  const plannedMonthlyAverage = items.reduce((total, item) => total + getBudgetMonthlyAverage(item), 0);
+  const actual = items.reduce((total, item) => total + (item.actuals?.[monthKey] || 0), 0);
+
+  return {
+    plannedMonthlyAverage,
+    actual,
+    variance: actual - plannedMonthlyAverage,
+    annualPlan: items.reduce((total, item) => total + getBudgetAnnualPlan(item), 0),
+    ...householdInputs,
+    categoryRows: [...categoryMap.values()].sort((a, b) => Math.abs(b.variance) - Math.abs(a.variance))
   };
 };
 

@@ -1,7 +1,40 @@
 import { defaultPlan } from "../data/defaultPlan";
-import type { FixedCostItem, Goal, LifeEvent, LifePlan, PlanScenario, ReviewNote, ScenarioSnapshot } from "../types";
+import type {
+  BudgetCategory,
+  BudgetFrequency,
+  BudgetItem,
+  FixedCostItem,
+  Goal,
+  LifeEvent,
+  LifePlan,
+  PlanScenario,
+  ReviewNote,
+  ScenarioSnapshot
+} from "../types";
 
 const STORAGE_KEY = "life-compass-plan-v1";
+const budgetCategories: BudgetCategory[] = [
+  "food",
+  "daily",
+  "housing",
+  "utilities",
+  "communication",
+  "insurance",
+  "car",
+  "education",
+  "medical",
+  "travel",
+  "subscription",
+  "other"
+];
+const budgetFrequencies: BudgetFrequency[] = [
+  "monthlyFixed",
+  "monthlyVariable",
+  "irregularFixed",
+  "irregularVariable",
+  "yearly",
+  "oneTime"
+];
 
 export const loadPlan = (): LifePlan => {
   const saved = localStorage.getItem(STORAGE_KEY);
@@ -61,6 +94,7 @@ const normalizePlan = (plan: LifePlan): LifePlan => {
     reviews: Array.isArray(plan.reviews) ? plan.reviews.map(normalizeReview) : [],
     scenarios: Array.isArray(plan.scenarios) ? plan.scenarios.map(normalizeScenario) : [],
     fixedCostItems: Array.isArray(plan.fixedCostItems) ? plan.fixedCostItems.map(normalizeFixedCostItem) : [],
+    budgetItems: Array.isArray(plan.budgetItems) ? plan.budgetItems.map(normalizeBudgetItem) : [],
     updatedAt: new Date().toISOString()
   };
 };
@@ -133,5 +167,33 @@ const normalizeFixedCostItem = (item: FixedCostItem): FixedCostItem => ({
   category: item.category || "other",
   currentMonthlyCost: typeof item.currentMonthlyCost === "number" && Number.isFinite(item.currentMonthlyCost) ? item.currentMonthlyCost : 0,
   revisedMonthlyCost: typeof item.revisedMonthlyCost === "number" && Number.isFinite(item.revisedMonthlyCost) ? item.revisedMonthlyCost : 0,
+  memo: item.memo || ""
+});
+
+const normalizeActuals = (actuals: unknown) => {
+  if (!actuals || typeof actuals !== "object" || Array.isArray(actuals)) return {};
+  return Object.entries(actuals as Record<string, unknown>).reduce<Record<string, number>>((result, [key, value]) => {
+    if (/^\d{4}-\d{2}$/.test(key) && typeof value === "number" && Number.isFinite(value)) {
+      result[key] = value;
+    }
+    return result;
+  }, {});
+};
+
+const normalizeBudgetCategory = (category: unknown): BudgetCategory =>
+  typeof category === "string" && budgetCategories.includes(category as BudgetCategory) ? (category as BudgetCategory) : "other";
+
+const normalizeBudgetFrequency = (frequency: unknown): BudgetFrequency =>
+  typeof frequency === "string" && budgetFrequencies.includes(frequency as BudgetFrequency)
+    ? (frequency as BudgetFrequency)
+    : "monthlyVariable";
+
+const normalizeBudgetItem = (item: BudgetItem): BudgetItem => ({
+  id: item.id || crypto.randomUUID(),
+  name: item.name || "予算項目",
+  category: normalizeBudgetCategory(item.category),
+  frequency: normalizeBudgetFrequency(item.frequency),
+  budgetAmount: typeof item.budgetAmount === "number" && Number.isFinite(item.budgetAmount) ? item.budgetAmount : 0,
+  actuals: normalizeActuals(item.actuals),
   memo: item.memo || ""
 });

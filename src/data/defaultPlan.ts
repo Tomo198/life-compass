@@ -124,5 +124,43 @@ export const defaultPlan: LifePlan = {
       memo: "使っていない契約がないか確認する"
     }
   ],
+  budgetItems: [
+    {
+      id: createId(),
+      name: "食費",
+      category: "food",
+      frequency: "monthlyVariable",
+      budgetAmount: 60000,
+      actuals: {},
+      memo: "月次レビュー用の予算"
+    },
+    {
+      id: createId(),
+      name: "住居費",
+      category: "housing",
+      frequency: "monthlyFixed",
+      budgetAmount: 80000,
+      actuals: {},
+      memo: "家賃、住宅ローンなど"
+    },
+    {
+      id: createId(),
+      name: "通信費",
+      category: "communication",
+      frequency: "monthlyFixed",
+      budgetAmount: 10000,
+      actuals: {},
+      memo: "スマホ、ネット回線など"
+    },
+    {
+      id: createId(),
+      name: "旅行・帰省",
+      category: "travel",
+      frequency: "yearly",
+      budgetAmount: 200000,
+      actuals: {},
+      memo: "年間特別支出として家計入力に反映できます"
+    }
+  ],
   updatedAt: new Date().toISOString()
 };

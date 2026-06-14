@@ -7,6 +7,20 @@ export type GoalType = "oneTime" | "recurring";
 export type RecurrenceInterval = "monthly" | "quarterly" | "halfYearly" | "yearly";
 export type ScenarioTag = "current" | "spending" | "career" | "sideBusiness" | "home" | "retirement" | "custom";
 export type EventOwner = "self" | "spouse" | "child" | "parent" | "household" | "other";
+export type BudgetCategory =
+  | "food"
+  | "daily"
+  | "housing"
+  | "utilities"
+  | "communication"
+  | "insurance"
+  | "car"
+  | "education"
+  | "medical"
+  | "travel"
+  | "subscription"
+  | "other";
+export type BudgetFrequency = "monthlyFixed" | "monthlyVariable" | "irregularFixed" | "irregularVariable" | "yearly" | "oneTime";
 export type FixedCostCategory =
   | "insurance"
   | "communication"
@@ -130,6 +144,16 @@ export type FixedCostItem = {
   memo: string;
 };
 
+export type BudgetItem = {
+  id: string;
+  name: string;
+  category: BudgetCategory;
+  frequency: BudgetFrequency;
+  budgetAmount: number;
+  actuals: Record<string, number>;
+  memo: string;
+};
+
 export type PlanNotes = {
   general: string;
   spendingReview: string;
@@ -147,6 +171,7 @@ export type LifePlan = {
   reviews: ReviewNote[];
   scenarios: PlanScenario[];
   fixedCostItems: FixedCostItem[];
+  budgetItems: BudgetItem[];
   updatedAt: string;
 };
 
@@ -160,6 +185,7 @@ export type ViewKey =
   | "simulation"
   | "scenarios"
   | "diagnosis"
+  | "budget"
   | "notes"
   | "reviews"
   | "data"

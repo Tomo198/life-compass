@@ -5,6 +5,8 @@ import {
   buildPlanFromScenario,
   getAssetSummary,
   getAnnualProjectionRows,
+  getBudgetHouseholdInputs,
+  getBudgetSummary,
   getCashflowSummary,
   getEmergencyFundMonths,
   getEmergencyFundResult,
@@ -60,6 +62,7 @@ const basePlan: LifePlan = {
   reviews: [],
   scenarios: [],
   fixedCostItems: [],
+  budgetItems: [],
   updatedAt: new Date().toISOString()
 };
 
@@ -141,6 +144,83 @@ test("scenario snapshots can be compared without mutating the base plan", () => 
 
   assert.equal(getCashflowSummary(scenarioPlan.household).monthlySavings, getCashflowSummary(basePlan.household).monthlySavings + 30000);
   assert.equal(basePlan.household.fixedCost, 130000);
+});
+
+test("budget summary converts frequency to monthly average and selected actuals", () => {
+  const summary = getBudgetSummary(
+    [
+      {
+        id: "budget-1",
+        name: "rent",
+        category: "housing",
+        frequency: "monthlyFixed",
+        budgetAmount: 80000,
+        actuals: { "2026-06": 80000 },
+        memo: ""
+      },
+      {
+        id: "budget-2",
+        name: "travel",
+        category: "travel",
+        frequency: "yearly",
+        budgetAmount: 240000,
+        actuals: { "2026-06": 30000 },
+        memo: ""
+      }
+    ],
+    "2026-06"
+  );
+
+  assert.equal(summary.plannedMonthlyAverage, 100000);
+  assert.equal(summary.actual, 110000);
+  assert.equal(summary.variance, 10000);
+  assert.equal(summary.annualPlan, 1200000);
+  assert.equal(summary.categoryRows.find((row) => row.category === "travel")?.plannedMonthlyAverage, 20000);
+});
+
+test("budget household inputs map monthly and recurring non-monthly items to cashflow fields", () => {
+  const inputs = getBudgetHouseholdInputs([
+    {
+      id: "budget-1",
+      name: "rent",
+      category: "housing",
+      frequency: "monthlyFixed",
+      budgetAmount: 80000,
+      actuals: {},
+      memo: ""
+    },
+    {
+      id: "budget-2",
+      name: "food",
+      category: "food",
+      frequency: "monthlyVariable",
+      budgetAmount: 60000,
+      actuals: {},
+      memo: ""
+    },
+    {
+      id: "budget-3",
+      name: "travel",
+      category: "travel",
+      frequency: "yearly",
+      budgetAmount: 200000,
+      actuals: {},
+      memo: ""
+    },
+    {
+      id: "budget-4",
+      name: "one-time repair",
+      category: "other",
+      frequency: "oneTime",
+      budgetAmount: 500000,
+      actuals: {},
+      memo: ""
+    }
+  ]);
+
+  assert.equal(inputs.fixedCost, 80000);
+  assert.equal(inputs.variableCost, 60000);
+  assert.equal(inputs.annualSpecialCost, 200000);
 });
 
 test("emergency fund months follow work style, family, and mortgage rules", () => {
@@ -756,7 +836,8 @@ test("import validation rejects unrelated JSON and fills optional fields for leg
     notes: undefined,
     reviews: undefined,
     scenarios: undefined,
-    fixedCostItems: undefined
+    fixedCostItems: undefined,
+    budgetItems: undefined
   });
 
   assert.equal(imported.version, 1);
@@ -775,6 +856,36 @@ test("import validation rejects unrelated JSON and fills optional fields for leg
   assert.deepEqual(imported.reviews, []);
   assert.deepEqual(imported.scenarios, []);
   assert.deepEqual(imported.fixedCostItems, []);
+  assert.deepEqual(imported.budgetItems, []);
+});
+
+test("import validation normalizes budget item fields", () => {
+  const imported = validateImportedPlan({
+    ...basePlan,
+    budgetItems: [
+      {
+        id: "",
+        name: "",
+        category: "unexpected",
+        frequency: "weekly",
+        budgetAmount: Number.POSITIVE_INFINITY,
+        actuals: {
+          "2026-06": 120000,
+          "bad-key": 1000,
+          "2026-07": "not-number"
+        },
+        memo: undefined
+      }
+    ]
+  });
+
+  assert.equal(imported.budgetItems.length, 1);
+  assert.ok(imported.budgetItems[0].id);
+  assert.equal(imported.budgetItems[0].name, "予算項目");
+  assert.equal(imported.budgetItems[0].category, "other");
+  assert.equal(imported.budgetItems[0].frequency, "monthlyVariable");
+  assert.equal(imported.budgetItems[0].budgetAmount, 0);
+  assert.deepEqual(imported.budgetItems[0].actuals, { "2026-06": 120000 });
 });
 
 test("import validation preserves review actual values and fills missing review fields", () => {

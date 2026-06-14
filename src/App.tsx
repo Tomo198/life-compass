@@ -3,6 +3,9 @@ import { createId, defaultPlan } from "./data/defaultPlan";
 import { proPriceLabel } from "./features";
 import type {
   Assets,
+  BudgetCategory,
+  BudgetFrequency,
+  BudgetItem,
   CashflowType,
   EventOwner,
   FamilyType,
@@ -30,6 +33,9 @@ import {
   buildPlanFromScenario,
   getAssetSummary,
   getAnnualProjectionRows,
+  getBudgetHouseholdInputs,
+  getBudgetMonthlyAverage,
+  getBudgetSummary,
   getCashflowSummary,
   getEmergencyFundResult,
   getFixedCostImpact,
@@ -54,6 +60,7 @@ const navItems: { key: ViewKey; label: string }[] = [
   { key: "dashboard", label: "ダッシュボード" },
   { key: "profile", label: "ライフプラン" },
   { key: "household", label: "家計入力" },
+  { key: "budget", label: "予算・実績" },
   { key: "assets", label: "資産入力" },
   { key: "goals", label: "目標管理" },
   { key: "timeline", label: "年表" },
@@ -177,6 +184,30 @@ const fixedCostCategoryLabels: Record<FixedCostCategory, string> = {
   other: "その他"
 };
 
+const budgetCategoryLabels: Record<BudgetCategory, string> = {
+  food: "食費",
+  daily: "日用品",
+  housing: "住居",
+  utilities: "水道光熱費",
+  communication: "通信費",
+  insurance: "保険",
+  car: "車",
+  education: "教育",
+  medical: "医療",
+  travel: "旅行・帰省",
+  subscription: "サブスク",
+  other: "その他"
+};
+
+const budgetFrequencyLabels: Record<BudgetFrequency, string> = {
+  monthlyFixed: "毎月・固定",
+  monthlyVariable: "毎月・変動",
+  irregularFixed: "不定・固定",
+  irregularVariable: "不定・変動",
+  yearly: "年1回",
+  oneTime: "1回だけ"
+};
+
 const scenarioTagLabels: Record<ScenarioTag, string> = {
   current: "現状維持",
   spending: "支出見直し",
@@ -294,6 +325,7 @@ const createEmptyPlan = (): LifePlan => ({
   reviews: [],
   scenarios: [],
   fixedCostItems: [],
+  budgetItems: [],
   updatedAt: new Date().toISOString()
 });
 
@@ -632,6 +664,54 @@ function App() {
     commitPlan({ ...plan, fixedCostItems: (plan.fixedCostItems || []).filter((item) => item.id !== id) });
   };
 
+  const addBudgetItem = () => {
+    const nextItem: BudgetItem = {
+      id: createId(),
+      name: "予算項目",
+      category: "other",
+      frequency: "monthlyVariable",
+      budgetAmount: 0,
+      actuals: {},
+      memo: ""
+    };
+    commitPlan({ ...plan, budgetItems: [...(plan.budgetItems || []), nextItem] });
+  };
+
+  const updateBudgetItem = <K extends keyof BudgetItem>(id: string, key: K, value: BudgetItem[K]) => {
+    commitPlan({
+      ...plan,
+      budgetItems: (plan.budgetItems || []).map((item) => (item.id === id ? { ...item, [key]: value } : item))
+    });
+  };
+
+  const updateBudgetActual = (id: string, monthKey: string, value: number) => {
+    if (!/^\d{4}-\d{2}$/.test(monthKey)) return;
+
+    commitPlan({
+      ...plan,
+      budgetItems: (plan.budgetItems || []).map((item) =>
+        item.id === id ? { ...item, actuals: { ...(item.actuals || {}), [monthKey]: value } } : item
+      )
+    });
+  };
+
+  const removeBudgetItem = (id: string) => {
+    commitPlan({ ...plan, budgetItems: (plan.budgetItems || []).filter((item) => item.id !== id) });
+  };
+
+  const applyBudgetToHousehold = () => {
+    const inputs = getBudgetHouseholdInputs(plan.budgetItems || []);
+    commitPlan({
+      ...plan,
+      household: {
+        ...plan.household,
+        fixedCost: inputs.fixedCost,
+        variableCost: inputs.variableCost,
+        annualSpecialCost: inputs.annualSpecialCost
+      }
+    });
+  };
+
   const addGoal = () => {
     const nextGoal: Goal = {
       id: createId(),
@@ -758,6 +838,18 @@ function App() {
             addFixedCostItem={addFixedCostItem}
             updateFixedCostItem={updateFixedCostItem}
             removeFixedCostItem={removeFixedCostItem}
+            setActiveView={setActiveView}
+          />
+        );
+      case "budget":
+        return (
+          <BudgetView
+            plan={plan}
+            addBudgetItem={addBudgetItem}
+            updateBudgetItem={updateBudgetItem}
+            updateBudgetActual={updateBudgetActual}
+            removeBudgetItem={removeBudgetItem}
+            applyBudgetToHousehold={applyBudgetToHousehold}
             setActiveView={setActiveView}
           />
         );
@@ -1438,7 +1530,7 @@ function HouseholdView({
       <StepFlowNav
         setActiveView={setActiveView}
         previous={{ view: "profile", label: "基本情報" }}
-        next={{ view: "assets", label: "資産入力" }}
+        next={{ view: "budget", label: "予算・実績" }}
       />
     </div>
   );
@@ -1498,6 +1590,177 @@ function FixedCostItemList({
           </button>
         </div>
       ))}
+    </div>
+  );
+}
+
+function BudgetView({
+  plan,
+  addBudgetItem,
+  updateBudgetItem,
+  updateBudgetActual,
+  removeBudgetItem,
+  applyBudgetToHousehold,
+  setActiveView
+}: {
+  plan: LifePlan;
+  addBudgetItem: () => void;
+  updateBudgetItem: <K extends keyof BudgetItem>(id: string, key: K, value: BudgetItem[K]) => void;
+  updateBudgetActual: (id: string, monthKey: string, value: number) => void;
+  removeBudgetItem: (id: string) => void;
+  applyBudgetToHousehold: () => void;
+  setActiveView: (view: ViewKey) => void;
+}) {
+  const currentDate = new Date();
+  const defaultMonthKey = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, "0")}`;
+  const [monthKey, setMonthKey] = useState(defaultMonthKey);
+  const budgetItems = plan.budgetItems || [];
+  const summary = getBudgetSummary(budgetItems, monthKey);
+
+  const handleApplyBudget = () => {
+    if (window.confirm("予算・実績の年間換算をもとに、家計入力の固定費・変動費・年間特別支出を更新します。")) {
+      applyBudgetToHousehold();
+    }
+  };
+
+  return (
+    <div className="view-stack">
+      <section className="panel">
+        <div className="section-heading">
+          <StepTitle
+            step="2.5"
+            title="予算・実績プラン"
+            description="日々の明細ではなく、月次レビューと将来見通しに使う予算・実績を整理します。"
+          />
+          <div className="button-row">
+            <button type="button" className="secondary" onClick={handleApplyBudget}>
+              家計入力に反映
+            </button>
+            <button type="button" onClick={addBudgetItem}>
+              項目を追加
+            </button>
+          </div>
+        </div>
+        <div className="notice-band check">
+          <strong>家計簿ではなく、ライフプランの前提を整えるための月次管理です</strong>
+          <span>細かい日別入力は扱わず、カテゴリごとの月額予算・実績・差額をレビューとシミュレーションに使います。</span>
+        </div>
+        <div className="budget-toolbar">
+          <label>
+            実績を確認する月
+            <input type="month" value={monthKey} onChange={(event) => setMonthKey(event.target.value || defaultMonthKey)} />
+          </label>
+          <span>入力した実績は月ごとにブラウザ内へ保存されます。</span>
+        </div>
+        <div className="calculation-band compact">
+          <Metric label="月平均予算" value={manYen(summary.plannedMonthlyAverage)} helper="頻度を月平均に換算" />
+          <Metric label="選択月の実績" value={manYen(summary.actual)} helper={monthKey} />
+          <Metric label="予算との差" value={manYen(summary.variance)} helper="実績 - 月平均予算" />
+          <Metric label="年間予算" value={manYen(summary.annualPlan)} helper="月次/年次を合算" />
+        </div>
+      </section>
+
+      <section className="panel">
+        <h2>カテゴリ別の差額</h2>
+        {summary.categoryRows.length === 0 ? (
+          <EmptyState title="まだ予算項目がありません" detail="項目を追加すると、カテゴリ別の月平均予算と実績差額を確認できます。" />
+        ) : (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>カテゴリ</th>
+                  <th>月平均予算</th>
+                  <th>選択月実績</th>
+                  <th>差額</th>
+                </tr>
+              </thead>
+              <tbody>
+                {summary.categoryRows.map((row) => (
+                  <tr key={row.category}>
+                    <td>{budgetCategoryLabels[row.category]}</td>
+                    <td>{manYen(row.plannedMonthlyAverage)}</td>
+                    <td>{manYen(row.actual)}</td>
+                    <td>{manYen(row.variance)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      <section className="panel">
+        <h2>予算項目</h2>
+        {budgetItems.length === 0 ? (
+          <EmptyState title="予算項目はまだありません" detail="食費、住居費、通信費、旅行など、月次レビューで見たい単位で追加します。" />
+        ) : (
+          <div className="budget-list">
+            {budgetItems.map((item) => (
+              <div className="budget-row" key={item.id}>
+                <label>
+                  項目名
+                  <input value={item.name} onChange={(event) => updateBudgetItem(item.id, "name", event.target.value)} />
+                </label>
+                <label>
+                  カテゴリ
+                  <select value={item.category} onChange={(event) => updateBudgetItem(item.id, "category", event.target.value as BudgetCategory)}>
+                    {Object.entries(budgetCategoryLabels).map(([value, label]) => (
+                      <option key={value} value={value}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  頻度
+                  <select value={item.frequency} onChange={(event) => updateBudgetItem(item.id, "frequency", event.target.value as BudgetFrequency)}>
+                    {Object.entries(budgetFrequencyLabels).map(([value, label]) => (
+                      <option key={value} value={value}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <MoneyInput label="予算額" value={item.budgetAmount} onChange={(value) => updateBudgetItem(item.id, "budgetAmount", value)} />
+                <MoneyInput label={`${monthKey} 実績`} value={item.actuals?.[monthKey] || 0} onChange={(value) => updateBudgetActual(item.id, monthKey, value)} />
+                <div className="fixed-cost-impact-cell">
+                  <span>月平均</span>
+                  <strong>{manYen(getBudgetMonthlyAverage(item))}</strong>
+                </div>
+                <label>
+                  メモ
+                  <input value={item.memo} onChange={(event) => updateBudgetItem(item.id, "memo", event.target.value)} />
+                </label>
+                <button type="button" className="text-button" onClick={() => removeBudgetItem(item.id)}>
+                  削除
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="helper-grid">
+        <div>
+          <strong>家計入力への反映</strong>
+          <span>毎月・固定は固定費、毎月・変動は変動費、不定期・年1回は年間特別支出として反映します。1回だけの支出は年表イベントで管理するのが基本です。</span>
+        </div>
+        <div>
+          <strong>レビュー履歴との関係</strong>
+          <span>選択月の予算差額は、月次レビュー時に見直しポイントとして使えます。</span>
+        </div>
+        <div>
+          <strong>使いすぎない設計</strong>
+          <span>日別明細や店舗別分析は扱わず、ライフプランの前提を整える粒度に絞ります。</span>
+        </div>
+      </section>
+
+      <StepFlowNav
+        setActiveView={setActiveView}
+        previous={{ view: "household", label: "家計入力" }}
+        next={{ view: "assets", label: "資産入力" }}
+      />
     </div>
   );
 }
@@ -2874,6 +3137,8 @@ function NotesView({
       ? null
       : latestReview.actualNetAssets - latestPreviousReview.actualNetAssets;
   const openTodoCount = (plan.reviews || []).filter((review) => review.todo && !review.todoDone).length;
+  const reviewMonthKey = latestReview?.date ? latestReview.date.slice(0, 7) : new Date().toISOString().slice(0, 7);
+  const reviewBudgetSummary = getBudgetSummary(plan.budgetItems || [], reviewMonthKey);
 
   return (
     <div className="view-stack">
@@ -2920,7 +3185,7 @@ function NotesView({
             <Metric label="レビュー件数" value={`${sortedReviews.length}件`} helper="ブラウザ内保存" />
             <Metric label="未完了TODO" value={`${openTodoCount}件`} helper="次回確認すること" />
             <Metric label="最新の前回比" value={latestNetAssetDiff === null ? "-" : manYen(latestNetAssetDiff)} helper="実際の純資産" />
-            <Metric label="最新確認日" value={latestReview?.date || "-"} helper={latestReview?.reviewType === "quarterly" ? "四半期レビュー" : "月次レビュー"} />
+            <Metric label="予算との差" value={manYen(reviewBudgetSummary.variance)} helper={`${reviewMonthKey} 実績 - 予算`} />
           </div>
           <div className="review-list">
             {sortedReviews.map((review) => {
@@ -3164,7 +3429,7 @@ function PricingView({ setActiveView }: { setActiveView: (view: ViewKey) => void
           <strong>0円</strong>
           <ul>
             <li>1つのライフプラン作成・保存</li>
-            <li>家計、資産、目標、年表、メモ</li>
+            <li>家計、予算・実績、資産、目標、年表、メモ</li>
             <li>生活防衛資金チェック</li>
             <li>基本資産推移と簡易積立の参考試算</li>
             <li>ブラウザ内保存とJSONバックアップ</li>
@@ -3181,6 +3446,7 @@ function PricingView({ setActiveView }: { setActiveView: (view: ViewKey) => void
           <ul>
             <li>複数シナリオ保存と比較</li>
             <li>固定費見直しインパクト</li>
+            <li>予算・実績のレビュー履歴連携</li>
             <li>ライフプラン診断と世帯イベント管理</li>
             <li>見直し履歴と月次/四半期レビュー</li>
             <li>詳細取り崩しシミュレーション</li>
@@ -3434,6 +3700,10 @@ function getLifePlanDiagnosis(plan: LifePlan): DiagnosisItem[] {
     : null;
   const openTodos = (plan.reviews || []).filter((review) => review.todo && !review.todoDone).length;
   const backupDays = plan.updatedAt ? Math.floor((Date.now() - new Date(plan.updatedAt).getTime()) / (1000 * 60 * 60 * 24)) : null;
+  const currentDate = new Date();
+  const currentMonthKey = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, "0")}`;
+  const budgetSummary = getBudgetSummary(plan.budgetItems || [], currentMonthKey);
+  const overBudgetCategories = budgetSummary.categoryRows.filter((row) => row.variance > 0);
   const items: DiagnosisItem[] = [];
 
   items.push({
@@ -3522,6 +3792,29 @@ function getLifePlanDiagnosis(plan: LifePlan): DiagnosisItem[] {
       detail: `${openTodos}件のTODOが未完了です。次回の見直しで確認できます。`,
       tone: "check",
       view: "reviews"
+    });
+  }
+
+  if ((plan.budgetItems || []).length === 0) {
+    items.push({
+      title: "予算・実績プランはまだありません",
+      detail: "月別の予算と実績を入れると、レビューや家計入力の前提確認に使えます。",
+      tone: "check",
+      view: "budget"
+    });
+  } else if (overBudgetCategories.length > 0) {
+    items.push({
+      title: "予算を上回っているカテゴリがあります",
+      detail: `${currentMonthKey} は ${overBudgetCategories.slice(0, 3).map((row) => budgetCategoryLabels[row.category]).join("、")} を確認できます。`,
+      tone: "check",
+      view: "budget"
+    });
+  } else {
+    items.push({
+      title: "予算・実績を確認できます",
+      detail: `${(plan.budgetItems || []).length}件の予算項目があります。月次レビューの前提として使えます。`,
+      tone: "good",
+      view: "budget"
     });
   }
 
@@ -3815,6 +4108,7 @@ function ProView({
           "シナリオ比較",
           "ライフプラン診断",
           "世帯イベント管理",
+          "予算・実績レビュー",
           "固定費見直しインパクト",
           "詳細収入変化",
           "詳細取り崩しシミュレーション",
