@@ -22,6 +22,7 @@ import type {
   Priority,
   Profile,
   RecurrenceInterval,
+  RetirementPlanSettings,
   ReviewNote,
   ScenarioSnapshot,
   ScenarioTag,
@@ -51,6 +52,7 @@ import {
   manYen,
   percent,
   projectAssets,
+  simulateRetirementPlan,
   simulateWithdrawal,
   simulateContribution
 } from "./utils/calculations";
@@ -65,6 +67,7 @@ const navItems: { key: ViewKey; label: string }[] = [
   { key: "goals", label: "目標管理" },
   { key: "timeline", label: "年表" },
   { key: "simulation", label: "シミュレーション" },
+  { key: "retirement", label: "老後プラン" },
   { key: "scenarios", label: "シナリオ比較" },
   { key: "diagnosis", label: "ライフプラン診断" },
   { key: "notes", label: "メモ" },
@@ -317,6 +320,9 @@ const createEmptyPlan = (): LifePlan => ({
     bonusContribution: 0,
     annualReturnRate: 0,
     years: 30
+  },
+  retirementPlan: {
+    ...defaultPlan.retirementPlan
   },
   notes: {
     general: "",
@@ -590,6 +596,10 @@ function App() {
 
   const updateSimulation = <K extends keyof SimulationSettings>(key: K, value: SimulationSettings[K]) => {
     commitPlan({ ...plan, simulation: { ...plan.simulation, [key]: value } });
+  };
+
+  const updateRetirementPlan = <K extends keyof RetirementPlanSettings>(key: K, value: RetirementPlanSettings[K]) => {
+    commitPlan({ ...plan, retirementPlan: { ...(plan.retirementPlan || defaultPlan.retirementPlan), [key]: value } });
   };
 
   const updateNotes = <K extends keyof PlanNotes>(key: K, value: PlanNotes[K]) => {
@@ -880,6 +890,14 @@ function App() {
         );
       case "simulation":
         return <SimulationView plan={plan} updateSimulation={updateSimulation} setActiveView={setActiveView} />;
+      case "retirement":
+        return (
+          <RetirementPlanView
+            plan={plan}
+            updateRetirementPlan={updateRetirementPlan}
+            setActiveView={setActiveView}
+          />
+        );
       case "scenarios":
         return (
           <ScenarioComparisonView
@@ -3105,7 +3123,206 @@ function SimulationView({
       <StepFlowNav
         setActiveView={setActiveView}
         previous={{ view: "timeline", label: "年表" }}
-        next={{ view: "data", label: "バックアップ" }}
+        next={{ view: "retirement", label: "老後プラン" }}
+      />
+    </div>
+  );
+}
+
+function RetirementPlanView({
+  plan,
+  updateRetirementPlan,
+  setActiveView
+}: {
+  plan: LifePlan;
+  updateRetirementPlan: <K extends keyof RetirementPlanSettings>(key: K, value: RetirementPlanSettings[K]) => void;
+  setActiveView: (view: ViewKey) => void;
+}) {
+  const settings = plan.retirementPlan || defaultPlan.retirementPlan;
+  const result = useMemo(() => simulateRetirementPlan({ ...plan, retirementPlan: settings }), [plan, settings]);
+  const firstRow = result.rows[0];
+  const socialMonthlyTotal =
+    settings.monthlyHealthInsurance + settings.monthlyLongTermCareInsurance + settings.monthlyTaxes;
+  const pensionMonthlyTotal =
+    settings.monthlyPublicPension + settings.monthlyPrivatePension + settings.monthlyOtherIncome;
+
+  return (
+    <div className="view-stack">
+      <section className="pro-hero">
+        <div>
+          <p className="eyebrow">Pro予定 / 老後生活プラン</p>
+          <h2>年金・社会保険・税金を含めた取り崩し見通し</h2>
+          <p>
+            退職後の生活費、国民健康保険、介護保険、税金、年金見込みを前提入力し、資産が何歳ごろまで持つかを参考情報として確認します。
+          </p>
+          <div className="button-row">
+            <button type="button" className="secondary hero-action" onClick={() => setActiveView("simulation")}>
+              基本シミュレーションを見る
+            </button>
+            <button type="button" className="secondary hero-action" onClick={() => setActiveView("reviews")}>
+              レビュー履歴を見る
+            </button>
+          </div>
+        </div>
+        <span className="lock-badge">Coming soon</span>
+      </section>
+
+      <section className="panel">
+        <div className="notice-band check">
+          <strong>制度上の正確な保険料・税額計算ではありません</strong>
+          <span>
+            国民健康保険、介護保険、税金、年金額は自治体、年齢、所得、世帯状況などで変わります。この画面ではユーザーが置いた前提条件に基づく概算として扱います。
+          </span>
+        </div>
+        <div className="calculation-band compact">
+          <Metric label="退職時点の試算資産" value={manYen(result.retirementStartAssets)} helper={`${result.startAge}歳時点の見通し`} />
+          <Metric label="初年度支出" value={manYen(result.firstYearTotalCost)} helper="生活費 + 社会保険・税金" />
+          <Metric label="初年度年金等" value={manYen(result.firstYearIncome)} helper="公的年金 + その他収入" />
+          <Metric label="初年度取り崩し" value={manYen(result.firstYearWithdrawal)} helper="支出 - 年金等" />
+          <Metric
+            label="資産寿命の目安"
+            value={result.depletedAge ? `${result.depletedAge}歳` : `${settings.planUntilAge}歳時点で残あり`}
+            helper="前提条件に基づく試算"
+          />
+          <Metric label="最終年の試算額" value={manYen(result.finalAssets)} helper={`${settings.planUntilAge}歳時点`} />
+        </div>
+      </section>
+
+      <section className="panel form-panel">
+        <StepTitle step="Pro" title="基本条件" description="退職年齢、試算期間、利回り、物価上昇率などを置きます。" />
+        <div className="form-grid">
+          <label>
+            退職年齢
+            <NumericInput value={settings.retirementAge} min={plan.profile.age} onChange={(value) => updateRetirementPlan("retirementAge", value)} />
+          </label>
+          <label>
+            何歳まで見るか
+            <NumericInput value={settings.planUntilAge} min={settings.retirementAge} onChange={(value) => updateRetirementPlan("planUntilAge", value)} />
+          </label>
+          <MoneyInput label="退職金・一時金" value={settings.retirementLumpSum} onChange={(value) => updateRetirementPlan("retirementLumpSum", value)} />
+          <label>
+            退職後の想定利回り %
+            <NumericInput value={settings.annualReturnRate} min={0} allowDecimal onChange={(value) => updateRetirementPlan("annualReturnRate", value)} />
+          </label>
+          <label>
+            物価上昇率 %
+            <NumericInput value={settings.inflationRate} min={0} allowDecimal onChange={(value) => updateRetirementPlan("inflationRate", value)} />
+          </label>
+        </div>
+      </section>
+
+      <section className="panel form-panel">
+        <StepTitle step="1" title="退職後の生活費" description="毎月の生活費と、年1回程度の特別支出を分けて置きます。" />
+        <div className="form-grid">
+          <MoneyInput label="基本生活費 月額" value={settings.monthlyLivingCost} onChange={(value) => updateRetirementPlan("monthlyLivingCost", value)} />
+          <MoneyInput label="住居費 月額" value={settings.monthlyHousingCost} onChange={(value) => updateRetirementPlan("monthlyHousingCost", value)} />
+          <MoneyInput label="医療費 月額" value={settings.monthlyMedicalCost} onChange={(value) => updateRetirementPlan("monthlyMedicalCost", value)} />
+          <MoneyInput label="介護・支援費 月額" value={settings.monthlyCareCost} onChange={(value) => updateRetirementPlan("monthlyCareCost", value)} />
+          <MoneyInput label="年間特別支出" value={settings.annualExtraExpense} onChange={(value) => updateRetirementPlan("annualExtraExpense", value)} />
+        </div>
+      </section>
+
+      <section className="panel form-panel">
+        <StepTitle step="2" title="年金・収入" description="公的年金、企業年金、個人年金、退職後の収入を月額で置きます。" />
+        <div className="form-grid">
+          <MoneyInput label="公的年金 月額" value={settings.monthlyPublicPension} onChange={(value) => updateRetirementPlan("monthlyPublicPension", value)} />
+          <MoneyInput label="企業年金・個人年金 月額" value={settings.monthlyPrivatePension} onChange={(value) => updateRetirementPlan("monthlyPrivatePension", value)} />
+          <MoneyInput label="その他収入 月額" value={settings.monthlyOtherIncome} onChange={(value) => updateRetirementPlan("monthlyOtherIncome", value)} />
+        </div>
+        <div className="helper-grid">
+          <div>
+            <strong>月額収入の合計</strong>
+            <span>{manYen(pensionMonthlyTotal)}。ねんきん定期便や勤務先資料などを見ながら、概算として入力します。</span>
+          </div>
+        </div>
+      </section>
+
+      <section className="panel form-panel">
+        <StepTitle step="3" title="社会保険・税金の概算" description="国民健康保険、介護保険、税金などを月額の概算で置きます。" />
+        <div className="form-grid">
+          <MoneyInput
+            label="国民健康保険 月額概算"
+            value={settings.monthlyHealthInsurance}
+            onChange={(value) => updateRetirementPlan("monthlyHealthInsurance", value)}
+          />
+          <MoneyInput
+            label="介護保険 月額概算"
+            value={settings.monthlyLongTermCareInsurance}
+            onChange={(value) => updateRetirementPlan("monthlyLongTermCareInsurance", value)}
+          />
+          <MoneyInput label="税金 月額概算" value={settings.monthlyTaxes} onChange={(value) => updateRetirementPlan("monthlyTaxes", value)} />
+        </div>
+        <div className="helper-grid">
+          <div>
+            <strong>月額概算の合計</strong>
+            <span>{manYen(socialMonthlyTotal)}。正確な金額は自治体や専門家、公式資料で確認する前提です。</span>
+          </div>
+          <div>
+            <strong>ここで扱わないこと</strong>
+            <span>自治体ごとの保険料率、控除、所得区分、世帯ごとの正式な税額計算は行いません。</span>
+          </div>
+        </div>
+      </section>
+
+      <section className="panel">
+        <div className="section-heading">
+          <div>
+            <h2>年齢別の取り崩し見通し</h2>
+            <p>生活費と社会保険・税金は物価上昇率を反映し、年金等の収入は現在の入力額を固定して試算します。</p>
+          </div>
+          <span className="status-pill recurring">{result.rows.length}年分</span>
+        </div>
+        <div className="table-wrap projection-detail-table">
+          <table>
+            <thead>
+              <tr>
+                <th>年齢</th>
+                <th>生活費</th>
+                <th>社会保険・税</th>
+                <th>年金等</th>
+                <th>取り崩し</th>
+                <th>年末資産</th>
+              </tr>
+            </thead>
+            <tbody>
+              {result.rows.map((row) => (
+                <tr key={row.yearIndex}>
+                  <td>{row.age}歳</td>
+                  <td>{manYen(row.annualLivingCost)}</td>
+                  <td>{manYen(row.annualSocialInsuranceAndTax)}</td>
+                  <td>{manYen(row.annualRetirementIncome)}</td>
+                  <td>{manYen(row.withdrawalAmount)}</td>
+                  <td>{manYen(row.assets)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {firstRow && (
+          <div className="explanation-grid">
+            <div>
+              <strong>初年度の見方</strong>
+              <span>
+                支出 {manYen(firstRow.annualLivingCost + firstRow.annualSocialInsuranceAndTax)}、年金等 {manYen(firstRow.annualRetirementIncome)}、
+                取り崩し {manYen(firstRow.withdrawalAmount)} の前提です。
+              </span>
+            </div>
+            <div>
+              <strong>使い方</strong>
+              <span>退職年齢、生活費、年金、国民健康保険などの概算を変えて、老後生活の余裕度を比較します。</span>
+            </div>
+            <div>
+              <strong>注意点</strong>
+              <span>将来の制度、物価、医療費、介護費、運用状況を保証するものではありません。</span>
+            </div>
+          </div>
+        )}
+      </section>
+
+      <StepFlowNav
+        setActiveView={setActiveView}
+        previous={{ view: "simulation", label: "シミュレーション" }}
+        next={{ view: "scenarios", label: "シナリオ比較" }}
       />
     </div>
   );
@@ -3449,6 +3666,7 @@ function PricingView({ setActiveView }: { setActiveView: (view: ViewKey) => void
             <li>予算・実績のレビュー履歴連携</li>
             <li>ライフプラン診断と世帯イベント管理</li>
             <li>見直し履歴と月次/四半期レビュー</li>
+            <li>老後生活プランと社会保険・税金の概算入力</li>
             <li>詳細取り崩しシミュレーション</li>
             <li>クラウド保存、ログイン、課金連携の拡張予定</li>
           </ul>
@@ -3970,6 +4188,9 @@ function ProView({
             <button type="button" className="secondary hero-action" onClick={() => setActiveView("diagnosis")}>
               ライフプラン診断を開く
             </button>
+            <button type="button" className="secondary hero-action" onClick={() => setActiveView("retirement")}>
+              老後プランを開く
+            </button>
           </div>
         </div>
         <span className="lock-badge">課金なし</span>
@@ -4111,6 +4332,7 @@ function ProView({
           "予算・実績レビュー",
           "固定費見直しインパクト",
           "詳細収入変化",
+          "老後生活プラン",
           "詳細取り崩しシミュレーション",
           "月次/四半期レビュー",
           "家族/世帯モード",

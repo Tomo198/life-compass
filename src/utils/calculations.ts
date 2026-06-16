@@ -99,6 +99,29 @@ export type WithdrawalResult = {
   finalAssets: number;
 };
 
+export type RetirementProjectionRow = {
+  age: number;
+  year: number;
+  yearIndex: number;
+  assets: number;
+  annualLivingCost: number;
+  annualSocialInsuranceAndTax: number;
+  annualRetirementIncome: number;
+  withdrawalAmount: number;
+  returnImpact: number;
+};
+
+export type RetirementPlanResult = {
+  startAge: number;
+  retirementStartAssets: number;
+  firstYearTotalCost: number;
+  firstYearIncome: number;
+  firstYearWithdrawal: number;
+  depletedAge: number | null;
+  finalAssets: number;
+  rows: RetirementProjectionRow[];
+};
+
 export type BudgetCategorySummary = {
   category: BudgetCategory;
   plannedMonthlyAverage: number;
@@ -615,6 +638,67 @@ export const simulateWithdrawal = (settings: WithdrawalSettings): WithdrawalResu
     rows,
     depletedAge,
     finalAssets: rows[rows.length - 1]?.assets ?? settings.currentAssets
+  };
+};
+
+export const simulateRetirementPlan = (plan: LifePlan): RetirementPlanResult => {
+  const settings = plan.retirementPlan;
+  const startAge = Math.max(plan.profile.age, settings.retirementAge);
+  const yearsToStart = Math.max(0, startAge - plan.profile.age);
+  const projectedAssets = projectAssets(plan, yearsToStart);
+  const retirementStartAssets = (projectedAssets[yearsToStart]?.value ?? getAssetSummary(plan.assets).netAssets) + settings.retirementLumpSum;
+  const simulationYears = Math.max(1, settings.planUntilAge - startAge + 1);
+  const startYear = new Date().getFullYear() + yearsToStart;
+  const annualReturnRate = settings.annualReturnRate / 100;
+  const inflationRate = settings.inflationRate / 100;
+  const rows: RetirementProjectionRow[] = [];
+  let assets = retirementStartAssets;
+  let depletedAge: number | null = null;
+
+  for (let index = 0; index < simulationYears; index += 1) {
+    const inflationFactor = (1 + inflationRate) ** index;
+    const annualLivingCost =
+      (settings.monthlyLivingCost + settings.monthlyHousingCost + settings.monthlyMedicalCost + settings.monthlyCareCost) *
+        12 *
+        inflationFactor +
+      settings.annualExtraExpense * inflationFactor;
+    const annualSocialInsuranceAndTax =
+      (settings.monthlyHealthInsurance + settings.monthlyLongTermCareInsurance + settings.monthlyTaxes) *
+      12 *
+      inflationFactor;
+    const annualRetirementIncome =
+      (settings.monthlyPublicPension + settings.monthlyPrivatePension + settings.monthlyOtherIncome) * 12;
+    const withdrawalAmount = Math.max(0, annualLivingCost + annualSocialInsuranceAndTax - annualRetirementIncome);
+    const beforeReturn = assets - withdrawalAmount;
+    const returnImpact = beforeReturn * annualReturnRate;
+    assets = beforeReturn + returnImpact;
+
+    if (assets <= 0 && depletedAge === null) {
+      depletedAge = startAge + index;
+    }
+
+    rows.push({
+      age: startAge + index,
+      year: startYear + index,
+      yearIndex: index + 1,
+      assets,
+      annualLivingCost,
+      annualSocialInsuranceAndTax,
+      annualRetirementIncome,
+      withdrawalAmount,
+      returnImpact
+    });
+  }
+
+  return {
+    startAge,
+    retirementStartAssets,
+    firstYearTotalCost: (rows[0]?.annualLivingCost ?? 0) + (rows[0]?.annualSocialInsuranceAndTax ?? 0),
+    firstYearIncome: rows[0]?.annualRetirementIncome ?? 0,
+    firstYearWithdrawal: rows[0]?.withdrawalAmount ?? 0,
+    depletedAge,
+    finalAssets: rows[rows.length - 1]?.assets ?? retirementStartAssets,
+    rows
   };
 };
 

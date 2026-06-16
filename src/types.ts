@@ -105,6 +105,25 @@ export type SimulationSettings = {
   years: number;
 };
 
+export type RetirementPlanSettings = {
+  retirementAge: number;
+  planUntilAge: number;
+  monthlyLivingCost: number;
+  monthlyHousingCost: number;
+  monthlyMedicalCost: number;
+  monthlyCareCost: number;
+  monthlyPublicPension: number;
+  monthlyPrivatePension: number;
+  monthlyOtherIncome: number;
+  monthlyHealthInsurance: number;
+  monthlyLongTermCareInsurance: number;
+  monthlyTaxes: number;
+  annualExtraExpense: number;
+  retirementLumpSum: number;
+  annualReturnRate: number;
+  inflationRate: number;
+};
+
 export type ReviewNote = {
   id: string;
   date: string;
@@ -167,6 +186,7 @@ export type LifePlan = {
   goals: Goal[];
   events: LifeEvent[];
   simulation: SimulationSettings;
+  retirementPlan: RetirementPlanSettings;
   notes: PlanNotes;
   reviews: ReviewNote[];
   scenarios: PlanScenario[];
@@ -183,6 +203,7 @@ export type ViewKey =
   | "goals"
   | "timeline"
   | "simulation"
+  | "retirement"
   | "scenarios"
   | "diagnosis"
   | "budget"

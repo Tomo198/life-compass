@@ -8,6 +8,7 @@ import type {
   LifeEvent,
   LifePlan,
   PlanScenario,
+  RetirementPlanSettings,
   ReviewNote,
   ScenarioSnapshot
 } from "../types";
@@ -91,6 +92,7 @@ const normalizePlan = (plan: LifePlan): LifePlan => {
       general: plan.notes?.general || "",
       spendingReview: plan.notes?.spendingReview || ""
     },
+    retirementPlan: normalizeRetirementPlan(plan.retirementPlan),
     reviews: Array.isArray(plan.reviews) ? plan.reviews.map(normalizeReview) : [],
     scenarios: Array.isArray(plan.scenarios) ? plan.scenarios.map(normalizeScenario) : [],
     fixedCostItems: Array.isArray(plan.fixedCostItems) ? plan.fixedCostItems.map(normalizeFixedCostItem) : [],
@@ -130,6 +132,37 @@ const normalizeGoal = (goal: Goal): Goal => {
 };
 
 const finiteOptionalNumber = (value: unknown) => (typeof value === "number" && Number.isFinite(value) ? value : undefined);
+
+const finiteNumber = (value: unknown, fallback: number) =>
+  typeof value === "number" && Number.isFinite(value) ? value : fallback;
+
+const normalizeRetirementPlan = (settings: RetirementPlanSettings | undefined): RetirementPlanSettings => {
+  const defaults = defaultPlan.retirementPlan;
+  const retirementAge = Math.max(0, Math.round(finiteNumber(settings?.retirementAge, defaults.retirementAge)));
+  const planUntilAge = Math.max(retirementAge, Math.round(finiteNumber(settings?.planUntilAge, defaults.planUntilAge)));
+
+  return {
+    retirementAge,
+    planUntilAge,
+    monthlyLivingCost: finiteNumber(settings?.monthlyLivingCost, defaults.monthlyLivingCost),
+    monthlyHousingCost: finiteNumber(settings?.monthlyHousingCost, defaults.monthlyHousingCost),
+    monthlyMedicalCost: finiteNumber(settings?.monthlyMedicalCost, defaults.monthlyMedicalCost),
+    monthlyCareCost: finiteNumber(settings?.monthlyCareCost, defaults.monthlyCareCost),
+    monthlyPublicPension: finiteNumber(settings?.monthlyPublicPension, defaults.monthlyPublicPension),
+    monthlyPrivatePension: finiteNumber(settings?.monthlyPrivatePension, defaults.monthlyPrivatePension),
+    monthlyOtherIncome: finiteNumber(settings?.monthlyOtherIncome, defaults.monthlyOtherIncome),
+    monthlyHealthInsurance: finiteNumber(settings?.monthlyHealthInsurance, defaults.monthlyHealthInsurance),
+    monthlyLongTermCareInsurance: finiteNumber(
+      settings?.monthlyLongTermCareInsurance,
+      defaults.monthlyLongTermCareInsurance
+    ),
+    monthlyTaxes: finiteNumber(settings?.monthlyTaxes, defaults.monthlyTaxes),
+    annualExtraExpense: finiteNumber(settings?.annualExtraExpense, defaults.annualExtraExpense),
+    retirementLumpSum: finiteNumber(settings?.retirementLumpSum, defaults.retirementLumpSum),
+    annualReturnRate: finiteNumber(settings?.annualReturnRate, defaults.annualReturnRate),
+    inflationRate: finiteNumber(settings?.inflationRate, defaults.inflationRate)
+  };
+};
 
 const normalizeReview = (review: ReviewNote): ReviewNote => ({
   id: review.id || crypto.randomUUID(),

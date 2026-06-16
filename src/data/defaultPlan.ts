@@ -92,6 +92,24 @@ export const defaultPlan: LifePlan = {
     annualReturnRate: 3,
     years: 30
   },
+  retirementPlan: {
+    retirementAge: 65,
+    planUntilAge: 95,
+    monthlyLivingCost: 180000,
+    monthlyHousingCost: 30000,
+    monthlyMedicalCost: 15000,
+    monthlyCareCost: 10000,
+    monthlyPublicPension: 140000,
+    monthlyPrivatePension: 0,
+    monthlyOtherIncome: 0,
+    monthlyHealthInsurance: 15000,
+    monthlyLongTermCareInsurance: 8000,
+    monthlyTaxes: 10000,
+    annualExtraExpense: 300000,
+    retirementLumpSum: 0,
+    annualReturnRate: 2,
+    inflationRate: 1
+  },
   notes: {
     general: "今の前提で気になる点や、次に見直したいことを書いておく欄です。",
     spendingReview: "例: 通信費、サブスク、保険、車、家賃など。詳細な影響試算はPro機能で追加予定です。"

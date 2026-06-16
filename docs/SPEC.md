@@ -65,17 +65,24 @@ Life Compass は、投資を主軸にしない個人向けライフプランナ�
    - 生活防衛資金
    - 将来見通し
 
-9. データ管理
+9. 老後生活プラン
+   - 退職年齢、試算終了年齢、退職金、退職後の利回り、物価上昇率を入力
+   - 退職後生活費、住居費、医療費、介護・支援費、年間特別支出を入力
+   - 公的年金、企業年金・個人年金、その他収入を入力
+   - 国民健康保険、介護保険、税金を月額概算として入力
+   - 年齢ごとの取り崩し額、年末資産、資産寿命の目安を確認
+
+10. データ管理
    - ブラウザ内保存状態
    - JSONエクスポート、JSONインポート、初期化
    - 免責事項の表示
 
-10. Pro機能紹介
+11. Pro機能紹介
    - Coming soon
    - 月500円程度を想定
-   - 複数シナリオ比較、ライフプラン診断、世帯イベント管理、予算・実績レビュー、固定費見直しインパクト、見直し履歴、詳細積立、取り崩し、退職後設計
+   - 複数シナリオ比較、ライフプラン診断、世帯イベント管理、予算・実績レビュー、固定費見直しインパクト、見直し履歴、詳細積立、取り崩し、老後生活プラン
 
-11. 法務ページ
+12. 法務ページ
    - 利用規約
    - プライバシーポリシー
    - 特定商取引法に基づく表記
@@ -89,7 +96,7 @@ Life Compass は、投資を主軸にしない個人向けライフプランナ�
 - 見直しメモ/レビュー
 - 詳細積立シミュレーション
 - 詳細取り崩しシミュレーション
-- 退職後の生活費・年金・インフレを置いた人生設計
+- 退職後の生活費・年金・社会保険・税金・インフレを置いた老後生活プラン
 - 家族/世帯モード
 
 初期版ではロック表示または Coming soon とし、無料版との機能境界を画面上で明示する。
@@ -102,6 +109,7 @@ Life Compass は、投資を主軸にしない個人向けライフプランナ�
 | 家計入力 | 基本収支 | 詳細収入変化、固定費見直し |
 | 予算・実績 | 月次の予算、実績、差額整理 | レビュー履歴、シナリオ、診断との詳細連携 |
 | 資産推移 | 10年/30年の基本見通し | 複数シナリオ比較、詳細積立、取り崩し、退職後設計 |
+| 老後生活プラン | 簡易取り崩しの確認 | 年金、国民健康保険、介護保険、税金を含む詳細見通し |
 | 生活防衛資金 | 基本チェック | 世帯/働き方別の詳細レビュー |
 | 目標管理 | 目標一覧と進捗 | 達成予定変化、レビュー履歴 |
 | ライフイベント | 年表作成 | シナリオごとの差分管理 |
@@ -121,6 +129,7 @@ type LifePlan = {
   goals: Goal[];
   events: LifeEvent[];
   simulation: SimulationSettings;
+  retirementPlan: RetirementPlanSettings;
   reviews: ReviewNote[];
   scenarios: PlanScenario[];
   fixedCostItems: FixedCostItem[];
@@ -189,6 +198,25 @@ type BudgetItem = {
   actuals: Record<string, number>;
   memo: string;
 };
+
+type RetirementPlanSettings = {
+  retirementAge: number;
+  planUntilAge: number;
+  monthlyLivingCost: number;
+  monthlyHousingCost: number;
+  monthlyMedicalCost: number;
+  monthlyCareCost: number;
+  monthlyPublicPension: number;
+  monthlyPrivatePension: number;
+  monthlyOtherIncome: number;
+  monthlyHealthInsurance: number;
+  monthlyLongTermCareInsurance: number;
+  monthlyTaxes: number;
+  annualExtraExpense: number;
+  retirementLumpSum: number;
+  annualReturnRate: number;
+  inflationRate: number;
+};
 ```
 
 ### 将来拡張用
@@ -249,6 +277,18 @@ type BudgetItem = {
 - 月利 = 想定利回り / 12
 - 各月末資産 = 前月資産 × (1 + 月利) + 毎月貯蓄額
 - 年末値を10年/30年グラフに表示
+
+### 老後生活プラン
+
+- 退職時点の試算資産 = 現在資産を退職年齢まで基本資産推移で試算した額 + 退職金・一時金
+- 年間生活費 = 退職後生活費、住居費、医療費、介護・支援費の月額合計 × 12 + 年間特別支出
+- 年間社会保険・税金 = 国民健康保険、介護保険、税金の月額概算合計 × 12
+- 年間年金等 = 公的年金、企業年金・個人年金、その他収入の月額合計 × 12
+- 年間取り崩し額 = max(0, 年間生活費 + 年間社会保険・税金 - 年間年金等)
+- 年末資産 = (前年資産 - 年間取り崩し額) × (1 + 退職後の想定利回り)
+- 生活費、社会保険・税金、年間特別支出には物価上昇率を反映する
+- 年金等は入力額を固定して扱う
+- 国民健康保険、介護保険、税金の正式な制度計算は行わず、ユーザー入力の概算前提として扱う
 
 ### 簡易積立シミュレーション
 

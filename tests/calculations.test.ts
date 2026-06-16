@@ -17,6 +17,7 @@ import {
   getInputCompletion,
   getMonthlyProjectionRows,
   projectAssets,
+  simulateRetirementPlan,
   simulateWithdrawal,
   simulateContribution
 } from "../src/utils/calculations";
@@ -54,6 +55,24 @@ const basePlan: LifePlan = {
     bonusContribution: 20000,
     annualReturnRate: 0,
     years: 2
+  },
+  retirementPlan: {
+    retirementAge: 65,
+    planUntilAge: 95,
+    monthlyLivingCost: 180000,
+    monthlyHousingCost: 30000,
+    monthlyMedicalCost: 15000,
+    monthlyCareCost: 10000,
+    monthlyPublicPension: 140000,
+    monthlyPrivatePension: 0,
+    monthlyOtherIncome: 0,
+    monthlyHealthInsurance: 15000,
+    monthlyLongTermCareInsurance: 8000,
+    monthlyTaxes: 10000,
+    annualExtraExpense: 300000,
+    retirementLumpSum: 0,
+    annualReturnRate: 0,
+    inflationRate: 0
   },
   notes: {
     general: "",
@@ -719,6 +738,95 @@ test("withdrawal simulation reports depletion age and final assets from assumpti
   assert.equal(result.finalAssets, -5000000);
 });
 
+test("retirement plan includes pension, health insurance, taxes and long-term care assumptions", () => {
+  const result = simulateRetirementPlan({
+    ...basePlan,
+    profile: { ...basePlan.profile, age: 65 },
+    household: {
+      monthlyIncome: 0,
+      annualBonus: 0,
+      sideIncome: 0,
+      fixedCost: 0,
+      variableCost: 0,
+      annualSpecialCost: 0
+    },
+    assets: {
+      cash: 10000000,
+      investment: 0,
+      other: 0,
+      debt: 0
+    },
+    retirementPlan: {
+      retirementAge: 65,
+      planUntilAge: 66,
+      monthlyLivingCost: 200000,
+      monthlyHousingCost: 0,
+      monthlyMedicalCost: 0,
+      monthlyCareCost: 0,
+      monthlyPublicPension: 150000,
+      monthlyPrivatePension: 0,
+      monthlyOtherIncome: 0,
+      monthlyHealthInsurance: 30000,
+      monthlyLongTermCareInsurance: 10000,
+      monthlyTaxes: 10000,
+      annualExtraExpense: 120000,
+      retirementLumpSum: 0,
+      annualReturnRate: 0,
+      inflationRate: 0
+    }
+  });
+
+  assert.equal(result.retirementStartAssets, 10000000);
+  assert.equal(result.firstYearTotalCost, 3120000);
+  assert.equal(result.firstYearIncome, 1800000);
+  assert.equal(result.firstYearWithdrawal, 1320000);
+  assert.equal(result.rows[0].assets, 8680000);
+});
+
+test("retirement plan uses pre-retirement projection and lump sum before withdrawals", () => {
+  const result = simulateRetirementPlan({
+    ...basePlan,
+    profile: { ...basePlan.profile, age: 64 },
+    household: {
+      monthlyIncome: 0,
+      annualBonus: 0,
+      sideIncome: 0,
+      fixedCost: 0,
+      variableCost: 0,
+      annualSpecialCost: 0
+    },
+    assets: {
+      cash: 1000000,
+      investment: 0,
+      other: 0,
+      debt: 0
+    },
+    retirementPlan: {
+      ...basePlan.retirementPlan,
+      retirementAge: 65,
+      planUntilAge: 65,
+      retirementLumpSum: 2000000,
+      monthlyLivingCost: 0,
+      monthlyHousingCost: 0,
+      monthlyMedicalCost: 0,
+      monthlyCareCost: 0,
+      monthlyPublicPension: 0,
+      monthlyPrivatePension: 0,
+      monthlyOtherIncome: 0,
+      monthlyHealthInsurance: 0,
+      monthlyLongTermCareInsurance: 0,
+      monthlyTaxes: 0,
+      annualExtraExpense: 0,
+      annualReturnRate: 0,
+      inflationRate: 0
+    }
+  });
+
+  assert.equal(result.startAge, 65);
+  assert.equal(result.retirementStartAssets, 3000000);
+  assert.equal(result.finalAssets, 3000000);
+});
+
 test("negative monthly cashflow does not produce emergency-fund arrival months", () => {
   const plan: LifePlan = {
     ...basePlan,
@@ -833,6 +941,7 @@ test("import validation rejects unrelated JSON and fills optional fields for leg
       }
     ],
     simulation: undefined,
+    retirementPlan: undefined,
     notes: undefined,
     reviews: undefined,
     scenarios: undefined,
@@ -847,6 +956,8 @@ test("import validation rejects unrelated JSON and fills optional fields for leg
     annualReturnRate: 3,
     years: 30
   });
+  assert.equal(imported.retirementPlan.retirementAge, 65);
+  assert.equal(imported.retirementPlan.monthlyPublicPension, 140000);
   assert.deepEqual(imported.notes, {
     general: "",
     spendingReview: ""
