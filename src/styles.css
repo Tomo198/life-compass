@@ -625,6 +625,7 @@ td select {
   fill: none;
   stroke: var(--primary);
   stroke-width: 3.5;
+  stroke-dasharray: 8 7;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
@@ -663,6 +664,21 @@ td select {
 .legend-line {
   height: 0.18rem !important;
   background: var(--primary);
+}
+
+.legend-median {
+  height: 0.18rem !important;
+  background: repeating-linear-gradient(90deg, var(--primary), var(--primary) 6px, transparent 6px, transparent 11px);
+}
+
+.chart-section-heading {
+  margin-top: 1.3rem;
+}
+
+.chart-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 0.75rem;
 }
 
 .chart-hit-button {
