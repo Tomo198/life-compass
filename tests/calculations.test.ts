@@ -17,7 +17,10 @@ import {
   getInputCompletion,
   getMonthlyProjectionRows,
   projectAssets,
+  simulateContributionVariability,
   simulateRetirementPlan,
+  simulateRetirementPlanVariability,
+  simulateWithdrawalVariability,
   simulateWithdrawal,
   simulateContribution
 } from "../src/utils/calculations";
@@ -722,6 +725,23 @@ test("contribution projection rows expose yearly contribution and return impact"
   assert.equal(rows[1].value, 480000);
 });
 
+test("contribution variability is deterministic and exposes lower median upper range", () => {
+  const settings = {
+    monthlyContribution: 30000,
+    bonusContribution: 120000,
+    annualReturnRate: 4,
+    years: 10
+  };
+  const first = simulateContributionVariability(settings, 12, 80);
+  const second = simulateContributionVariability(settings, 12, 80);
+
+  assert.equal(first.rows.length, 10);
+  assert.deepEqual(first, second);
+  assert.ok(first.lowerFinal <= first.medianFinal);
+  assert.ok(first.medianFinal <= first.upperFinal);
+  assert.equal(first.depletionRate, 0);
+});
+
 test("withdrawal simulation reports depletion age and final assets from assumptions", () => {
   const result = simulateWithdrawal({
     startAge: 65,
@@ -736,6 +756,26 @@ test("withdrawal simulation reports depletion age and final assets from assumpti
   assert.equal(result.rows[0].withdrawalAmount, 1200000);
   assert.equal(result.depletedAge, 65);
   assert.equal(result.finalAssets, -5000000);
+});
+
+test("withdrawal variability reports depletion cases from variable annual returns", () => {
+  const result = simulateWithdrawalVariability(
+    {
+      startAge: 65,
+      currentAssets: 1000000,
+      monthlyLivingCost: 200000,
+      monthlyPension: 100000,
+      annualReturnRate: 0,
+      inflationRate: 0,
+      years: 5
+    },
+    12,
+    80
+  );
+
+  assert.equal(result.rows.length, 5);
+  assert.ok(result.depletionRate > 0);
+  assert.ok(result.medianDepletedAge !== null);
 });
 
 test("retirement plan includes pension, health insurance, taxes and long-term care assumptions", () => {
@@ -781,6 +821,45 @@ test("retirement plan includes pension, health insurance, taxes and long-term ca
   assert.equal(result.firstYearIncome, 1800000);
   assert.equal(result.firstYearWithdrawal, 1320000);
   assert.equal(result.rows[0].assets, 8680000);
+});
+
+test("retirement plan variability keeps percentile rows and depletion rate", () => {
+  const result = simulateRetirementPlanVariability(
+    {
+      ...basePlan,
+      profile: { ...basePlan.profile, age: 65 },
+      household: {
+        monthlyIncome: 0,
+        annualBonus: 0,
+        sideIncome: 0,
+        fixedCost: 0,
+        variableCost: 0,
+        annualSpecialCost: 0
+      },
+      assets: {
+        cash: 3000000,
+        investment: 0,
+        other: 0,
+        debt: 0
+      },
+      retirementPlan: {
+        ...basePlan.retirementPlan,
+        retirementAge: 65,
+        planUntilAge: 70,
+        monthlyLivingCost: 250000,
+        monthlyPublicPension: 100000,
+        annualReturnRate: 0,
+        inflationRate: 0
+      }
+    },
+    10,
+    80
+  );
+
+  assert.equal(result.rows.length, 6);
+  assert.ok(result.lowerFinal <= result.medianFinal);
+  assert.ok(result.medianFinal <= result.upperFinal);
+  assert.ok(result.depletionRate > 0);
 });
 
 test("retirement plan uses pre-retirement projection and lump sum before withdrawals", () => {

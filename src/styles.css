@@ -616,6 +616,55 @@ td select {
   stroke-width: 3;
 }
 
+.range-band {
+  fill: color-mix(in srgb, var(--primary) 18%, transparent);
+  stroke: none;
+}
+
+.range-median-line {
+  fill: none;
+  stroke: var(--primary);
+  stroke-width: 3.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.range-dot {
+  fill: var(--accent);
+  stroke: #fff;
+  stroke-width: 1.5;
+}
+
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.chart-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.chart-legend i {
+  display: inline-block;
+  width: 1.7rem;
+  height: 0.6rem;
+  border-radius: 999px;
+}
+
+.legend-band {
+  background: color-mix(in srgb, var(--primary) 22%, transparent);
+}
+
+.legend-line {
+  height: 0.18rem !important;
+  background: var(--primary);
+}
+
 .chart-hit-button {
   cursor: pointer;
   outline: none;
@@ -687,6 +736,15 @@ td select {
 
 .chart-selection-wide {
   grid-column: 1 / -1;
+}
+
+.compact-number-field {
+  display: grid;
+  gap: 0.35rem;
+  min-width: min(13rem, 100%);
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-weight: 700;
 }
 
 .compare-row {

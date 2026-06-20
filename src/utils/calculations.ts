@@ -73,6 +73,23 @@ export type ContributionProjectionRow = {
   returnImpact: number;
 };
 
+export type VariabilityProjectionRow = {
+  yearIndex: number;
+  label: string;
+  lower: number;
+  median: number;
+  upper: number;
+};
+
+export type VariabilityResult = {
+  rows: VariabilityProjectionRow[];
+  lowerFinal: number;
+  medianFinal: number;
+  upperFinal: number;
+  depletionRate: number;
+  medianDepletedAge: number | null;
+};
+
 export type WithdrawalSettings = {
   startAge: number;
   currentAssets: number;
@@ -603,6 +620,67 @@ export const getContributionProjectionRows = (settings: SimulationSettings): Con
   return rows;
 };
 
+const percentile = (values: number[], ratio: number) => {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const index = Math.min(sorted.length - 1, Math.max(0, Math.floor((sorted.length - 1) * ratio)));
+  return sorted[index];
+};
+
+const createSeededRandom = (seed: number) => {
+  let state = seed || 1;
+  return () => {
+    state = (state * 1664525 + 1013904223) % 4294967296;
+    return state / 4294967296;
+  };
+};
+
+const sampleNormal = (random: () => number) => {
+  const first = Math.max(random(), 0.000001);
+  const second = Math.max(random(), 0.000001);
+  return Math.sqrt(-2 * Math.log(first)) * Math.cos(2 * Math.PI * second);
+};
+
+export const simulateContributionVariability = (
+  settings: SimulationSettings,
+  annualVolatilityRate = 12,
+  trials = 300
+): VariabilityResult => {
+  const yearlyValues: number[][] = Array.from({ length: settings.years }, () => []);
+
+  for (let trial = 0; trial < trials; trial += 1) {
+    const random = createSeededRandom(1000 + trial * 37 + Math.round(settings.annualReturnRate * 100));
+    let value = 0;
+
+    for (let year = 1; year <= settings.years; year += 1) {
+      const sampledAnnualRate = (settings.annualReturnRate + sampleNormal(random) * annualVolatilityRate) / 100;
+      const monthlyRate = sampledAnnualRate / 12;
+      for (let month = 1; month <= 12; month += 1) {
+        value = value * (1 + monthlyRate) + settings.monthlyContribution;
+        if (month === 12) value += settings.bonusContribution;
+      }
+      yearlyValues[year - 1].push(value);
+    }
+  }
+
+  const rows = yearlyValues.map((values, index) => ({
+    yearIndex: index + 1,
+    label: `${index + 1}年目`,
+    lower: percentile(values, 0.1),
+    median: percentile(values, 0.5),
+    upper: percentile(values, 0.9)
+  }));
+
+  return {
+    rows,
+    lowerFinal: rows[rows.length - 1]?.lower ?? 0,
+    medianFinal: rows[rows.length - 1]?.median ?? 0,
+    upperFinal: rows[rows.length - 1]?.upper ?? 0,
+    depletionRate: 0,
+    medianDepletedAge: null
+  };
+};
+
 export const simulateWithdrawal = (settings: WithdrawalSettings): WithdrawalResult => {
   const rows: WithdrawalProjectionRow[] = [];
   const annualReturnRate = settings.annualReturnRate / 100;
@@ -638,6 +716,55 @@ export const simulateWithdrawal = (settings: WithdrawalSettings): WithdrawalResu
     rows,
     depletedAge,
     finalAssets: rows[rows.length - 1]?.assets ?? settings.currentAssets
+  };
+};
+
+export const simulateWithdrawalVariability = (
+  settings: WithdrawalSettings,
+  annualVolatilityRate = 12,
+  trials = 300
+): VariabilityResult => {
+  const yearlyValues: number[][] = Array.from({ length: settings.years }, () => []);
+  const depletedAges: number[] = [];
+  const inflationRate = settings.inflationRate / 100;
+
+  for (let trial = 0; trial < trials; trial += 1) {
+    const random = createSeededRandom(2000 + trial * 53 + Math.round(settings.annualReturnRate * 100));
+    let assets = settings.currentAssets;
+    let depletedAge: number | null = null;
+
+    for (let yearIndex = 1; yearIndex <= settings.years; yearIndex += 1) {
+      const age = settings.startAge + yearIndex - 1;
+      const annualLivingCost = settings.monthlyLivingCost * 12 * (1 + inflationRate) ** (yearIndex - 1);
+      const annualPension = settings.monthlyPension * 12;
+      const withdrawalAmount = Math.max(0, annualLivingCost - annualPension);
+      const sampledAnnualRate = (settings.annualReturnRate + sampleNormal(random) * annualVolatilityRate) / 100;
+      assets = (assets - withdrawalAmount) * (1 + sampledAnnualRate);
+
+      if (assets <= 0 && depletedAge === null) {
+        depletedAge = age;
+      }
+      yearlyValues[yearIndex - 1].push(assets);
+    }
+
+    if (depletedAge !== null) depletedAges.push(depletedAge);
+  }
+
+  const rows = yearlyValues.map((values, index) => ({
+    yearIndex: index + 1,
+    label: `${settings.startAge + index}歳`,
+    lower: percentile(values, 0.1),
+    median: percentile(values, 0.5),
+    upper: percentile(values, 0.9)
+  }));
+
+  return {
+    rows,
+    lowerFinal: rows[rows.length - 1]?.lower ?? settings.currentAssets,
+    medianFinal: rows[rows.length - 1]?.median ?? settings.currentAssets,
+    upperFinal: rows[rows.length - 1]?.upper ?? settings.currentAssets,
+    depletionRate: trials > 0 ? (depletedAges.length / trials) * 100 : 0,
+    medianDepletedAge: depletedAges.length > 0 ? percentile(depletedAges, 0.5) : null
   };
 };
 
@@ -699,6 +826,71 @@ export const simulateRetirementPlan = (plan: LifePlan): RetirementPlanResult => 
     depletedAge,
     finalAssets: rows[rows.length - 1]?.assets ?? retirementStartAssets,
     rows
+  };
+};
+
+export const simulateRetirementPlanVariability = (
+  plan: LifePlan,
+  annualVolatilityRate = 10,
+  trials = 300
+): VariabilityResult => {
+  const settings = plan.retirementPlan;
+  const startAge = Math.max(plan.profile.age, settings.retirementAge);
+  const yearsToStart = Math.max(0, startAge - plan.profile.age);
+  const projectedAssets = projectAssets(plan, yearsToStart);
+  const retirementStartAssets = (projectedAssets[yearsToStart]?.value ?? getAssetSummary(plan.assets).netAssets) + settings.retirementLumpSum;
+  const simulationYears = Math.max(1, settings.planUntilAge - startAge + 1);
+  const yearlyValues: number[][] = Array.from({ length: simulationYears }, () => []);
+  const depletedAges: number[] = [];
+  const inflationRate = settings.inflationRate / 100;
+
+  for (let trial = 0; trial < trials; trial += 1) {
+    const random = createSeededRandom(3000 + trial * 71 + Math.round(settings.annualReturnRate * 100));
+    let assets = retirementStartAssets;
+    let depletedAge: number | null = null;
+
+    for (let index = 0; index < simulationYears; index += 1) {
+      const age = startAge + index;
+      const inflationFactor = (1 + inflationRate) ** index;
+      const annualLivingCost =
+        (settings.monthlyLivingCost + settings.monthlyHousingCost + settings.monthlyMedicalCost + settings.monthlyCareCost) *
+          12 *
+          inflationFactor +
+        settings.annualExtraExpense * inflationFactor;
+      const annualSocialInsuranceAndTax =
+        (settings.monthlyHealthInsurance + settings.monthlyLongTermCareInsurance + settings.monthlyTaxes) *
+        12 *
+        inflationFactor;
+      const annualRetirementIncome =
+        (settings.monthlyPublicPension + settings.monthlyPrivatePension + settings.monthlyOtherIncome) * 12;
+      const withdrawalAmount = Math.max(0, annualLivingCost + annualSocialInsuranceAndTax - annualRetirementIncome);
+      const sampledAnnualRate = (settings.annualReturnRate + sampleNormal(random) * annualVolatilityRate) / 100;
+      assets = (assets - withdrawalAmount) * (1 + sampledAnnualRate);
+
+      if (assets <= 0 && depletedAge === null) {
+        depletedAge = age;
+      }
+      yearlyValues[index].push(assets);
+    }
+
+    if (depletedAge !== null) depletedAges.push(depletedAge);
+  }
+
+  const rows = yearlyValues.map((values, index) => ({
+    yearIndex: index + 1,
+    label: `${startAge + index}歳`,
+    lower: percentile(values, 0.1),
+    median: percentile(values, 0.5),
+    upper: percentile(values, 0.9)
+  }));
+
+  return {
+    rows,
+    lowerFinal: rows[rows.length - 1]?.lower ?? retirementStartAssets,
+    medianFinal: rows[rows.length - 1]?.median ?? retirementStartAssets,
+    upperFinal: rows[rows.length - 1]?.upper ?? retirementStartAssets,
+    depletionRate: trials > 0 ? (depletedAges.length / trials) * 100 : 0,
+    medianDepletedAge: depletedAges.length > 0 ? percentile(depletedAges, 0.5) : null
   };
 };
 

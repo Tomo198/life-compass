@@ -52,9 +52,13 @@ import {
   manYen,
   percent,
   projectAssets,
+  simulateContributionVariability,
   simulateRetirementPlan,
+  simulateRetirementPlanVariability,
+  simulateWithdrawalVariability,
   simulateWithdrawal,
-  simulateContribution
+  simulateContribution,
+  type VariabilityResult
 } from "./utils/calculations";
 import { clearPlan, exportPlan, loadPlan, savePlan, validateImportedPlan } from "./utils/storage";
 
@@ -2830,6 +2834,7 @@ function SimulationView({
   const [withdrawalPension, setWithdrawalPension] = useState(120000);
   const [withdrawalReturnRate, setWithdrawalReturnRate] = useState(plan.simulation.annualReturnRate);
   const [withdrawalInflationRate, setWithdrawalInflationRate] = useState(1);
+  const [returnVariabilityRate, setReturnVariabilityRate] = useState(12);
   const projection10 = useMemo(() => projectAssets(plan, 10), [plan]);
   const projection30 = useMemo(() => projectAssets(plan, 30), [plan]);
   const annualRows = useMemo(() => getAnnualProjectionRows(plan, projectionYears), [plan, projectionYears]);
@@ -2837,6 +2842,10 @@ function SimulationView({
   const emergency = getEmergencyFundResult(plan);
   const contribution = simulateContribution(plan.simulation);
   const contributionRows = useMemo(() => getContributionProjectionRows(plan.simulation), [plan.simulation]);
+  const contributionVariability = useMemo(
+    () => simulateContributionVariability(plan.simulation, returnVariabilityRate),
+    [plan.simulation, returnVariabilityRate]
+  );
   const withdrawalResult = useMemo(
     () =>
       simulateWithdrawal({
@@ -2849,6 +2858,22 @@ function SimulationView({
         years: 40
       }),
     [plan.assets, withdrawalInflationRate, withdrawalMonthlyCost, withdrawalPension, withdrawalReturnRate, withdrawalStartAge]
+  );
+  const withdrawalVariability = useMemo(
+    () =>
+      simulateWithdrawalVariability(
+        {
+          startAge: withdrawalStartAge,
+          currentAssets: getAssetSummary(plan.assets).netAssets,
+          monthlyLivingCost: withdrawalMonthlyCost,
+          monthlyPension: withdrawalPension,
+          annualReturnRate: withdrawalReturnRate,
+          inflationRate: withdrawalInflationRate,
+          years: 40
+        },
+        returnVariabilityRate
+      ),
+    [plan.assets, returnVariabilityRate, withdrawalInflationRate, withdrawalMonthlyCost, withdrawalPension, withdrawalReturnRate, withdrawalStartAge]
   );
   const chartRows = projectionMode === "annual" ? annualRows : monthlyRows;
 
@@ -3061,6 +3086,14 @@ function SimulationView({
             </tbody>
           </table>
         </div>
+        <VariabilityPanel
+          title="利回りのばらつき試算"
+          description="年ごとの利回りが一定ではない前提を置き、下位・中央値・上位の幅を確認します。"
+          result={contributionVariability}
+          volatilityRate={returnVariabilityRate}
+          onVolatilityRateChange={setReturnVariabilityRate}
+          finalLabel={`${plan.simulation.years}年後`}
+        />
       </section>
       )}
 
@@ -3117,6 +3150,14 @@ function SimulationView({
             </tbody>
           </table>
         </div>
+        <VariabilityPanel
+          title="取り崩しのばらつき試算"
+          description="年ごとの利回りが一定ではない前提を置き、資産が尽きるケースの割合と資産残高の幅を確認します。"
+          result={withdrawalVariability}
+          volatilityRate={returnVariabilityRate}
+          onVolatilityRateChange={setReturnVariabilityRate}
+          finalLabel="40年後"
+        />
       </section>
       )}
 
@@ -3139,8 +3180,21 @@ function RetirementPlanView({
   setActiveView: (view: ViewKey) => void;
 }) {
   const settings = plan.retirementPlan || defaultPlan.retirementPlan;
+  const [retirementVariabilityRate, setRetirementVariabilityRate] = useState(10);
   const result = useMemo(() => simulateRetirementPlan({ ...plan, retirementPlan: settings }), [plan, settings]);
+  const retirementVariability = useMemo(
+    () => simulateRetirementPlanVariability({ ...plan, retirementPlan: settings }, retirementVariabilityRate),
+    [plan, retirementVariabilityRate, settings]
+  );
   const firstRow = result.rows[0];
+  const retirementChartPoints = result.rows.map((row) => ({
+    year: row.year,
+    label: `${row.age}歳`,
+    age: row.age,
+    value: row.assets,
+    eventImpact: -row.withdrawalAmount,
+    returnImpact: row.returnImpact
+  }));
   const socialMonthlyTotal =
     settings.monthlyHealthInsurance + settings.monthlyLongTermCareInsurance + settings.monthlyTaxes;
   const pensionMonthlyTotal =
@@ -3186,6 +3240,17 @@ function RetirementPlanView({
           />
           <Metric label="最終年の試算額" value={manYen(result.finalAssets)} helper={`${settings.planUntilAge}歳時点`} />
         </div>
+      </section>
+
+      <section className="panel">
+        <div className="section-heading">
+          <div>
+            <h2>老後資産の推移グラフ</h2>
+            <p>年齢ごとの年末資産をグラフで確認します。点をタップすると、その年の試算額と前年差を確認できます。</p>
+          </div>
+          <span className="status-pill recurring">{result.startAge}歳〜{settings.planUntilAge}歳</span>
+        </div>
+        <LineChart points={retirementChartPoints} />
       </section>
 
       <section className="panel form-panel">
@@ -3264,6 +3329,15 @@ function RetirementPlanView({
         </div>
       </section>
 
+      <VariabilityPanel
+        title="老後資産のばらつき試算"
+        description="退職後の利回りが毎年一定ではない前提を置き、資産残高の幅と資産が尽きるケースの割合を確認します。"
+        result={retirementVariability}
+        volatilityRate={retirementVariabilityRate}
+        onVolatilityRateChange={setRetirementVariabilityRate}
+        finalLabel={`${settings.planUntilAge}歳時点`}
+      />
+
       <section className="panel">
         <div className="section-heading">
           <div>
@@ -3325,6 +3399,74 @@ function RetirementPlanView({
         next={{ view: "scenarios", label: "シナリオ比較" }}
       />
     </div>
+  );
+}
+
+function VariabilityPanel({
+  title,
+  description,
+  result,
+  volatilityRate,
+  onVolatilityRateChange,
+  finalLabel
+}: {
+  title: string;
+  description: string;
+  result: VariabilityResult;
+  volatilityRate: number;
+  onVolatilityRateChange: (value: number) => void;
+  finalLabel: string;
+}) {
+  return (
+    <section className="panel">
+      <div className="section-heading">
+        <div>
+          <h2>{title}</h2>
+          <p>{description}</p>
+        </div>
+        <label className="compact-number-field">
+          年ごとのばらつき幅 %
+          <NumericInput value={volatilityRate} min={0} allowDecimal onChange={onVolatilityRateChange} />
+        </label>
+      </div>
+      <div className="notice-band">
+        <strong>将来を予測するものではありません</strong>
+        <span>同じ平均利回りでも年ごとの結果がぶれる前提を置いた参考試算です。下位・中央値・上位は入力条件に基づく計算上の範囲です。</span>
+      </div>
+      <VariabilityBandChart rows={result.rows} />
+      <div className="calculation-band compact">
+        <Metric label={`${finalLabel} 下位`} value={manYen(result.lowerFinal)} helper="下位10%水準" />
+        <Metric label={`${finalLabel} 中央`} value={manYen(result.medianFinal)} helper="中央値" />
+        <Metric label={`${finalLabel} 上位`} value={manYen(result.upperFinal)} helper="上位90%水準" />
+        <Metric
+          label="資産が尽きるケース"
+          value={percent(result.depletionRate)}
+          helper={result.medianDepletedAge ? `中央値 ${result.medianDepletedAge}歳` : "期間内は中央値なし"}
+        />
+      </div>
+      <div className="table-wrap projection-detail-table">
+        <table>
+          <thead>
+            <tr>
+              <th>時点</th>
+              <th>下位</th>
+              <th>中央値</th>
+              <th>上位</th>
+            </tr>
+          </thead>
+          <tbody>
+            {result.rows.map((row) => (
+              <tr key={`${row.label}-${row.yearIndex}`}>
+                <td>{row.label}</td>
+                <td>{manYen(row.lower)}</td>
+                <td>{manYen(row.median)}</td>
+                <td>{manYen(row.upper)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }
 
@@ -4611,6 +4753,85 @@ type ChartPoint = {
   returnImpact?: number;
   eventTitles?: string[];
 };
+
+function VariabilityBandChart({ rows }: { rows: VariabilityResult["rows"] }) {
+  if (rows.length === 0) return null;
+
+  const width = 900;
+  const height = 300;
+  const padding = {
+    top: 38,
+    right: 42,
+    bottom: 48,
+    left: 76
+  };
+  const minValue = Math.min(...rows.map((row) => row.lower), 0);
+  const maxValue = Math.max(...rows.map((row) => row.upper), 1);
+  const valueRange = maxValue - minValue || 1;
+  const chartWidth = width - padding.left - padding.right;
+  const chartHeight = height - padding.top - padding.bottom;
+  const xStep = chartWidth / Math.max(rows.length - 1, 1);
+  const pointFor = (row: VariabilityResult["rows"][number], index: number, key: "lower" | "median" | "upper") => ({
+    x: padding.left + index * xStep,
+    y: height - padding.bottom - ((row[key] - minValue) / valueRange) * chartHeight
+  });
+  const upperPoints = rows.map((row, index) => pointFor(row, index, "upper"));
+  const lowerPoints = rows.map((row, index) => pointFor(row, index, "lower"));
+  const medianPoints = rows.map((row, index) => pointFor(row, index, "median"));
+  const bandPath = [
+    ...upperPoints.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`),
+    ...lowerPoints
+      .slice()
+      .reverse()
+      .map((point) => `L ${point.x} ${point.y}`),
+    "Z"
+  ].join(" ");
+  const medianPath = medianPoints.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ");
+  const labelStep = rows.length > 20 ? 5 : rows.length > 12 ? 3 : 1;
+
+  return (
+    <div className="chart-block">
+      <div className="chart-wrap">
+        <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="ばらつき試算の範囲グラフ">
+          <line
+            x1={padding.left}
+            y1={height - padding.bottom}
+            x2={width - padding.right}
+            y2={height - padding.bottom}
+            className="axis"
+          />
+          <line x1={padding.left} y1={padding.top} x2={padding.left} y2={height - padding.bottom} className="axis" />
+          <text x={padding.left - 10} y={padding.top + 4} textAnchor="end" className="axis-label">
+            {manYen(maxValue)}
+          </text>
+          <text x={padding.left - 10} y={height - padding.bottom + 4} textAnchor="end" className="axis-label">
+            {manYen(minValue)}
+          </text>
+          <path d={bandPath} className="range-band" />
+          <path d={medianPath} className="range-median-line" />
+          {medianPoints.map((point, index) => {
+            const row = rows[index];
+            const showLabel = index % labelStep === 0 || index === rows.length - 1;
+            return (
+              <g key={`${row.label}-${index}`}>
+                <circle cx={point.x} cy={point.y} r="3.5" className="range-dot" />
+                {showLabel && (
+                  <text x={point.x} y={height - 16} textAnchor="middle" className="year-label">
+                    {row.label}
+                  </text>
+                )}
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+      <div className="chart-legend" aria-label="グラフ凡例">
+        <span><i className="legend-band" />下位〜上位の範囲</span>
+        <span><i className="legend-line" />中央値</span>
+      </div>
+    </div>
+  );
+}
 
 function LineChart({ points }: { points: ChartPoint[] }) {
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
