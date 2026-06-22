@@ -27,6 +27,8 @@ import type {
   ScenarioSnapshot,
   ScenarioTag,
   SimulationSettings,
+  WithdrawalPeriodSettings,
+  WithdrawalPlanSettings,
   ViewKey,
   WorkStyle
 } from "./types";
@@ -325,6 +327,24 @@ const createEmptyPlan = (): LifePlan => ({
     annualReturnRate: 0,
     years: 30
   },
+  withdrawalPlan: {
+    startAge: 0,
+    startingAssets: 0,
+    years: 40,
+    annualReturnRate: 0,
+    inflationRate: 0,
+    periods: [
+      {
+        id: createId(),
+        label: "基本期間",
+        startAge: 0,
+        endAge: 39,
+        monthlyIncome: 0,
+        monthlyLivingCost: 0,
+        annualExtraExpense: 0
+      }
+    ]
+  },
   retirementPlan: {
     ...defaultPlan.retirementPlan
   },
@@ -600,6 +620,14 @@ function App() {
 
   const updateSimulation = <K extends keyof SimulationSettings>(key: K, value: SimulationSettings[K]) => {
     commitPlan({ ...plan, simulation: { ...plan.simulation, [key]: value } });
+  };
+
+  const updateWithdrawalPlan = <K extends keyof WithdrawalPlanSettings>(key: K, value: WithdrawalPlanSettings[K]) => {
+    commitPlan({ ...plan, withdrawalPlan: { ...(plan.withdrawalPlan || defaultPlan.withdrawalPlan), [key]: value } });
+  };
+
+  const updateWithdrawalPlanPatch = (patch: Partial<WithdrawalPlanSettings>) => {
+    commitPlan({ ...plan, withdrawalPlan: { ...(plan.withdrawalPlan || defaultPlan.withdrawalPlan), ...patch } });
   };
 
   const updateRetirementPlan = <K extends keyof RetirementPlanSettings>(key: K, value: RetirementPlanSettings[K]) => {
@@ -893,7 +921,15 @@ function App() {
           />
         );
       case "simulation":
-        return <SimulationView plan={plan} updateSimulation={updateSimulation} setActiveView={setActiveView} />;
+        return (
+          <SimulationView
+            plan={plan}
+            updateSimulation={updateSimulation}
+            updateWithdrawalPlan={updateWithdrawalPlan}
+            updateWithdrawalPlanPatch={updateWithdrawalPlanPatch}
+            setActiveView={setActiveView}
+          />
+        );
       case "retirement":
         return (
           <RetirementPlanView
@@ -2819,22 +2855,105 @@ function TimelineView({
 function SimulationView({
   plan,
   updateSimulation,
+  updateWithdrawalPlan,
+  updateWithdrawalPlanPatch,
   setActiveView
 }: {
   plan: LifePlan;
   updateSimulation: <K extends keyof SimulationSettings>(key: K, value: SimulationSettings[K]) => void;
+  updateWithdrawalPlan: <K extends keyof WithdrawalPlanSettings>(key: K, value: WithdrawalPlanSettings[K]) => void;
+  updateWithdrawalPlanPatch: (patch: Partial<WithdrawalPlanSettings>) => void;
   setActiveView: (view: ViewKey) => void;
 }) {
   const [simulationTab, setSimulationTab] = useState<"basic" | "contribution" | "withdrawal">("basic");
   const [projectionMode, setProjectionMode] = useState<"annual" | "monthly">("annual");
   const [projectionYears, setProjectionYears] = useState<10 | 30>(30);
   const [projectionMonths, setProjectionMonths] = useState<12 | 24>(24);
-  const [withdrawalStartAge, setWithdrawalStartAge] = useState(Math.max(plan.profile.age + 1, 65));
-  const [withdrawalMonthlyCost, setWithdrawalMonthlyCost] = useState(getCashflowSummary(plan.household).monthlyLivingCost);
-  const [withdrawalPension, setWithdrawalPension] = useState(120000);
-  const [withdrawalReturnRate, setWithdrawalReturnRate] = useState(plan.simulation.annualReturnRate);
-  const [withdrawalInflationRate, setWithdrawalInflationRate] = useState(1);
+  const currentNetAssets = getAssetSummary(plan.assets).netAssets;
+  const currentMonthlyLivingCost = getCashflowSummary(plan.household).monthlyLivingCost;
+  const withdrawalPlan = plan.withdrawalPlan || defaultPlan.withdrawalPlan;
+  const withdrawalStartAge = withdrawalPlan.startAge;
+  const withdrawalStartingAssets = withdrawalPlan.startingAssets;
+  const withdrawalYears = withdrawalPlan.years;
+  const withdrawalReturnRate = withdrawalPlan.annualReturnRate;
+  const withdrawalInflationRate = withdrawalPlan.inflationRate;
+  const withdrawalPeriods = withdrawalPlan.periods.length > 0 ? withdrawalPlan.periods : defaultPlan.withdrawalPlan.periods;
   const [returnVariabilityRate, setReturnVariabilityRate] = useState(12);
+  const updateWithdrawalStartAge = (value: number) => {
+    updateWithdrawalPlanPatch({
+      startAge: value,
+      periods: withdrawalPeriods.map((item, index) =>
+        index === 0 ? { ...item, startAge: value, endAge: Math.max(value, item.endAge) } : item
+      )
+    });
+  };
+  const updateWithdrawalPeriod = (id: string, patch: Partial<WithdrawalPeriodSettings>) => {
+    updateWithdrawalPlan(
+      "periods",
+      withdrawalPeriods.map((item) => {
+        if (item.id !== id) return item;
+        const next = { ...item, ...patch };
+        return {
+          ...next,
+          endAge: Math.max(next.startAge, next.endAge)
+        };
+      })
+    );
+  };
+  const addWithdrawalPhase = () => {
+    const last = withdrawalPeriods[withdrawalPeriods.length - 1];
+    const startAge = (last?.endAge ?? withdrawalStartAge) + 1;
+    updateWithdrawalPlan("periods", [
+      ...withdrawalPeriods,
+      {
+        id: createId(),
+        label: "追加期間",
+        startAge,
+        endAge: startAge + 9,
+        monthlyIncome: last?.monthlyIncome ?? 0,
+        monthlyLivingCost: last?.monthlyLivingCost ?? currentMonthlyLivingCost,
+        annualExtraExpense: last?.annualExtraExpense ?? 0
+      }
+    ]);
+  };
+  const removeWithdrawalPhase = (id: string) => {
+    if (withdrawalPeriods.length <= 1) return;
+    updateWithdrawalPlan(
+      "periods",
+      withdrawalPeriods.filter((item) => item.id !== id)
+    );
+  };
+  const withdrawalPhasesForSimulation = useMemo(() => withdrawalPeriods.map(({ id: _id, ...phase }) => phase), [withdrawalPeriods]);
+  const withdrawalFallbackPhase = withdrawalPhasesForSimulation[0] ?? {
+    label: "基本期間",
+    startAge: withdrawalStartAge,
+    endAge: withdrawalStartAge + withdrawalYears - 1,
+    monthlyIncome: 0,
+    monthlyLivingCost: currentMonthlyLivingCost,
+    annualExtraExpense: 0
+  };
+  const withdrawalSettings = useMemo(
+    () => ({
+      startAge: withdrawalStartAge,
+      currentAssets: withdrawalStartingAssets,
+      monthlyLivingCost: withdrawalFallbackPhase.monthlyLivingCost,
+      monthlyPension: withdrawalFallbackPhase.monthlyIncome,
+      annualReturnRate: withdrawalReturnRate,
+      inflationRate: withdrawalInflationRate,
+      years: withdrawalYears,
+      phases: withdrawalPhasesForSimulation
+    }),
+    [
+      withdrawalFallbackPhase.monthlyIncome,
+      withdrawalFallbackPhase.monthlyLivingCost,
+      withdrawalInflationRate,
+      withdrawalPhasesForSimulation,
+      withdrawalReturnRate,
+      withdrawalStartAge,
+      withdrawalStartingAssets,
+      withdrawalYears
+    ]
+  );
   const projection10 = useMemo(() => projectAssets(plan, 10), [plan]);
   const projection30 = useMemo(() => projectAssets(plan, 30), [plan]);
   const annualRows = useMemo(() => getAnnualProjectionRows(plan, projectionYears), [plan, projectionYears]);
@@ -2854,41 +2973,23 @@ function SimulationView({
     [plan.simulation, returnVariabilityRate]
   );
   const withdrawalResult = useMemo(
-    () =>
-      simulateWithdrawal({
-        startAge: withdrawalStartAge,
-        currentAssets: getAssetSummary(plan.assets).netAssets,
-        monthlyLivingCost: withdrawalMonthlyCost,
-        monthlyPension: withdrawalPension,
-        annualReturnRate: withdrawalReturnRate,
-        inflationRate: withdrawalInflationRate,
-        years: 40
-      }),
-    [plan.assets, withdrawalInflationRate, withdrawalMonthlyCost, withdrawalPension, withdrawalReturnRate, withdrawalStartAge]
+    () => simulateWithdrawal(withdrawalSettings),
+    [withdrawalSettings]
   );
   const withdrawalVariability = useMemo(
-    () =>
-      simulateWithdrawalVariability(
-        {
-          startAge: withdrawalStartAge,
-          currentAssets: getAssetSummary(plan.assets).netAssets,
-          monthlyLivingCost: withdrawalMonthlyCost,
-          monthlyPension: withdrawalPension,
-          annualReturnRate: withdrawalReturnRate,
-          inflationRate: withdrawalInflationRate,
-          years: 40
-        },
-        returnVariabilityRate
-      ),
-    [plan.assets, returnVariabilityRate, withdrawalInflationRate, withdrawalMonthlyCost, withdrawalPension, withdrawalReturnRate, withdrawalStartAge]
+    () => simulateWithdrawalVariability(withdrawalSettings, returnVariabilityRate),
+    [returnVariabilityRate, withdrawalSettings]
   );
   const withdrawalChartPoints = withdrawalResult.rows.map((row) => ({
     year: row.yearIndex,
     label: `${row.age}歳`,
     age: row.age,
     value: row.assets,
-    eventImpact: -row.withdrawalAmount,
-    returnImpact: row.returnImpact
+    eventImpact: row.withdrawalAmount,
+    returnImpact: row.returnImpact,
+    eventTitles: row.phaseLabel ? [row.phaseLabel] : [],
+    impactLabel: "取り崩し額",
+    returnLabel: "運用の影響"
   }));
   const chartRows = projectionMode === "annual" ? annualRows : monthlyRows;
 
@@ -3131,41 +3232,105 @@ function SimulationView({
 
       {simulationTab === "withdrawal" && (
       <section className="panel form-panel">
-        <StepTitle step="8" title="退職後の取り崩しシミュレーション" description="退職後の生活費、年金見込み、利回り、インフレを置いた参考試算です。" />
+        <StepTitle step="8" title="取り崩しシミュレーション" description="FIRE、セミリタイア、年金開始前のつなぎ期間などを、期間別の収入と生活費で確認します。" />
         <div className="form-grid">
           <label>
             取り崩し開始年齢
-            <NumericInput value={withdrawalStartAge} min={plan.profile.age} onChange={setWithdrawalStartAge} />
+            <NumericInput value={withdrawalStartAge} min={plan.profile.age} onChange={updateWithdrawalStartAge} />
           </label>
-          <MoneyInput label="退職後生活費 月額" value={withdrawalMonthlyCost} onChange={setWithdrawalMonthlyCost} />
-          <MoneyInput label="年金等 月額" value={withdrawalPension} onChange={setWithdrawalPension} />
+          <MoneyInput label="試算開始時資金" value={withdrawalStartingAssets} onChange={(value) => updateWithdrawalPlan("startingAssets", value)} />
+          <label>
+            試算期間 年
+            <NumericInput value={withdrawalYears} min={1} max={80} onChange={(value) => updateWithdrawalPlan("years", value)} />
+          </label>
           <label>
             想定利回り %
-            <NumericInput value={withdrawalReturnRate} min={0} allowDecimal onChange={setWithdrawalReturnRate} />
+            <NumericInput value={withdrawalReturnRate} min={0} allowDecimal onChange={(value) => updateWithdrawalPlan("annualReturnRate", value)} />
           </label>
           <label>
             インフレ率 %
-            <NumericInput value={withdrawalInflationRate} min={0} allowDecimal onChange={setWithdrawalInflationRate} />
+            <NumericInput value={withdrawalInflationRate} min={0} allowDecimal onChange={(value) => updateWithdrawalPlan("inflationRate", value)} />
           </label>
         </div>
+        <div className="button-row">
+          <button type="button" className="secondary" onClick={() => updateWithdrawalPlan("startingAssets", currentNetAssets)}>
+            資産入力の純資産を反映
+          </button>
+          <button type="button" className="secondary" onClick={addWithdrawalPhase}>
+            期間を追加
+          </button>
+        </div>
+        <div className="table-wrap projection-detail-table">
+          <table>
+            <thead>
+              <tr>
+                <th>期間名</th>
+                <th>開始年齢</th>
+                <th>終了年齢</th>
+                <th>月収入</th>
+                <th>月生活費</th>
+                <th>年間特別支出</th>
+                <th>整理</th>
+              </tr>
+            </thead>
+            <tbody>
+              {withdrawalPeriods.map((phase) => (
+                <tr key={phase.id}>
+                  <td>
+                    <input value={phase.label} onChange={(event) => updateWithdrawalPeriod(phase.id, { label: event.target.value })} />
+                  </td>
+                  <td>
+                    <NumericInput value={phase.startAge} min={plan.profile.age} onChange={(value) => updateWithdrawalPeriod(phase.id, { startAge: value })} />
+                  </td>
+                  <td>
+                    <NumericInput value={phase.endAge} min={phase.startAge} onChange={(value) => updateWithdrawalPeriod(phase.id, { endAge: value })} />
+                  </td>
+                  <td>
+                    <NumericInput value={phase.monthlyIncome} min={0} onChange={(value) => updateWithdrawalPeriod(phase.id, { monthlyIncome: value })} />
+                  </td>
+                  <td>
+                    <NumericInput value={phase.monthlyLivingCost} min={0} onChange={(value) => updateWithdrawalPeriod(phase.id, { monthlyLivingCost: value })} />
+                  </td>
+                  <td>
+                    <NumericInput value={phase.annualExtraExpense} min={0} onChange={(value) => updateWithdrawalPeriod(phase.id, { annualExtraExpense: value })} />
+                  </td>
+                  <td>
+                    <button type="button" className="text-button danger" onClick={() => removeWithdrawalPhase(phase.id)} disabled={withdrawalPeriods.length <= 1}>
+                      削除
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
         <div className="calculation-band compact">
-          <Metric label="現在純資産" value={manYen(getAssetSummary(plan.assets).netAssets)} helper="資産合計 - 負債" />
-          <Metric label="年間取り崩し目安" value={manYen(Math.max(0, withdrawalMonthlyCost * 12 - withdrawalPension * 12))} helper="生活費 - 年金等" />
+          <Metric label="試算開始時資金" value={manYen(withdrawalStartingAssets)} helper="必要なら資産入力の純資産を反映できます" />
+          <Metric label="初年度取り崩し" value={manYen(withdrawalResult.rows[0]?.withdrawalAmount ?? 0)} helper="収入で足りない分を資産から補填" />
           <Metric
             label="資産が尽きる目安"
-            value={withdrawalResult.depletedAge ? `${withdrawalResult.depletedAge}歳` : "40年以上"}
+            value={withdrawalResult.depletedAge ? `${withdrawalResult.depletedAge}歳` : `${withdrawalYears}年以上`}
             helper="前提条件に基づく試算"
           />
-          <Metric label="40年後の試算額" value={manYen(withdrawalResult.finalAssets)} helper="運用しながら取り崩す前提" />
+          <Metric label={`${withdrawalYears}年後の試算額`} value={manYen(withdrawalResult.finalAssets)} helper="運用しながら取り崩す前提" />
+        </div>
+        <div className={`notice-band ${withdrawalVariability.depletionRate > 0 ? "notice" : "check"}`}>
+          <strong>{withdrawalVariability.depletionRate > 0 ? "資金が不足するケースがあります" : "現在の前提では期間内に資金が残る見通しです"}</strong>
+          <span>
+            ばらつき試算では、資産が尽きるケースは {percent(withdrawalVariability.depletionRate)}
+            {withdrawalVariability.medianDepletedAge ? `、中央値では ${withdrawalVariability.medianDepletedAge}歳ごろです。` : " です。"}
+            収入、生活費、試算開始時資金、利回りの前提を変えて見直せます。
+          </span>
         </div>
         <div className="table-wrap projection-detail-table">
           <table>
             <thead>
               <tr>
                 <th>年齢</th>
+                <th>期間</th>
                 <th>年末資産</th>
                 <th>年間生活費</th>
-                <th>年金等</th>
+                <th>年間収入</th>
                 <th>取り崩し額</th>
               </tr>
             </thead>
@@ -3173,6 +3338,7 @@ function SimulationView({
               {withdrawalResult.rows.map((row) => (
                 <tr key={row.yearIndex}>
                   <td>{row.age}歳</td>
+                  <td>{row.phaseLabel ?? "-"}</td>
                   <td>{manYen(row.assets)}</td>
                   <td>{manYen(row.annualLivingCost)}</td>
                   <td>{manYen(row.annualPension)}</td>
@@ -3194,9 +3360,9 @@ function SimulationView({
         </div>
         <LineChart points={withdrawalChartPoints} variabilityRows={withdrawalVariability.rows} />
         <div className="calculation-band compact">
-          <Metric label="40年後 下位10%" value={manYen(withdrawalVariability.lowerFinal)} helper="前提条件に基づく下振れ側の試算" />
-          <Metric label="40年後 中央値" value={manYen(withdrawalVariability.medianFinal)} helper="ばらつき試算の中央値" />
-          <Metric label="40年後 上位10%" value={manYen(withdrawalVariability.upperFinal)} helper="上振れ側の試算" />
+          <Metric label={`${withdrawalYears}年後 下位10%`} value={manYen(withdrawalVariability.lowerFinal)} helper="前提条件に基づく下振れ側の試算" />
+          <Metric label={`${withdrawalYears}年後 中央値`} value={manYen(withdrawalVariability.medianFinal)} helper="ばらつき試算の中央値" />
+          <Metric label={`${withdrawalYears}年後 上位10%`} value={manYen(withdrawalVariability.upperFinal)} helper="上振れ側の試算" />
           <Metric
             label="資産が尽きるケース"
             value={percent(withdrawalVariability.depletionRate)}
@@ -3210,7 +3376,7 @@ function SimulationView({
           suppressPanel
           volatilityRate={returnVariabilityRate}
           onVolatilityRateChange={setReturnVariabilityRate}
-          finalLabel="40年後"
+          finalLabel={`${withdrawalYears}年後`}
         />
       </section>
       )}
@@ -3246,8 +3412,10 @@ function RetirementPlanView({
     label: `${row.age}歳`,
     age: row.age,
     value: row.assets,
-    eventImpact: -row.withdrawalAmount,
-    returnImpact: row.returnImpact
+    eventImpact: row.withdrawalAmount,
+    returnImpact: row.returnImpact,
+    impactLabel: "取り崩し額",
+    returnLabel: "運用の影響"
   }));
   const socialMonthlyTotal =
     settings.monthlyHealthInsurance + settings.monthlyLongTermCareInsurance + settings.monthlyTaxes;
@@ -4827,6 +4995,8 @@ type ChartPoint = {
   eventImpact?: number;
   returnImpact?: number;
   eventTitles?: string[];
+  impactLabel?: string;
+  returnLabel?: string;
 };
 
 function VariabilityBandChart({ rows }: { rows: VariabilityResult["rows"] }) {
@@ -5082,13 +5252,13 @@ function LineChart({
             )}
             {"eventImpact" in selectedPoint && (
               <div>
-                <span>イベント影響</span>
+                <span>{selectedPoint.impactLabel ?? "イベント影響"}</span>
                 <strong>{selectedPoint.eventImpact ? manYen(selectedPoint.eventImpact) : "-"}</strong>
               </div>
             )}
             {"returnImpact" in selectedPoint && (
               <div>
-                <span>利回り等の影響</span>
+                <span>{selectedPoint.returnLabel ?? "利回り等の影響"}</span>
                 <strong>{selectedPoint.returnImpact ? manYen(selectedPoint.returnImpact) : "-"}</strong>
               </div>
             )}

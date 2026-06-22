@@ -105,6 +105,25 @@ export type SimulationSettings = {
   years: number;
 };
 
+export type WithdrawalPeriodSettings = {
+  id: string;
+  label: string;
+  startAge: number;
+  endAge: number;
+  monthlyIncome: number;
+  monthlyLivingCost: number;
+  annualExtraExpense: number;
+};
+
+export type WithdrawalPlanSettings = {
+  startAge: number;
+  startingAssets: number;
+  years: number;
+  annualReturnRate: number;
+  inflationRate: number;
+  periods: WithdrawalPeriodSettings[];
+};
+
 export type RetirementPlanSettings = {
   retirementAge: number;
   planUntilAge: number;
@@ -186,6 +205,7 @@ export type LifePlan = {
   goals: Goal[];
   events: LifeEvent[];
   simulation: SimulationSettings;
+  withdrawalPlan: WithdrawalPlanSettings;
   retirementPlan: RetirementPlanSettings;
   notes: PlanNotes;
   reviews: ReviewNote[];

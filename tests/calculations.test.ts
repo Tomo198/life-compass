@@ -758,6 +758,42 @@ test("withdrawal simulation reports depletion age and final assets from assumpti
   assert.equal(result.finalAssets, -5000000);
 });
 
+test("withdrawal simulation supports period-based income and living cost assumptions", () => {
+  const result = simulateWithdrawal({
+    startAge: 45,
+    currentAssets: 10000000,
+    monthlyLivingCost: 200000,
+    monthlyPension: 0,
+    annualReturnRate: 0,
+    inflationRate: 0,
+    years: 3,
+    phases: [
+      {
+        label: "セミリタイア",
+        startAge: 45,
+        endAge: 46,
+        monthlyIncome: 100000,
+        monthlyLivingCost: 250000,
+        annualExtraExpense: 120000
+      },
+      {
+        label: "軽く働く期間",
+        startAge: 47,
+        endAge: 47,
+        monthlyIncome: 200000,
+        monthlyLivingCost: 220000,
+        annualExtraExpense: 0
+      }
+    ]
+  });
+
+  assert.equal(result.rows[0].phaseLabel, "セミリタイア");
+  assert.equal(result.rows[0].withdrawalAmount, 1920000);
+  assert.equal(result.rows[2].phaseLabel, "軽く働く期間");
+  assert.equal(result.rows[2].withdrawalAmount, 240000);
+  assert.equal(result.finalAssets, 5920000);
+});
+
 test("withdrawal variability reports depletion cases from variable annual returns", () => {
   const result = simulateWithdrawalVariability(
     {
@@ -1020,6 +1056,7 @@ test("import validation rejects unrelated JSON and fills optional fields for leg
       }
     ],
     simulation: undefined,
+    withdrawalPlan: undefined,
     retirementPlan: undefined,
     notes: undefined,
     reviews: undefined,
@@ -1035,6 +1072,8 @@ test("import validation rejects unrelated JSON and fills optional fields for leg
     annualReturnRate: 3,
     years: 30
   });
+  assert.equal(imported.withdrawalPlan.startAge, 65);
+  assert.equal(imported.withdrawalPlan.periods.length, 1);
   assert.equal(imported.retirementPlan.retirementAge, 65);
   assert.equal(imported.retirementPlan.monthlyPublicPension, 140000);
   assert.deepEqual(imported.notes, {
@@ -1047,6 +1086,41 @@ test("import validation rejects unrelated JSON and fills optional fields for leg
   assert.deepEqual(imported.scenarios, []);
   assert.deepEqual(imported.fixedCostItems, []);
   assert.deepEqual(imported.budgetItems, []);
+});
+
+test("import validation preserves and normalizes withdrawal plan settings", () => {
+  const imported = validateImportedPlan({
+    ...basePlan,
+    withdrawalPlan: {
+      startAge: 50.4,
+      startingAssets: 8000000,
+      years: 120,
+      annualReturnRate: 3,
+      inflationRate: 1,
+      periods: [
+        {
+          id: "",
+          label: "",
+          startAge: 52,
+          endAge: 50,
+          monthlyIncome: Number.POSITIVE_INFINITY,
+          monthlyLivingCost: 260000,
+          annualExtraExpense: 300000
+        }
+      ]
+    }
+  });
+
+  assert.equal(imported.withdrawalPlan.startAge, 50);
+  assert.equal(imported.withdrawalPlan.startingAssets, 8000000);
+  assert.equal(imported.withdrawalPlan.years, 80);
+  assert.equal(imported.withdrawalPlan.periods.length, 1);
+  assert.ok(imported.withdrawalPlan.periods[0].id);
+  assert.equal(imported.withdrawalPlan.periods[0].label, "基本期間");
+  assert.equal(imported.withdrawalPlan.periods[0].startAge, 52);
+  assert.equal(imported.withdrawalPlan.periods[0].endAge, 52);
+  assert.equal(imported.withdrawalPlan.periods[0].monthlyIncome, 120000);
+  assert.equal(imported.withdrawalPlan.periods[0].monthlyLivingCost, 260000);
 });
 
 test("import validation normalizes budget item fields", () => {

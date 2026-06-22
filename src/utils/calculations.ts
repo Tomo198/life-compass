@@ -90,6 +90,15 @@ export type VariabilityResult = {
   medianDepletedAge: number | null;
 };
 
+export type WithdrawalPhase = {
+  label: string;
+  startAge: number;
+  endAge: number;
+  monthlyIncome: number;
+  monthlyLivingCost: number;
+  annualExtraExpense: number;
+};
+
 export type WithdrawalSettings = {
   startAge: number;
   currentAssets: number;
@@ -98,11 +107,13 @@ export type WithdrawalSettings = {
   annualReturnRate: number;
   inflationRate: number;
   years: number;
+  phases?: WithdrawalPhase[];
 };
 
 export type WithdrawalProjectionRow = {
   age: number;
   yearIndex: number;
+  phaseLabel?: string;
   assets: number;
   annualLivingCost: number;
   annualPension: number;
@@ -681,6 +692,37 @@ export const simulateContributionVariability = (
   };
 };
 
+const normalizeWithdrawalPhases = (settings: WithdrawalSettings): WithdrawalPhase[] => {
+  if (!settings.phases || settings.phases.length === 0) {
+    return [
+      {
+        label: "基本期間",
+        startAge: settings.startAge,
+        endAge: settings.startAge + settings.years - 1,
+        monthlyIncome: settings.monthlyPension,
+        monthlyLivingCost: settings.monthlyLivingCost,
+        annualExtraExpense: 0
+      }
+    ];
+  }
+
+  return settings.phases
+    .map((phase) => ({
+      ...phase,
+      startAge: Math.min(phase.startAge, phase.endAge),
+      endAge: Math.max(phase.startAge, phase.endAge),
+      monthlyIncome: Math.max(0, phase.monthlyIncome),
+      monthlyLivingCost: Math.max(0, phase.monthlyLivingCost),
+      annualExtraExpense: Math.max(0, phase.annualExtraExpense)
+    }))
+    .sort((a, b) => a.startAge - b.startAge);
+};
+
+const getWithdrawalPhaseForAge = (settings: WithdrawalSettings, age: number) => {
+  const phases = normalizeWithdrawalPhases(settings);
+  return phases.find((phase) => age >= phase.startAge && age <= phase.endAge) ?? phases[phases.length - 1];
+};
+
 export const simulateWithdrawal = (settings: WithdrawalSettings): WithdrawalResult => {
   const rows: WithdrawalProjectionRow[] = [];
   const annualReturnRate = settings.annualReturnRate / 100;
@@ -690,8 +732,10 @@ export const simulateWithdrawal = (settings: WithdrawalSettings): WithdrawalResu
 
   for (let yearIndex = 1; yearIndex <= settings.years; yearIndex += 1) {
     const age = settings.startAge + yearIndex - 1;
-    const annualLivingCost = settings.monthlyLivingCost * 12 * (1 + inflationRate) ** (yearIndex - 1);
-    const annualPension = settings.monthlyPension * 12;
+    const phase = getWithdrawalPhaseForAge(settings, age);
+    const annualLivingCost =
+      (phase.monthlyLivingCost * 12 + phase.annualExtraExpense) * (1 + inflationRate) ** (yearIndex - 1);
+    const annualPension = phase.monthlyIncome * 12;
     const withdrawalAmount = Math.max(0, annualLivingCost - annualPension);
     const beforeReturn = assets - withdrawalAmount;
     const returnImpact = beforeReturn * annualReturnRate;
@@ -704,6 +748,7 @@ export const simulateWithdrawal = (settings: WithdrawalSettings): WithdrawalResu
     rows.push({
       age,
       yearIndex,
+      phaseLabel: phase.label,
       assets,
       annualLivingCost,
       annualPension,
@@ -735,8 +780,10 @@ export const simulateWithdrawalVariability = (
 
     for (let yearIndex = 1; yearIndex <= settings.years; yearIndex += 1) {
       const age = settings.startAge + yearIndex - 1;
-      const annualLivingCost = settings.monthlyLivingCost * 12 * (1 + inflationRate) ** (yearIndex - 1);
-      const annualPension = settings.monthlyPension * 12;
+      const phase = getWithdrawalPhaseForAge(settings, age);
+      const annualLivingCost =
+        (phase.monthlyLivingCost * 12 + phase.annualExtraExpense) * (1 + inflationRate) ** (yearIndex - 1);
+      const annualPension = phase.monthlyIncome * 12;
       const withdrawalAmount = Math.max(0, annualLivingCost - annualPension);
       const sampledAnnualRate = (settings.annualReturnRate + sampleNormal(random) * annualVolatilityRate) / 100;
       assets = (assets - withdrawalAmount) * (1 + sampledAnnualRate);

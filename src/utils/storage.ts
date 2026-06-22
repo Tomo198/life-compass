@@ -10,7 +10,9 @@ import type {
   PlanScenario,
   RetirementPlanSettings,
   ReviewNote,
-  ScenarioSnapshot
+  ScenarioSnapshot,
+  WithdrawalPeriodSettings,
+  WithdrawalPlanSettings
 } from "../types";
 
 const STORAGE_KEY = "life-compass-plan-v1";
@@ -88,6 +90,7 @@ const normalizePlan = (plan: LifePlan): LifePlan => {
     goals: Array.isArray(plan.goals) ? plan.goals.map(normalizeGoal) : [],
     events: Array.isArray(plan.events) ? plan.events.map(normalizeEvent) : [],
     simulation: plan.simulation || defaultPlan.simulation,
+    withdrawalPlan: normalizeWithdrawalPlan(plan.withdrawalPlan),
     notes: {
       general: plan.notes?.general || "",
       spendingReview: plan.notes?.spendingReview || ""
@@ -161,6 +164,41 @@ const normalizeRetirementPlan = (settings: RetirementPlanSettings | undefined): 
     retirementLumpSum: finiteNumber(settings?.retirementLumpSum, defaults.retirementLumpSum),
     annualReturnRate: finiteNumber(settings?.annualReturnRate, defaults.annualReturnRate),
     inflationRate: finiteNumber(settings?.inflationRate, defaults.inflationRate)
+  };
+};
+
+const normalizeWithdrawalPeriod = (period: WithdrawalPeriodSettings | undefined, fallback: WithdrawalPeriodSettings): WithdrawalPeriodSettings => {
+  const startAge = Math.max(0, Math.round(finiteNumber(period?.startAge, fallback.startAge)));
+  const endAge = Math.max(startAge, Math.round(finiteNumber(period?.endAge, fallback.endAge)));
+
+  return {
+    id: period?.id || crypto.randomUUID(),
+    label: period?.label || fallback.label || "期間",
+    startAge,
+    endAge,
+    monthlyIncome: finiteNumber(period?.monthlyIncome, fallback.monthlyIncome),
+    monthlyLivingCost: finiteNumber(period?.monthlyLivingCost, fallback.monthlyLivingCost),
+    annualExtraExpense: finiteNumber(period?.annualExtraExpense, fallback.annualExtraExpense)
+  };
+};
+
+const normalizeWithdrawalPlan = (settings: WithdrawalPlanSettings | undefined): WithdrawalPlanSettings => {
+  const defaults = defaultPlan.withdrawalPlan;
+  const startAge = Math.max(0, Math.round(finiteNumber(settings?.startAge, defaults.startAge)));
+  const years = Math.max(1, Math.min(80, Math.round(finiteNumber(settings?.years, defaults.years))));
+  const fallbackPeriod = defaults.periods[0];
+  const periods =
+    Array.isArray(settings?.periods) && settings.periods.length > 0
+      ? settings.periods.map((period) => normalizeWithdrawalPeriod(period, fallbackPeriod))
+      : defaults.periods.map((period) => normalizeWithdrawalPeriod(period, period));
+
+  return {
+    startAge,
+    startingAssets: finiteNumber(settings?.startingAssets, defaults.startingAssets),
+    years,
+    annualReturnRate: finiteNumber(settings?.annualReturnRate, defaults.annualReturnRate),
+    inflationRate: finiteNumber(settings?.inflationRate, defaults.inflationRate),
+    periods
   };
 };
 

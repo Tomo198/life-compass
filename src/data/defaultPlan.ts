@@ -92,6 +92,24 @@ export const defaultPlan: LifePlan = {
     annualReturnRate: 3,
     years: 30
   },
+  withdrawalPlan: {
+    startAge: 65,
+    startingAssets: 2900000,
+    years: 40,
+    annualReturnRate: 3,
+    inflationRate: 1,
+    periods: [
+      {
+        id: createId(),
+        label: "基本期間",
+        startAge: 65,
+        endAge: 104,
+        monthlyIncome: 120000,
+        monthlyLivingCost: 220000,
+        annualExtraExpense: 0
+      }
+    ]
+  },
   retirementPlan: {
     retirementAge: 65,
     planUntilAge: 95,
