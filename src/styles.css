@@ -45,8 +45,8 @@ body {
   min-width: 320px;
   min-height: 100vh;
   background:
-    linear-gradient(180deg, color-mix(in srgb, var(--bg) 80%, transparent), var(--bg)),
-    radial-gradient(circle at top left, rgba(47, 111, 100, 0.12), transparent 34rem);
+    linear-gradient(180deg, color-mix(in srgb, var(--surface-soft) 34%, var(--bg)) 0, var(--bg) 22rem),
+    var(--bg);
 }
 
 button,
@@ -57,6 +57,7 @@ textarea {
 }
 
 button {
+  max-width: 100%;
   border: 0;
   border-radius: 8px;
   background: var(--primary);
@@ -67,6 +68,7 @@ button {
     background 160ms ease,
     transform 160ms ease,
     box-shadow 160ms ease;
+  touch-action: manipulation;
 }
 
 button:hover {
@@ -91,6 +93,10 @@ textarea {
   color: var(--ink);
   min-height: 2.75rem;
   padding: 0.68rem 0.75rem;
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    background 160ms ease;
 }
 
 textarea {
@@ -158,7 +164,7 @@ td select {
 
 .app-shell {
   display: grid;
-  grid-template-columns: 17.5rem minmax(0, 1fr);
+  grid-template-columns: 16.25rem minmax(0, 1fr);
   min-height: 100vh;
 }
 
@@ -212,17 +218,33 @@ td select {
 
 .nav-list button {
   width: 100%;
+  position: relative;
   background: transparent;
   color: var(--ink);
   text-align: left;
   border: 1px solid transparent;
+  min-height: 2.65rem;
+  font-weight: 700;
+  transition:
+    background 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease;
 }
 
 .nav-list button:hover,
 .nav-list button.active {
-  background: var(--surface-soft);
-  border-color: var(--line);
+  background: color-mix(in srgb, var(--surface-soft) 82%, var(--surface));
+  border-color: color-mix(in srgb, var(--primary) 16%, var(--line));
   color: var(--primary-dark);
+}
+
+.nav-list button.active::before {
+  content: "";
+  position: absolute;
+  inset: 0.55rem auto 0.55rem 0.45rem;
+  width: 0.2rem;
+  border-radius: 999px;
+  background: var(--primary);
 }
 
 .sidebar-note {
@@ -236,7 +258,7 @@ td select {
 
 .main-area {
   min-width: 0;
-  padding: 2rem;
+  padding: clamp(1.45rem, 2vw, 2rem);
 }
 
 .topbar {
@@ -256,6 +278,7 @@ td select {
   display: flex;
   flex-wrap: wrap;
   gap: 0.7rem;
+  min-width: 0;
 }
 
 .data-actions {
@@ -269,6 +292,7 @@ td select {
   display: flex;
   flex-wrap: wrap;
   gap: 0.65rem;
+  min-width: 0;
 }
 
 .secondary {
@@ -305,9 +329,11 @@ td select {
 .view-stack {
   display: grid;
   gap: 1.2rem;
+  min-width: 0;
 }
 
 .panel {
+  min-width: 0;
   background: color-mix(in srgb, var(--surface) 92%, transparent);
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -317,6 +343,53 @@ td select {
 
 .form-panel {
   padding: 1.35rem;
+}
+
+.dashboard-overview {
+  display: grid;
+  gap: 1.05rem;
+  padding: clamp(1rem, 2vw, 1.4rem);
+  border: 1px solid color-mix(in srgb, var(--line) 78%, transparent);
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, var(--surface-soft)), var(--surface)),
+    var(--surface);
+  box-shadow: 0 18px 44px rgba(36, 48, 47, 0.07);
+}
+
+.dashboard-overview .summary-grid {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+.dashboard-overview .summary-grid .metric:first-child {
+  grid-column: span 2;
+}
+
+.dashboard-overview-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  min-width: 0;
+}
+
+.dashboard-overview-header h2 {
+  margin-bottom: 0;
+  font-size: clamp(1.3rem, 2vw, 1.9rem);
+  line-height: 1.2;
+  letter-spacing: 0;
+}
+
+.dashboard-overview-header > span {
+  flex: 0 0 auto;
+  padding: 0.45rem 0.72rem;
+  border: 1px solid color-mix(in srgb, var(--primary) 20%, var(--line));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface-soft) 82%, var(--surface));
+  color: var(--primary-dark);
+  font-size: 0.86rem;
+  font-weight: 800;
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, #fff 72%, transparent);
 }
 
 .summary-grid {
@@ -331,13 +404,53 @@ td select {
 }
 
 .metric {
+  position: relative;
   display: grid;
   gap: 0.45rem;
-  min-height: 7.8rem;
+  min-height: 7.55rem;
   padding: 1rem;
-  border: 1px solid var(--line);
+  border: 1px solid color-mix(in srgb, var(--line) 84%, transparent);
   border-radius: 8px;
-  background: var(--surface);
+  background: color-mix(in srgb, var(--surface) 94%, var(--surface-soft));
+  overflow: hidden;
+  transition:
+    border-color 160ms ease,
+    transform 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.metric::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 0.18rem;
+  background: color-mix(in srgb, var(--primary) 20%, transparent);
+}
+
+.metric:focus-within {
+  border-color: color-mix(in srgb, var(--primary) 42%, var(--line));
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary) 10%, transparent);
+}
+
+.metric:hover {
+  border-color: color-mix(in srgb, var(--primary) 28%, var(--line));
+  transform: translateY(-1px);
+  box-shadow: 0 14px 28px rgba(36, 48, 47, 0.08);
+}
+
+.dashboard-overview .summary-grid .metric:first-child {
+  background: linear-gradient(180deg, var(--primary), var(--primary-dark));
+  border-color: transparent;
+  color: #fff;
+}
+
+.dashboard-overview .summary-grid .metric:first-child::before {
+  background: color-mix(in srgb, #fff 44%, transparent);
+}
+
+.dashboard-overview .summary-grid .metric:first-child span,
+.dashboard-overview .summary-grid .metric:first-child small {
+  color: color-mix(in srgb, #fff 78%, transparent);
 }
 
 .metric span {
@@ -365,20 +478,25 @@ td select {
 .quick-action-grid button {
   display: grid;
   gap: 0.3rem;
-  min-height: 4.7rem;
-  border: 1px solid var(--line);
-  background: var(--surface);
+  min-height: 4.35rem;
+  padding: 0.85rem;
+  border: 1px solid color-mix(in srgb, var(--line) 84%, transparent);
+  background: color-mix(in srgb, var(--surface) 92%, var(--surface-soft));
   color: var(--ink);
   text-align: left;
+  align-content: center;
 }
 
 .quick-action-grid button:hover {
-  background: var(--surface-soft);
+  background: var(--surface);
+  transform: translateY(-1px);
+  box-shadow: 0 10px 20px rgba(36, 48, 47, 0.07);
 }
 
 .quick-action-grid span {
   color: var(--muted);
   font-size: 0.86rem;
+  line-height: 1.45;
 }
 
 .split-layout {
@@ -388,30 +506,59 @@ td select {
 }
 
 .onboarding-panel {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--surface-soft) 78%, var(--surface)), var(--surface));
+  border-color: color-mix(in srgb, var(--primary) 16%, var(--line));
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--surface-soft) 82%, var(--surface)) 0%, var(--surface) 72%),
+    var(--surface);
+  box-shadow: 0 18px 42px rgba(36, 48, 47, 0.07);
+}
+
+.onboarding-panel .section-heading {
+  margin-bottom: 0.75rem;
+}
+
+.onboarding-panel p {
+  max-width: 52rem;
+}
+
+.onboarding-panel .button-row {
+  align-self: center;
 }
 
 .onboarding-steps {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0.8rem;
+  gap: 0.65rem;
 }
 
 .onboarding-steps button {
   display: grid;
-  gap: 0.4rem;
-  min-height: 6rem;
-  border: 1px solid var(--line);
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.22rem 0.55rem;
+  min-height: 4.9rem;
+  padding: 0.72rem;
+  border: 1px solid color-mix(in srgb, var(--line) 84%, transparent);
   background: var(--surface);
   color: var(--ink);
   text-align: left;
+  transition:
+    border-color 160ms ease,
+    transform 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.onboarding-steps button:hover {
+  border-color: color-mix(in srgb, var(--primary) 28%, var(--line));
+  transform: translateY(-1px);
+  box-shadow: 0 12px 24px rgba(36, 48, 47, 0.08);
 }
 
 .onboarding-steps button span {
+  grid-row: span 2;
   display: inline-grid;
   place-items: center;
-  width: 1.65rem;
-  height: 1.65rem;
+  width: 1.55rem;
+  height: 1.55rem;
   border-radius: 999px;
   background: var(--surface-soft);
   color: var(--primary-dark);
@@ -420,6 +567,7 @@ td select {
 
 .onboarding-steps button small {
   color: var(--muted);
+  font-size: 0.8rem;
   line-height: 1.45;
 }
 
@@ -432,6 +580,7 @@ td select {
   justify-content: space-between;
   gap: 1rem;
   align-items: flex-start;
+  min-width: 0;
   margin-bottom: 1rem;
 }
 
@@ -972,11 +1121,14 @@ td select {
 
 .mobile-record {
   display: grid;
-  gap: 0.75rem;
+  gap: 0.82rem;
   padding: 1rem;
-  border: 1px solid var(--line);
+  border: 1px solid color-mix(in srgb, var(--line) 84%, transparent);
   border-radius: 8px;
-  background: var(--surface);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 98%, var(--surface-soft)), var(--surface)),
+    var(--surface);
+  box-shadow: 0 10px 22px rgba(36, 48, 47, 0.05);
 }
 
 .mobile-record-head {
@@ -984,6 +1136,9 @@ td select {
   justify-content: space-between;
   gap: 0.8rem;
   align-items: flex-start;
+  min-width: 0;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
 }
 
 .mobile-record dl {
@@ -1009,12 +1164,31 @@ td select {
 
 .mobile-record-title {
   flex: 1 1 14rem;
+  min-width: 0;
 }
 
 .mobile-edit-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.8rem;
+  gap: 0.72rem;
+}
+
+.mobile-record label,
+.mobile-record .mobile-field-wide {
+  margin: 0;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.mobile-record input,
+.mobile-record select {
+  min-height: 2.72rem;
+  background: color-mix(in srgb, var(--surface) 97%, var(--surface-soft));
+}
+
+.mobile-record-title input {
+  font-size: 1rem;
+  font-weight: 800;
 }
 
 .mobile-field-wide {
@@ -1026,7 +1200,7 @@ td select {
 }
 
 .mobile-delete-button {
-  justify-self: start;
+  justify-self: end;
 }
 
 .template-panel {
@@ -1034,9 +1208,11 @@ td select {
   gap: 0.75rem;
   margin-bottom: 1rem;
   padding: 0.95rem;
-  border: 1px solid var(--line);
+  border: 1px solid color-mix(in srgb, var(--line) 84%, transparent);
   border-radius: 8px;
-  background: var(--surface-soft);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 88%, var(--surface-soft)), var(--surface-soft)),
+    var(--surface-soft);
 }
 
 .template-panel > div:first-child {
@@ -1063,42 +1239,107 @@ td select {
 
 .list-toolbar {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
-  gap: 0.75rem;
+  grid-template-columns: minmax(18rem, 2fr) repeat(3, minmax(8.5rem, 1fr));
+  gap: 0.7rem;
   align-items: end;
-  margin: 1rem 0;
-  padding: 0.85rem;
-  border: 1px solid var(--line);
+  margin: 1.1rem 0;
+  padding: 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--line) 82%, transparent);
   border-radius: 8px;
-  background: var(--surface-soft);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 94%, var(--surface-soft)), var(--surface-soft)),
+    var(--surface-soft);
+  box-shadow: 0 10px 24px rgba(36, 48, 47, 0.045);
+}
+
+.list-toolbar:focus-within {
+  border-color: color-mix(in srgb, var(--primary) 26%, var(--line));
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary) 8%, transparent);
+}
+
+.list-toolbar label:first-child {
+  grid-column: auto;
 }
 
 .list-toolbar label {
   display: grid;
   gap: 0.35rem;
   margin: 0;
+  color: color-mix(in srgb, var(--muted) 88%, var(--ink));
+  font-size: 0.82rem;
+  font-weight: 800;
+  letter-spacing: 0;
+}
+
+.list-toolbar input,
+.list-toolbar select {
+  min-height: 2.56rem;
+  background: color-mix(in srgb, var(--surface) 96%, var(--surface-soft));
+  border-color: color-mix(in srgb, var(--line) 82%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 70%, transparent);
+}
+
+.list-toolbar label:first-child input {
+  font-weight: 700;
+}
+
+.list-toolbar input::placeholder {
+  color: color-mix(in srgb, var(--muted) 70%, transparent);
+}
+
+.list-toolbar input:focus-visible,
+.list-toolbar select:focus-visible {
+  border-color: color-mix(in srgb, var(--primary) 48%, var(--line));
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary) 10%, transparent);
 }
 
 .list-toolbar > span {
+  grid-column: 1 / -1;
+  justify-self: end;
+  align-self: center;
+  margin-top: -0.25rem;
+  padding: 0.42rem 0.64rem;
+  border: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 84%, var(--surface-soft));
   color: var(--muted);
-  font-size: 0.86rem;
+  font-size: 0.82rem;
+  font-weight: 800;
   white-space: nowrap;
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, #fff 70%, transparent);
 }
 
 .compact-list {
   display: grid;
-  gap: 0.7rem;
+  gap: 0.65rem;
 }
 
 .compact-list-row {
+  position: relative;
   display: grid;
   grid-template-columns: minmax(13rem, 1.35fr) minmax(11rem, 1fr) minmax(8rem, 0.75fr) minmax(7rem, 0.55fr) minmax(9rem, 0.75fr) auto;
-  gap: 0.75rem;
+  gap: 0.68rem;
   align-items: end;
-  padding: 0.85rem;
-  border: 1px solid var(--line);
+  padding: 0.82rem;
+  border: 1px solid color-mix(in srgb, var(--line) 84%, transparent);
+  border-left: 0.24rem solid color-mix(in srgb, var(--primary) 44%, var(--line));
   border-radius: 8px;
-  background: var(--surface);
+  background: color-mix(in srgb, var(--surface) 96%, var(--surface-soft));
+  transition:
+    border-color 160ms ease,
+    transform 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.compact-list-row:focus-within {
+  border-color: color-mix(in srgb, var(--primary) 34%, var(--line));
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary) 8%, transparent);
+}
+
+.compact-list-row:hover {
+  border-color: color-mix(in srgb, var(--primary) 28%, var(--line));
+  transform: translateY(-1px);
+  box-shadow: 0 10px 22px rgba(36, 48, 47, 0.065);
 }
 
 .compact-list-row label,
@@ -1114,6 +1355,10 @@ td select {
   gap: 0.2rem;
   align-self: center;
   min-width: 0;
+  padding: 0.65rem 0.72rem;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface-soft) 70%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--line) 64%, transparent);
 }
 
 .compact-summary span,
@@ -1160,9 +1405,138 @@ td select {
 
 .table-wrap {
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
   overflow-x: auto;
-  border: 1px solid var(--line);
+  border: 1px solid color-mix(in srgb, var(--line) 84%, transparent);
   border-radius: 8px;
+  background: var(--surface);
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--primary) 42%, var(--line)) color-mix(in srgb, var(--surface-soft) 80%, transparent);
+}
+
+.table-wrap:focus-within {
+  border-color: color-mix(in srgb, var(--primary) 28%, var(--line));
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary) 8%, transparent);
+}
+
+.table-wrap::-webkit-scrollbar {
+  height: 0.55rem;
+}
+
+.table-wrap::-webkit-scrollbar-track {
+  background: color-mix(in srgb, var(--surface-soft) 82%, transparent);
+}
+
+.table-wrap::-webkit-scrollbar-thumb {
+  border: 0.14rem solid color-mix(in srgb, var(--surface-soft) 82%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--primary) 42%, var(--line));
+}
+
+.goal-table-wrap {
+  box-shadow: none;
+}
+
+.goal-table {
+  width: 100%;
+  min-width: 0;
+  table-layout: fixed;
+}
+
+.goal-table th,
+.goal-table td {
+  padding: 0.7rem 0.68rem;
+}
+
+.goal-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: color-mix(in srgb, var(--surface-soft) 86%, var(--surface));
+  color: color-mix(in srgb, var(--ink) 62%, var(--muted));
+  letter-spacing: 0;
+}
+
+.goal-table th:nth-child(1),
+.goal-table td:nth-child(1) {
+  width: 16%;
+}
+
+.goal-table th:nth-child(2),
+.goal-table td:nth-child(2) {
+  width: 9%;
+}
+
+.goal-table th:nth-child(5),
+.goal-table td:nth-child(5) {
+  width: 7%;
+}
+
+.goal-table th:nth-child(9),
+.goal-table td:nth-child(9) {
+  width: 5%;
+}
+
+.goal-table th:nth-child(3),
+.goal-table td:nth-child(3) {
+  width: 11%;
+}
+
+.goal-table th:nth-child(4),
+.goal-table td:nth-child(4) {
+  width: 13%;
+}
+
+.goal-table th:nth-child(6),
+.goal-table td:nth-child(6) {
+  width: 14%;
+}
+
+.goal-table th:nth-child(7),
+.goal-table td:nth-child(7) {
+  width: 15%;
+}
+
+.goal-table th:nth-child(8),
+.goal-table td:nth-child(8) {
+  width: 10%;
+}
+
+.goal-table td input,
+.goal-table td select {
+  width: 100%;
+  min-width: 0;
+}
+
+.goal-table .goal-field-stack,
+.goal-table .goal-achievement-summary {
+  min-width: 0;
+}
+
+.goal-table .year-stepper {
+  grid-template-columns: 2rem minmax(4.7rem, 1fr) 2rem;
+}
+
+.goal-table .stepper-button {
+  min-height: 2.45rem;
+}
+
+.goal-table .status-pill {
+  max-width: 100%;
+  white-space: normal;
+}
+
+.goal-table tbody tr {
+  transition: background 160ms ease;
+}
+
+.goal-table tbody tr:nth-child(even) {
+  background: color-mix(in srgb, var(--surface-soft) 26%, transparent);
+}
+
+.goal-table tbody tr:hover {
+  background: color-mix(in srgb, var(--surface-soft) 52%, transparent);
 }
 
 .table-wrap.narrow {
@@ -1244,9 +1618,11 @@ td select {
   gap: 1rem;
   margin-bottom: 1.2rem;
   padding: 1rem;
-  border: 1px solid var(--line);
+  border: 1px solid color-mix(in srgb, var(--line) 84%, transparent);
   border-radius: 8px;
-  background: var(--surface-soft);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 94%, var(--surface-soft)), var(--surface-soft)),
+    var(--surface-soft);
 }
 
 .life-calendar .section-heading {
@@ -1261,16 +1637,24 @@ td select {
 .calendar-next-list {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0.75rem;
+  gap: 0.65rem;
 }
 
 .calendar-next-list div {
   display: grid;
   gap: 0.2rem;
-  padding: 0.75rem;
-  border: 1px solid var(--line);
+  padding: 0.72rem;
+  border: 1px solid color-mix(in srgb, var(--line) 84%, transparent);
   border-radius: 8px;
-  background: var(--surface);
+  background: color-mix(in srgb, var(--surface) 96%, var(--surface-soft));
+  box-shadow: 0 8px 18px rgba(36, 48, 47, 0.045);
+}
+
+.calendar-next-list div:first-child {
+  border-color: color-mix(in srgb, var(--primary) 32%, var(--line));
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface-soft) 54%, var(--surface)), var(--surface)),
+    var(--surface);
 }
 
 .calendar-next-list span,
@@ -1281,11 +1665,26 @@ td select {
 
 .calendar-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(12.5rem, 1fr));
-  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 0.68rem;
   max-height: 34rem;
   overflow: auto;
   padding-right: 0.2rem;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--primary) 42%, var(--line)) transparent;
+}
+
+.calendar-grid::-webkit-scrollbar {
+  width: 0.55rem;
+}
+
+.calendar-grid::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.calendar-grid::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--primary) 36%, var(--line));
 }
 
 .calendar-year-card {
@@ -1294,24 +1693,47 @@ td select {
   gap: 0.65rem;
   min-height: 9rem;
   padding: 0.8rem;
-  border: 1px solid var(--line);
+  border: 1px solid color-mix(in srgb, var(--line) 84%, transparent);
   border-radius: 8px;
-  background: var(--surface);
+  background: color-mix(in srgb, var(--surface) 97%, var(--surface-soft));
   cursor: pointer;
+  outline-offset: 2px;
+  transition:
+    border-color 160ms ease,
+    transform 160ms ease,
+    box-shadow 160ms ease,
+    background 160ms ease;
+}
+
+.calendar-year-card:hover {
+  border-color: color-mix(in srgb, var(--primary) 24%, var(--line));
+  background: var(--surface);
+  transform: translateY(-1px);
+  box-shadow: 0 14px 26px rgba(36, 48, 47, 0.08);
 }
 
 .calendar-year-card.current {
   border-color: var(--primary);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface-soft) 58%, var(--surface)), var(--surface)),
+    var(--surface);
 }
 
 .calendar-year-card.selected {
-  outline: 2px solid color-mix(in srgb, var(--primary) 60%, transparent);
-  outline-offset: 2px;
+  border-color: color-mix(in srgb, var(--primary) 70%, var(--line));
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--primary) 14%, transparent),
+    0 14px 26px rgba(36, 48, 47, 0.08);
 }
 
 .calendar-year-card:focus-visible {
   outline: 3px solid color-mix(in srgb, var(--primary) 70%, transparent);
   outline-offset: 2px;
+}
+
+.calendar-year-card:active {
+  transform: translateY(0);
+  box-shadow: 0 7px 14px rgba(36, 48, 47, 0.06);
 }
 
 .calendar-year-card > p {
@@ -1345,10 +1767,12 @@ td select {
 .calendar-entry {
   display: grid;
   gap: 0.35rem;
-  padding: 0.65rem;
+  padding: 0.6rem;
+  border: 1px solid color-mix(in srgb, var(--line) 78%, transparent);
   border-left: 0.24rem solid var(--line);
   border-radius: 6px;
-  background: var(--surface-soft);
+  background: color-mix(in srgb, var(--surface-soft) 84%, var(--surface));
+  min-width: 0;
 }
 
 .calendar-entry.goal {
@@ -1401,9 +1825,10 @@ td select {
   display: grid;
   gap: 0.75rem;
   padding: 0.95rem;
-  border: 1px solid var(--line);
+  border: 1px solid color-mix(in srgb, var(--line) 84%, transparent);
   border-radius: 8px;
-  background: var(--surface);
+  background: color-mix(in srgb, var(--surface) 97%, var(--surface-soft));
+  box-shadow: 0 12px 28px rgba(36, 48, 47, 0.045);
 }
 
 .calendar-detail-head {
@@ -1436,9 +1861,10 @@ td select {
   gap: 0.45rem;
   min-height: 5.5rem;
   padding: 0.65rem;
-  border: 1px solid var(--line);
+  border: 1px solid color-mix(in srgb, var(--line) 84%, transparent);
   border-radius: 8px;
-  background: var(--surface-soft);
+  background: color-mix(in srgb, var(--surface-soft) 78%, var(--surface));
+  min-width: 0;
 }
 
 .calendar-month-card > span {
@@ -1485,7 +1911,7 @@ td select {
 
 .calendar-list-panel {
   display: grid;
-  gap: 0.55rem;
+  gap: 0.68rem;
 }
 
 .calendar-list-row {
@@ -1493,10 +1919,27 @@ td select {
   grid-template-columns: minmax(12rem, 1.3fr) minmax(10rem, 0.8fr) minmax(12rem, 1fr);
   gap: 0.75rem;
   align-items: center;
-  padding: 0.75rem;
+  padding: 0.86rem 0.9rem;
+  border: 1px solid color-mix(in srgb, var(--line) 84%, transparent);
   border-left: 0.24rem solid var(--line);
   border-radius: 8px;
-  background: var(--surface);
+  background: color-mix(in srgb, var(--surface) 96%, var(--surface-soft));
+  min-width: 0;
+  transition:
+    border-color 160ms ease,
+    transform 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.calendar-list-row:hover {
+  border-color: color-mix(in srgb, var(--primary) 24%, var(--line));
+  transform: translateY(-1px);
+  box-shadow: 0 12px 24px rgba(36, 48, 47, 0.08);
+}
+
+.calendar-list-row:focus-within {
+  border-color: color-mix(in srgb, var(--primary) 34%, var(--line));
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary) 8%, transparent);
 }
 
 .calendar-list-row.goal {
@@ -1524,6 +1967,11 @@ td select {
 .calendar-list-row small {
   color: var(--muted);
   font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+.calendar-list-row strong {
+  overflow-wrap: anywhere;
 }
 
 .timeline {
@@ -1557,7 +2005,7 @@ td select {
 
 .timeline-fields {
   display: grid;
-  grid-template-columns: minmax(15rem, 1.2fr) minmax(11rem, 0.8fr) minmax(12rem, 0.9fr) minmax(9rem, 0.7fr) auto;
+  grid-template-columns: minmax(10rem, 1fr) minmax(8rem, 0.8fr) minmax(8rem, 0.8fr) minmax(8rem, 0.8fr);
   gap: 0.9rem;
   align-items: start;
 }
@@ -1586,7 +2034,29 @@ td select {
 }
 
 .impact-field {
-  min-width: 13rem;
+  grid-column: span 2;
+  min-width: 0;
+}
+
+.timeline-fields .year-age-control {
+  min-width: 0;
+}
+
+.timeline-fields .year-stepper {
+  grid-template-columns: 2rem minmax(4.6rem, 1fr) 2rem;
+}
+
+.timeline-fields .stepper-button {
+  min-height: 2.45rem;
+}
+
+.timeline-fields > .text-button {
+  align-self: end;
+  justify-self: start;
+}
+
+.impact-field {
+  min-width: 0;
 }
 
 .year-age-control {
@@ -2201,7 +2671,9 @@ td select {
 
 @media (max-width: 720px) {
   body {
-    background: var(--bg);
+    background:
+      linear-gradient(180deg, color-mix(in srgb, var(--surface-soft) 42%, var(--bg)) 0, var(--bg) 12rem),
+      var(--bg);
   }
 
   button,
@@ -2242,11 +2714,12 @@ td select {
     inset: auto 0 0;
     z-index: 50;
     height: auto;
-    padding: 0.45rem 0.65rem calc(0.45rem + env(safe-area-inset-bottom));
-    border-top: 1px solid var(--line);
+    padding: 0.48rem 0.7rem calc(0.5rem + env(safe-area-inset-bottom));
+    border-top: 1px solid color-mix(in srgb, var(--line) 78%, transparent);
     border-right: 0;
     background: color-mix(in srgb, var(--surface) 94%, transparent);
-    box-shadow: 0 -12px 28px rgba(36, 48, 47, 0.12);
+    box-shadow: 0 -16px 34px rgba(36, 48, 47, 0.13);
+    backdrop-filter: blur(14px);
   }
 
   .brand,
@@ -2256,11 +2729,19 @@ td select {
 
   .nav-list {
     display: flex;
-    gap: 0.35rem;
+    gap: 0.42rem;
     overflow-x: auto;
-    padding: 0.15rem 0.1rem 0.25rem;
+    padding: 0.15rem 0.1rem 0.3rem;
+    scroll-padding-inline: 0.75rem;
     scroll-snap-type: x proximity;
     scrollbar-width: none;
+    -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 0.35rem, #000 calc(100% - 0.75rem), transparent 100%);
+    mask-image: linear-gradient(90deg, transparent 0, #000 0.35rem, #000 calc(100% - 0.75rem), transparent 100%);
+  }
+
+  .nav-list::after {
+    content: "";
+    flex: 0 0 0.8rem;
   }
 
   .nav-list::-webkit-scrollbar {
@@ -2268,20 +2749,33 @@ td select {
   }
 
   .nav-list button {
-    flex: 0 0 5.35rem;
+    flex: 0 0 6.75rem;
     display: flex;
     align-items: center;
     justify-content: center;
     width: auto;
-    min-width: 5.35rem;
-    min-height: 3.6rem;
-    padding: 0.45rem 0.35rem;
+    min-width: 6.75rem;
+    min-height: 3.35rem;
+    padding: 0.48rem 0.54rem;
     border-radius: 8px;
-    white-space: normal;
+    white-space: nowrap;
     text-align: center;
-    font-size: 0.74rem;
+    font-size: clamp(0.68rem, 2.9vw, 0.78rem);
+    font-weight: 700;
     line-height: 1.25;
     scroll-snap-align: start;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .nav-list button.active::before {
+    inset: auto 1.1rem 0.34rem;
+    width: auto;
+    height: 0.18rem;
+  }
+
+  .nav-list button.active {
+    box-shadow: 0 8px 18px rgba(36, 48, 47, 0.1);
   }
 
   .topbar,
@@ -2313,21 +2807,32 @@ td select {
   }
 
   .topbar-actions {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) 4rem;
     gap: 0.45rem;
   }
 
   .topbar-actions button,
   .data-actions button {
     flex: initial;
+    min-width: 0;
     min-height: 2.45rem;
     padding: 0.52rem 0.7rem;
     font-size: 0.88rem;
+    white-space: nowrap;
+  }
+
+  .topbar-actions button:first-child {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .topbar-actions button:last-child {
+    padding-inline: 0.45rem;
   }
 
   .view-stack {
-    gap: 0.85rem;
+    gap: 0.78rem;
   }
 
   .panel,
@@ -2339,6 +2844,49 @@ td select {
   .section-heading {
     gap: 0.7rem;
     margin-bottom: 0.75rem;
+  }
+
+  .dashboard-overview-header {
+    display: grid;
+    gap: 0.35rem;
+  }
+
+  .dashboard-overview {
+    gap: 0.78rem;
+    padding: 0.85rem;
+  }
+
+  .dashboard-overview-header > span {
+    justify-self: start;
+    padding: 0.36rem 0.62rem;
+    font-size: 0.78rem;
+  }
+
+  .onboarding-panel .section-heading {
+    margin-bottom: 0.7rem;
+  }
+
+  .onboarding-steps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.62rem;
+  }
+
+  .onboarding-steps button {
+    min-height: 4.65rem;
+    padding: 0.68rem;
+  }
+
+  .onboarding-steps button small {
+    font-size: 0.82rem;
+  }
+
+  .dashboard-overview .summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .dashboard-overview .summary-grid .metric:first-child,
+  .dashboard-overview .summary-grid .metric:last-child {
+    grid-column: 1 / -1;
   }
 
   .section-heading > button {
@@ -2369,7 +2917,6 @@ td select {
   .calculation-band,
   .calculation-band.compact,
   .status-list,
-  .onboarding-steps,
   .data-status-grid,
   .data-guide,
   .pro-grid,
@@ -2388,6 +2935,17 @@ td select {
   .template-actions {
     display: grid;
     grid-template-columns: 1fr;
+    min-width: 0;
+  }
+
+  .onboarding-panel .button-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .button-row button,
+  .template-actions button {
+    width: 100%;
+    min-width: 0;
   }
 
   .step-flow-nav {
@@ -2404,13 +2962,28 @@ td select {
     width: 100%;
   }
 
+  .list-toolbar > span {
+    justify-self: stretch;
+    text-align: center;
+  }
+
+  .list-toolbar label:first-child {
+    grid-column: auto;
+  }
+
+  .list-toolbar {
+    gap: 0.62rem;
+    padding: 0.72rem;
+  }
+
   .summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 0.6rem;
   }
 
   .life-calendar {
-    padding: 0.75rem;
+    gap: 0.78rem;
+    padding: 0.72rem;
   }
 
   .calendar-grid {
@@ -2418,6 +2991,11 @@ td select {
     max-height: none;
     overflow: visible;
     padding-right: 0;
+  }
+
+  .calendar-year-card {
+    min-height: 7.8rem;
+    padding: 0.72rem;
   }
 
   .calendar-detail-head {
@@ -2442,8 +3020,8 @@ td select {
   }
 
   .metric {
-    min-height: 5.6rem;
-    padding: 0.72rem;
+    min-height: 5.35rem;
+    padding: 0.7rem;
   }
 
   .metric span,
@@ -2539,7 +3117,9 @@ td select {
   }
 
   .mobile-record {
-    padding: 0.85rem;
+    gap: 0.75rem;
+    padding: 0.82rem;
+    box-shadow: none;
   }
 
   .completion-list,
@@ -2551,6 +3131,18 @@ td select {
 
   .mobile-record-head {
     flex-direction: column;
+    gap: 0.6rem;
+    padding-bottom: 0.65rem;
+  }
+
+  .mobile-record-title {
+    flex: none;
+    width: 100%;
+  }
+
+  .mobile-record input,
+  .mobile-record select {
+    min-height: 2.62rem;
   }
 }
 
@@ -2564,7 +3156,35 @@ td select {
     min-width: 4.9rem;
   }
 
-  .topbar-actions {
-    grid-template-columns: 1fr;
+}
+
+@media (hover: none) {
+  .metric:hover,
+  .quick-action-grid button:hover,
+  .onboarding-steps button:hover,
+  .compact-list-row:hover,
+  .calendar-year-card:hover,
+  .calendar-list-row:hover {
+    transform: none;
+    box-shadow: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+
+  .metric:hover,
+  .quick-action-grid button:hover,
+  .onboarding-steps button:hover,
+  .compact-list-row:hover,
+  .calendar-list-row:hover {
+    transform: none;
   }
 }

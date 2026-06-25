@@ -1212,39 +1212,48 @@ function Dashboard({ plan, setActiveView, startEmptyPlan }: DashboardProps) {
         </section>
       )}
 
-      <section className="summary-grid" aria-label="主要指標">
-        <Metric label="毎月の見込み貯蓄" value={manYen(cashflow.monthlySavings)} helper={`貯蓄率 ${percent(cashflow.savingsRate)}`} />
-        <Metric label="現在の純資産" value={manYen(assets.netAssets)} helper={`総資産 ${manYen(assets.grossAssets)}`} />
-        <Metric
-          label="主要目標の到達目安"
-          value={primaryGoalAchievement?.targetAge ? `${primaryGoalAchievement.targetAge}歳頃` : primaryGoal ? "未達見込み" : "未設定"}
-          helper={primaryGoal?.title ?? "目標を追加すると表示"}
-        />
-        <Metric
-          label="生活防衛資金"
-          value={emergency.status === "short" ? `あと ${manYen(emergency.shortageToLower)}` : "目安範囲内"}
-          helper={`${emergency.lowerMonths}〜${emergency.upperMonths}ヶ月分`}
-        />
-        <Metric label="30年後の見通し" value={manYen(thirtyYear)} helper="前提条件に基づく試算" />
-      </section>
+      <section className="dashboard-overview" aria-label="ホーム概要">
+        <div className="dashboard-overview-header">
+          <div>
+            <p className="eyebrow">Life Compass</p>
+            <h2>いまの家計と将来見通し</h2>
+          </div>
+          <span>入力完了度 {completion.percentage}%</span>
+        </div>
+        <div className="summary-grid" aria-label="主要指標">
+          <Metric label="毎月の見込み貯蓄" value={manYen(cashflow.monthlySavings)} helper={`貯蓄率 ${percent(cashflow.savingsRate)}`} />
+          <Metric label="現在の純資産" value={manYen(assets.netAssets)} helper={`総資産 ${manYen(assets.grossAssets)}`} />
+          <Metric
+            label="主要目標の到達目安"
+            value={primaryGoalAchievement?.targetAge ? `${primaryGoalAchievement.targetAge}歳頃` : primaryGoal ? "未達見込み" : "未設定"}
+            helper={primaryGoal?.title ?? "目標を追加すると表示"}
+          />
+          <Metric
+            label="生活防衛資金"
+            value={emergency.status === "short" ? `あと ${manYen(emergency.shortageToLower)}` : "目安範囲内"}
+            helper={`${emergency.lowerMonths}〜${emergency.upperMonths}ヶ月分`}
+          />
+          <Metric label="30年後の見通し" value={manYen(thirtyYear)} helper="前提条件に基づく試算" />
+        </div>
 
-      <section className="quick-action-grid" aria-label="よく使う操作">
-        <button type="button" onClick={() => setActiveView(firstMissingView)}>
-          <strong>入力を続ける</strong>
-          <span>{completion.percentage >= 100 ? "入力済み項目を見直す" : `入力完了度 ${completion.percentage}%`}</span>
-        </button>
-        <button type="button" onClick={() => setActiveView("goals")}>
-          <strong>目標を整える</strong>
-          <span>{plan.goals.length > 0 ? `${plan.goals.length}件の目標` : "テンプレートから追加"}</span>
-        </button>
-        <button type="button" onClick={() => setActiveView("timeline")}>
-          <strong>年表を確認</strong>
-          <span>{plan.events.length > 0 ? `${plan.events.length}件のイベント` : "予定を追加"}</span>
-        </button>
-        <button type="button" onClick={() => setActiveView("data")}>
-          <strong>バックアップ</strong>
-          <span>JSONで保存</span>
-        </button>
+        <div className="quick-action-grid" aria-label="よく使う操作">
+          <button type="button" onClick={() => setActiveView(firstMissingView)}>
+            <strong>入力を続ける</strong>
+            <span>{completion.percentage >= 100 ? "入力済み項目を見直す" : `入力完了度 ${completion.percentage}%`}</span>
+          </button>
+          <button type="button" onClick={() => setActiveView("goals")}>
+            <strong>目標を整える</strong>
+            <span>{plan.goals.length > 0 ? `${plan.goals.length}件の目標` : "テンプレートから追加"}</span>
+          </button>
+          <button type="button" onClick={() => setActiveView("timeline")}>
+            <strong>年表を確認</strong>
+            <span>{plan.events.length > 0 ? `${plan.events.length}件のイベント` : "予定を追加"}</span>
+          </button>
+          <button type="button" onClick={() => setActiveView("data")}>
+            <strong>バックアップ</strong>
+            <span>JSONで保存</span>
+          </button>
+        </div>
       </section>
 
       <section className="split-layout">
@@ -2009,8 +2018,8 @@ function GoalsView({
           </div>
         ) : (
           <>
-          <div className="table-wrap desktop-table">
-        <table>
+          <div className="table-wrap desktop-table goal-table-wrap">
+        <table className="goal-table">
           <thead>
             <tr>
               <th>目標名</th>
