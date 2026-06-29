@@ -173,6 +173,7 @@ td select {
   top: 0;
   align-self: start;
   height: 100vh;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
@@ -180,11 +181,13 @@ td select {
   background: rgba(255, 255, 255, 0.88);
   border-right: 1px solid var(--line);
   backdrop-filter: blur(14px);
+  overflow: hidden;
 }
 
 .brand {
   display: flex;
   align-items: center;
+  flex: 0 0 auto;
   gap: 0.75rem;
 }
 
@@ -213,7 +216,12 @@ td select {
 
 .nav-list {
   display: grid;
+  flex: 1 1 auto;
   gap: 0.35rem;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 0.15rem;
+  scrollbar-width: thin;
 }
 
 .nav-list button {
@@ -248,6 +256,7 @@ td select {
 }
 
 .sidebar-note {
+  flex: 0 0 auto;
   margin-top: auto;
   margin-bottom: 0;
   padding: 0.8rem;
@@ -2532,6 +2541,37 @@ td select {
   line-height: 1.8;
 }
 
+.backup-manual {
+  margin-top: 1.25rem;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+
+.backup-manual h2 {
+  margin-bottom: 0.85rem;
+}
+
+.manual-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.manual-columns > div {
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.backup-manual p {
+  margin: 1rem 0 0;
+  color: var(--muted);
+  line-height: 1.7;
+}
+
 .settings-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2610,6 +2650,10 @@ td select {
 
   .nav-list {
     grid-template-columns: repeat(5, minmax(0, 1fr));
+    flex: initial;
+    overflow: visible;
+    padding-right: 0;
+    scrollbar-width: auto;
   }
 
   .nav-list button {
@@ -2629,6 +2673,7 @@ td select {
   .onboarding-steps,
   .data-status-grid,
   .data-guide,
+  .manual-columns,
   .pro-grid,
   .pricing-grid,
   .explanation-grid {
@@ -2731,6 +2776,7 @@ td select {
     display: flex;
     gap: 0.42rem;
     overflow-x: auto;
+    overflow-y: hidden;
     padding: 0.15rem 0.1rem 0.3rem;
     scroll-padding-inline: 0.75rem;
     scroll-snap-type: x proximity;
@@ -2919,6 +2965,7 @@ td select {
   .status-list,
   .data-status-grid,
   .data-guide,
+  .manual-columns,
   .pro-grid,
   .pricing-grid,
   .explanation-grid,

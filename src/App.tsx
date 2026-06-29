@@ -1695,7 +1695,7 @@ function BudgetView({
       <section className="panel">
         <div className="section-heading">
           <StepTitle
-            step="2.5"
+            step="3"
             title="予算・実績プラン"
             description="日々の明細ではなく、月次レビューと将来見通しに使う予算・実績を整理します。"
           />
@@ -1846,7 +1846,7 @@ function AssetsView({
   return (
     <div className="view-stack">
       <section className="panel form-panel">
-        <StepTitle step="3" title="資産入力" description="現金、投資資産、その他資産、負債を分けて整理します。" />
+        <StepTitle step="4" title="資産入力" description="現金、投資資産、その他資産、負債を分けて整理します。" />
         <div className="form-grid">
           <MoneyInput label="現金" value={plan.assets.cash} onChange={(value) => updateAssets("cash", value)} />
           <MoneyInput label="投資資産" value={plan.assets.investment} onChange={(value) => updateAssets("investment", value)} />
@@ -1881,7 +1881,7 @@ function AssetsView({
       </section>
       <StepFlowNav
         setActiveView={setActiveView}
-        previous={{ view: "household", label: "家計入力" }}
+        previous={{ view: "budget", label: "予算・実績" }}
         next={{ view: "goals", label: "目標管理" }}
       />
     </div>
@@ -1927,7 +1927,7 @@ function GoalsView({
     <div className="view-stack">
       <section className="panel">
         <div className="section-heading">
-          <StepTitle step="4" title="目標管理" description="期限、目標額、優先度、準備状況を整理します。" />
+          <StepTitle step="5" title="目標管理" description="期限、目標額、優先度、準備状況を整理します。" />
           <button type="button" onClick={addGoal}>
             目標を追加
           </button>
@@ -2614,7 +2614,7 @@ function TimelineView({
     <div className="view-stack">
       <section className="panel">
         <div className="section-heading">
-          <StepTitle step="5" title="ライフイベント年表" description="予定年、金額、家計への影響を整理し、資産見通しに反映できます。" />
+          <StepTitle step="6" title="ライフイベント年表" description="予定年、金額、家計への影響を整理し、資産見通しに反映できます。" />
           <button type="button" onClick={addEvent}>
             イベントを追加
           </button>
@@ -3028,7 +3028,7 @@ function SimulationView({
       <>
       <section className="panel">
         <div className="section-heading">
-          <StepTitle step="6" title="基本資産推移" description="入力条件に基づく10年/30年の見通しです。" />
+          <StepTitle step="7" title="基本資産推移" description="入力条件に基づく10年/30年の見通しです。" />
           <div className="simulation-controls">
             <div className="segmented-control" aria-label="表示単位">
               <button type="button" className={projectionMode === "annual" ? "active" : ""} onClick={() => setProjectionMode("annual")}>
@@ -3096,7 +3096,7 @@ function SimulationView({
       </section>
 
       <section className="panel">
-        <StepTitle step="7" title="生活防衛資金チェック" description={emergency.note} />
+        <StepTitle step="8" title="生活防衛資金チェック" description={emergency.note} />
         <div className="calculation-band compact">
           <Metric label="月間生活費" value={manYen(getCashflowSummary(plan.household).monthlyLivingCost)} helper="固定費 + 変動費 + 特別支出月割" />
           <Metric label="推奨生活防衛資金" value={`${manYen(emergency.lowerAmount)}〜${manYen(emergency.upperAmount)}`} helper={`${emergency.lowerMonths}〜${emergency.upperMonths}ヶ月分`} />
@@ -3135,7 +3135,7 @@ function SimulationView({
 
       {simulationTab === "contribution" && (
       <section className="panel form-panel">
-        <StepTitle step="8" title="詳細積立シミュレーション" description="積立額、ボーナス積立、利回り、期間をもとに年ごとの見通しを確認します。" />
+        <StepTitle step="9" title="詳細積立シミュレーション" description="積立額、ボーナス積立、利回り、期間をもとに年ごとの見通しを確認します。" />
         <div className="form-grid">
           <MoneyInput
             label="毎月積立額"
@@ -3241,7 +3241,7 @@ function SimulationView({
 
       {simulationTab === "withdrawal" && (
       <section className="panel form-panel">
-        <StepTitle step="8" title="取り崩しシミュレーション" description="FIRE、セミリタイア、年金開始前のつなぎ期間などを、期間別の収入と生活費で確認します。" />
+        <StepTitle step="10" title="取り崩しシミュレーション" description="FIRE、セミリタイア、年金開始前のつなぎ期間などを、期間別の収入と生活費で確認します。" />
         <div className="form-grid">
           <label>
             取り崩し開始年齢
@@ -3755,7 +3755,7 @@ function NotesView({
     <div className="view-stack">
       {mode === "notes" && (
       <section className="panel form-panel">
-        <StepTitle step="9" title="メモ" description="無料版では、今の前提や次の見直しを1つのプラン内に保存できます。" />
+        <StepTitle step="11" title="メモ" description="無料版では、今の前提や次の見直しを1つのプラン内に保存できます。" />
         <div className="notes-grid">
           <label>
             現在の考え・見直しメモ
@@ -3954,12 +3954,12 @@ function DataView({
   return (
     <div className="view-stack">
       <section className="panel">
-        <StepTitle step="10" title="データ管理" description="初期版では収入・支出・資産・家族情報をサーバーに保存しません。" />
+        <StepTitle step="12" title="データ管理" description="収入・支出・資産・家族情報はこのブラウザ内に保存します。" />
         <div className="data-status-grid" aria-label="保存状態">
           <div>
             <span>保存先</span>
             <strong>このブラウザ内</strong>
-            <small>ログインやクラウド保存は未実装です。</small>
+            <small>サーバー保存やクラウド同期は行いません。</small>
           </div>
           <div>
             <span>最終保存</span>
@@ -4014,6 +4014,28 @@ function DataView({
             <span>使い方を確認したい場合はサンプルプラン、最初から入力したい場合は空のプランを使います。どちらも現在の入力内容を置き換えます。</span>
           </div>
         </div>
+        <section className="backup-manual">
+          <h2>バックアップと復元の手順</h2>
+          <div className="manual-columns">
+            <div>
+              <strong>バックアップする</strong>
+              <ol className="manual-list">
+                <li>入力を一通り終えたら「JSONエクスポート」を押します。</li>
+                <li>ダウンロードされたJSONファイルを、分かりやすい場所に保管します。</li>
+                <li>端末変更、ブラウザ変更、閲覧データ削除の前には、必ず最新のJSONを保存します。</li>
+              </ol>
+            </div>
+            <div>
+              <strong>復元する</strong>
+              <ol className="manual-list">
+                <li>新しい端末やブラウザでLife Compassを開きます。</li>
+                <li>データ管理の「JSONインポート」を押します。</li>
+                <li>保存しておいたJSONファイルを選ぶと、このブラウザ内のデータに反映されます。</li>
+              </ol>
+            </div>
+          </div>
+          <p>JSONファイルには入力した家計、資産、目標、ライフイベントなどが含まれます。共有、削除、保管場所はユーザー自身で管理してください。</p>
+        </section>
         {importMessage && <p className="message">{importMessage}</p>}
       </section>
       <DisclaimerPanel />
@@ -4062,11 +4084,53 @@ function PricingView({ setActiveView }: { setActiveView: (view: ViewKey) => void
             <li>見直し履歴と月次/四半期レビュー</li>
             <li>老後生活プランと社会保険・税金の概算入力</li>
             <li>詳細取り崩しシミュレーション</li>
-            <li>クラウド保存、ログイン、課金連携の拡張予定</li>
+            <li>課金連携とPro制限の導入予定</li>
           </ul>
           <button type="button" className="secondary" onClick={() => setActiveView("pro")}>
             Pro予定を見る
           </button>
+        </div>
+      </section>
+
+      <section className="panel">
+        <h2>無料版とPro版の比較</h2>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>機能</th>
+                <th>無料版</th>
+                <th>Pro版予定</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>ライフプラン</td>
+                <td>1つのプランを作成・保存</td>
+                <td>複数シナリオを保存・比較</td>
+              </tr>
+              <tr>
+                <td>家計・資産</td>
+                <td>基本収支、資産、生活防衛資金</td>
+                <td>固定費見直し、詳細レビュー、差分分析</td>
+              </tr>
+              <tr>
+                <td>目標・年表</td>
+                <td>目標管理、ライフイベント年表</td>
+                <td>世帯イベント管理、シナリオ別の見通し</td>
+              </tr>
+              <tr>
+                <td>シミュレーション</td>
+                <td>基本資産推移、簡易積立、基本取り崩し</td>
+                <td>詳細取り崩し、老後生活プラン、ばらつき試算</td>
+              </tr>
+              <tr>
+                <td>データ保存</td>
+                <td>ブラウザ内保存、JSONバックアップ</td>
+                <td>ブラウザ内保存、JSONバックアップ</td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </section>
 
@@ -4594,7 +4658,7 @@ function ProView({
         <div className="section-heading">
           <div>
             <h2>複数シナリオ保存</h2>
-            <p>現在の入力条件をもとに、比較用の仮シナリオを保存します。後から正式なPro制限を掛けられる構造です。</p>
+            <p>現在の入力条件をもとに、比較用の仮シナリオを保存します。正式なPro提供時は、シナリオ数や比較機能をPro範囲として整理します。</p>
           </div>
           <span className="status-pill recurring">Pro予定</span>
         </div>
@@ -4712,7 +4776,7 @@ function ProView({
           </div>
           <div>
             <strong>将来のPro制限ポイント</strong>
-            <p>レビュー件数、シナリオ別レビュー、差分の詳細表示、クラウド同期をサブスク機能として分けられます。</p>
+            <p>レビュー件数、シナリオ別レビュー、差分の詳細表示、TODO管理の強化をサブスク機能として分けられます。</p>
           </div>
         </div>
       </section>
@@ -4730,8 +4794,7 @@ function ProView({
           "詳細取り崩しシミュレーション",
           "月次/四半期レビュー",
           "家族/世帯モード",
-          "クラウド保存予定",
-          "ログイン・課金連携予定"
+          "課金連携予定"
         ].map((feature) => (
           <div className="pro-item" key={feature}>
             <strong>{feature}</strong>
@@ -4785,13 +4848,14 @@ function SettingsView({
           <li>シミュレーションで年次見通しを確認し、グラフの点をタップして詳細を見ます。</li>
           <li>メモに次の見直しや判断の理由を残します。</li>
           <li>データ管理からJSONをエクスポートしてバックアップします。</li>
+          <li>別の端末やブラウザで使う場合は、保存済みJSONをインポートして復元します。</li>
         </ol>
       </section>
 
       <section className="settings-grid">
         <div className="panel">
           <h2>データとプライバシー</h2>
-          <p>初期版では入力データをサーバーに保存しません。データはこのブラウザ内に保存され、JSONでバックアップできます。</p>
+          <p>入力データはこのブラウザ内に保存されます。サーバー保存やクラウド同期は行わず、JSONでバックアップ・復元します。</p>
           <button type="button" className="secondary" onClick={() => setActiveView("data")}>
             データ管理を開く
           </button>
@@ -4833,10 +4897,10 @@ function LegalView() {
     {
       title: "プライバシーポリシー",
       items: [
-        "初期版では、収入、支出、資産、家族情報などをサーバーに保存しません。",
-        "入力データはユーザーのブラウザ内に保存されます。ログイン機能やクラウド保存は未実装です。",
+        "収入、支出、資産、家族情報などをサーバーに保存しません。",
+        "入力データはユーザーのブラウザ内に保存されます。サーバー保存やクラウド同期は行いません。",
         "JSONエクスポートしたファイルの保管、共有、削除はユーザー自身で管理してください。",
-        "将来クラウド保存やログイン機能を導入する場合は、保存先、利用目的、削除方法、問い合わせ先を明示します。",
+        "別の端末やブラウザで利用する場合は、ユーザー自身がJSONインポートで復元してください。",
         "アクセス解析やエラー収集を導入する場合も、収集内容と目的をこのページで説明します。"
       ]
     },

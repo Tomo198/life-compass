@@ -10,8 +10,7 @@ export const featureTiers = {
     lifePlanDiagnosis: false,
     householdEventOwners: false,
     detailedWithdrawal: false,
-    retirementPlanning: false,
-    cloudSync: false
+    retirementPlanning: false
   },
   pro: {
     planLimit: 20,
@@ -24,8 +23,7 @@ export const featureTiers = {
     lifePlanDiagnosis: true,
     householdEventOwners: true,
     detailedWithdrawal: true,
-    retirementPlanning: true,
-    cloudSync: true
+    retirementPlanning: true
   }
 };
 
