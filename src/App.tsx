@@ -3,7 +3,7 @@ import { CURRENT_PLAN_VERSION } from "./config";
 import { EmptyState, Metric, MoneyInput, NumericInput, StepFlowNav, StepTitle } from "./components/CommonUi";
 import { createId, defaultPlan } from "./data/defaultPlan";
 import { proPriceLabel } from "./features";
-import { LegalView as LegalPage } from "./views/LegalView";
+import { LegalDocumentView, LegalIndexView, type LegalDocumentKey } from "./views/LegalView";
 import { PricingView as PricingPage } from "./views/PricingView";
 import { DataView as DataPage } from "./views/DataView";
 import type {
@@ -88,6 +88,40 @@ const navItems: { key: ViewKey; label: string; tier?: "pro" }[] = [
   { key: "pro", label: "Pro機能" },
   { key: "legal", label: "法務" }
 ];
+
+const publicRoutes: Partial<Record<ViewKey, string>> = {
+  dashboard: "/",
+  pricing: "/pricing",
+  pro: "/pro",
+  legal: "/legal",
+  terms: "/terms",
+  privacy: "/privacy",
+  commercial: "/commercial-disclosure",
+  refund: "/refund",
+  contact: "/contact",
+  disclaimer: "/disclaimer"
+};
+
+const routeViews = Object.entries(publicRoutes).reduce<Record<string, ViewKey>>((routes, [view, path]) => {
+  if (path) routes[path] = view as ViewKey;
+  return routes;
+}, {});
+
+const publicViewTitles: Partial<Record<ViewKey, string>> = {
+  terms: "利用規約",
+  privacy: "プライバシーポリシー",
+  commercial: "特定商取引法に基づく表記",
+  refund: "解約・返金方針",
+  contact: "お問い合わせ",
+  disclaimer: "免責事項"
+};
+
+const legalDocumentViews: LegalDocumentKey[] = ["terms", "privacy", "commercial", "refund", "contact", "disclaimer"];
+
+const getInitialView = (): ViewKey => routeViews[window.location.pathname.replace(/\/$/, "") || "/"] || "dashboard";
+
+const getViewTitle = (view: ViewKey) =>
+  publicViewTitles[view] || (view === "settings" ? "設定" : navItems.find((item) => item.key === view)?.label) || "Life Compass";
 
 type ThemePreference = "light" | "dark" | "system";
 
@@ -552,10 +586,29 @@ const eventTemplates: EventTemplate[] = [
 
 function App() {
   const [plan, setPlan] = useState<LifePlan>(() => loadPlan());
-  const [activeView, setActiveView] = useState<ViewKey>("dashboard");
+  const [activeView, setActiveViewState] = useState<ViewKey>(() => getInitialView());
   const [importMessage, setImportMessage] = useState("");
   const [storageError, setStorageError] = useState("");
   const [settings, setSettings] = useState<AppSettings>(() => loadAppSettings());
+
+  const setActiveView = (view: ViewKey) => {
+    setActiveViewState(view);
+    const nextPath = publicRoutes[view] || "/";
+    if (window.location.pathname !== nextPath) {
+      window.history.pushState({ view }, "", nextPath);
+    }
+    window.scrollTo({ top: 0, behavior: "auto" });
+  };
+
+  useEffect(() => {
+    const handlePopState = () => setActiveViewState(getInitialView());
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
+
+  useEffect(() => {
+    document.title = `${getViewTitle(activeView)} | Life Compass`;
+  }, [activeView]);
 
   useEffect(() => {
     const applyTheme = () => {
@@ -993,7 +1046,14 @@ function App() {
       case "settings":
         return <SettingsView settings={settings} updateSettings={updateSettings} setActiveView={setActiveView} />;
       case "legal":
-        return <LegalPage />;
+        return <LegalIndexView setActiveView={setActiveView} />;
+      case "terms":
+      case "privacy":
+      case "commercial":
+      case "refund":
+      case "contact":
+      case "disclaimer":
+        return <LegalDocumentView document={activeView} />;
       default:
         return null;
     }
@@ -1014,7 +1074,7 @@ function App() {
             <button
               key={item.key}
               type="button"
-              className={activeView === item.key ? "active" : ""}
+              className={activeView === item.key || (item.key === "legal" && legalDocumentViews.includes(activeView as LegalDocumentKey)) ? "active" : ""}
               onClick={() => setActiveView(item.key)}
               data-view={item.key}
             >
@@ -1030,7 +1090,7 @@ function App() {
         <header className="topbar">
           <div>
             <p className="eyebrow">ライフプラン管理ツール</p>
-            <h1>{activeView === "settings" ? "設定" : navItems.find((item) => item.key === activeView)?.label}</h1>
+            <h1>{getViewTitle(activeView)}</h1>
           </div>
           <div className="topbar-actions">
             <button type="button" className="secondary" onClick={() => exportPlan(plan)}>

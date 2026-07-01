@@ -233,4 +233,10 @@ export type ViewKey =
   | "pricing"
   | "pro"
   | "settings"
-  | "legal";
+  | "legal"
+  | "terms"
+  | "privacy"
+  | "commercial"
+  | "refund"
+  | "contact"
+  | "disclaimer";

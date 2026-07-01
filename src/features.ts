@@ -44,7 +44,7 @@ export const featureTiers = {
   }
 };
 
-export const proPriceLabel = "月500円程度を想定";
+export const proPriceLabel = "月額590円（税込・予定）";
 
 export const featureComparison: Array<{
   key: FeatureKey;

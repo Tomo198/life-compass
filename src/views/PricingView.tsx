@@ -1,4 +1,5 @@
-import { featureComparison, proPriceLabel } from "../features";
+import { featureComparison } from "../features";
+import { legalConfig } from "../legalConfig";
 import type { ViewKey } from "../types";
 
 export function PricingView({ setActiveView }: { setActiveView: (view: ViewKey) => void }) {
@@ -7,8 +8,8 @@ export function PricingView({ setActiveView }: { setActiveView: (view: ViewKey) 
       <section className="pro-hero">
         <div>
           <p className="eyebrow">料金</p>
-          <h2>無料版を中心に、Pro版は Coming soon</h2>
-          <p>現在は課金機能を実装していません。Pro画面は開発中の機能を確認するためのプレビューです。</p>
+          <h2>無料版を中心に、Pro版は提供準備中</h2>
+          <p>現在は申込みと課金を受け付けていません。Pro画面は開発中の機能を確認するためのプレビューです。</p>
         </div>
         <span className="lock-badge">課金なし</span>
       </section>
@@ -30,7 +31,8 @@ export function PricingView({ setActiveView }: { setActiveView: (view: ViewKey) 
         <div className="pricing-card">
           <span>Coming soon</span>
           <h2>Pro版</h2>
-          <strong>{proPriceLabel}</strong>
+          <strong>{legalConfig.proPriceLabel}</strong>
+          <p className="muted">1か月ごとの自動更新を予定</p>
           <ul>
             <li>複数シナリオ保存と比較</li>
             <li>予算・実績の履歴と差分分析</li>
@@ -61,10 +63,15 @@ export function PricingView({ setActiveView }: { setActiveView: (view: ViewKey) 
       </section>
 
       <section className="panel">
-        <h2>課金導入前の方針</h2>
+        <h2>Pro版の予定条件</h2>
         <div className="boundary-grid">
-          <div><strong>今は決済情報を入力しません</strong><p>現在のアプリ内にカード番号や決済情報を入力する場所はありません。</p></div>
-          <div><strong>正式提供時に明記すること</strong><p>価格、更新日、解約方法、返金条件、事業者情報、サポート窓口を掲載します。</p></div>
+          <div><strong>現在は課金しません</strong><p>カード番号や決済情報を入力する場所はなく、Pro版の申込みも受け付けていません。</p></div>
+          <div><strong>更新と解約</strong><p>提供開始後は月単位で自動更新し、解約後も支払済み期間の終了まで利用できる設計を予定しています。</p></div>
+        </div>
+        <div className="legal-inline-links" aria-label="料金に関する文書">
+          <button type="button" className="secondary" onClick={() => setActiveView("commercial")}>特定商取引法に基づく表記</button>
+          <button type="button" className="secondary" onClick={() => setActiveView("refund")}>解約・返金方針</button>
+          <button type="button" className="secondary" onClick={() => setActiveView("contact")}>お問い合わせ</button>
         </div>
       </section>
     </div>
