@@ -1,4 +1,4 @@
-const CACHE_NAME = "life-compass-v1";
+const CACHE_NAME = "life-compass-v2";
 const APP_SHELL = ["/", "/index.html", "/manifest.webmanifest", "/icons/life-compass.svg"];
 
 self.addEventListener("install", (event) => {

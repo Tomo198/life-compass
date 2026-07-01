@@ -1,4 +1,5 @@
 import type { LifePlan } from "../types";
+import { CURRENT_PLAN_VERSION } from "../config";
 
 const currentYear = new Date().getFullYear();
 
@@ -10,7 +11,7 @@ export const createId = () => {
 };
 
 export const defaultPlan: LifePlan = {
-  version: 1,
+  version: CURRENT_PLAN_VERSION,
   profile: {
     name: "マイプラン",
     age: 35,

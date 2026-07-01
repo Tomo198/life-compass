@@ -1,7 +1,6 @@
 import type {
   Assets,
   BudgetCategory,
-  BudgetFrequency,
   BudgetItem,
   FixedCostItem,
   Goal,
@@ -720,7 +719,11 @@ const normalizeWithdrawalPhases = (settings: WithdrawalSettings): WithdrawalPhas
 
 const getWithdrawalPhaseForAge = (settings: WithdrawalSettings, age: number) => {
   const phases = normalizeWithdrawalPhases(settings);
-  return phases.find((phase) => age >= phase.startAge && age <= phase.endAge) ?? phases[phases.length - 1];
+  const exactPhase = phases.find((phase) => age >= phase.startAge && age <= phase.endAge);
+  if (exactPhase) return exactPhase;
+
+  const previousPhases = phases.filter((phase) => phase.endAge < age);
+  return previousPhases[previousPhases.length - 1] ?? phases[0];
 };
 
 export const simulateWithdrawal = (settings: WithdrawalSettings): WithdrawalResult => {

@@ -1,21 +1,41 @@
 import { defaultPlan } from "../data/defaultPlan";
+import { CURRENT_PLAN_VERSION, MAX_RECOVERY_BACKUPS, RECOVERY_STORAGE_KEY, STORAGE_KEY } from "../config";
 import type {
   BudgetCategory,
   BudgetFrequency,
   BudgetItem,
+  CashflowType,
+  EventOwner,
+  FamilyType,
+  FixedCostCategory,
   FixedCostItem,
   Goal,
+  GoalType,
+  Housing,
   LifeEvent,
+  LifeEventCategory,
   LifePlan,
   PlanScenario,
+  Priority,
+  RecurrenceInterval,
   RetirementPlanSettings,
   ReviewNote,
   ScenarioSnapshot,
+  ScenarioTag,
+  SimulationSettings,
+  WorkStyle,
   WithdrawalPeriodSettings,
   WithdrawalPlanSettings
 } from "../types";
 
-const STORAGE_KEY = "life-compass-plan-v1";
+export type RecoveryReason = "before-import" | "before-reset" | "load-error";
+
+export type RecoveryBackup = {
+  id: string;
+  createdAt: string;
+  reason: RecoveryReason;
+  plan: LifePlan;
+};
 const budgetCategories: BudgetCategory[] = [
   "food",
   "daily",
@@ -38,6 +58,95 @@ const budgetFrequencies: BudgetFrequency[] = [
   "yearly",
   "oneTime"
 ];
+const familyTypes: FamilyType[] = ["single", "couple", "children", "care", "other"];
+const workStyles: WorkStyle[] = ["employee", "freelance", "selfEmployed", "variable", "retired", "other"];
+const housingTypes: Housing[] = ["rent", "owned", "mortgage", "family", "other"];
+const goalTypes: GoalType[] = ["oneTime", "recurring"];
+const recurrenceIntervals: RecurrenceInterval[] = ["monthly", "quarterly", "halfYearly", "yearly"];
+const priorities: Priority[] = ["high", "medium", "low"];
+const eventOwners: EventOwner[] = ["self", "spouse", "child", "parent", "household", "other"];
+const eventCategories: LifeEventCategory[] = [
+  "career",
+  "move",
+  "marriage",
+  "birth",
+  "home",
+  "car",
+  "education",
+  "care",
+  "sideBusiness",
+  "retirement",
+  "travel",
+  "qualification",
+  "other"
+];
+const cashflowTypes: CashflowType[] = ["expense", "income", "neutral"];
+const scenarioTags: ScenarioTag[] = ["current", "spending", "career", "sideBusiness", "home", "retirement", "custom"];
+const fixedCostCategories: FixedCostCategory[] = [
+  "insurance",
+  "communication",
+  "rent",
+  "car",
+  "subscription",
+  "utilities",
+  "loan",
+  "other"
+];
+
+const stringValue = (value: unknown, fallback = "") => (typeof value === "string" ? value : fallback);
+
+const nonEmptyString = (value: unknown, fallback: string) =>
+  typeof value === "string" && value.trim() ? value : fallback;
+
+const identifierValue = (value: unknown) =>
+  typeof value === "string" && value.trim() ? value : createStorageId();
+
+const finiteNumber = (value: unknown, fallback: number) =>
+  typeof value === "number" && Number.isFinite(value) ? value : fallback;
+
+const nonNegativeNumber = (value: unknown, fallback = 0) => Math.max(0, finiteNumber(value, fallback));
+
+const integerInRange = (value: unknown, fallback: number, min: number, max: number) =>
+  Math.min(max, Math.max(min, Math.round(finiteNumber(value, fallback))));
+
+const enumValue = <T extends string>(value: unknown, values: readonly T[], fallback: T): T =>
+  typeof value === "string" && values.includes(value as T) ? (value as T) : fallback;
+
+const normalizeTimestamp = (value: unknown) => {
+  if (typeof value !== "string" || Number.isNaN(Date.parse(value))) return new Date().toISOString();
+  return value;
+};
+
+const normalizeProfile = (profile: LifePlan["profile"] | undefined): LifePlan["profile"] => ({
+  name: stringValue(profile?.name, defaultPlan.profile.name),
+  age: integerInRange(profile?.age, defaultPlan.profile.age, 0, 120),
+  familyType: enumValue(profile?.familyType, familyTypes, defaultPlan.profile.familyType),
+  workStyle: enumValue(profile?.workStyle, workStyles, defaultPlan.profile.workStyle),
+  housing: enumValue(profile?.housing, housingTypes, defaultPlan.profile.housing)
+});
+
+const normalizeHousehold = (household: LifePlan["household"] | undefined): LifePlan["household"] => ({
+  monthlyIncome: nonNegativeNumber(household?.monthlyIncome),
+  annualBonus: nonNegativeNumber(household?.annualBonus),
+  sideIncome: nonNegativeNumber(household?.sideIncome),
+  fixedCost: nonNegativeNumber(household?.fixedCost),
+  variableCost: nonNegativeNumber(household?.variableCost),
+  annualSpecialCost: nonNegativeNumber(household?.annualSpecialCost)
+});
+
+const normalizeAssets = (assets: LifePlan["assets"] | undefined): LifePlan["assets"] => ({
+  cash: nonNegativeNumber(assets?.cash),
+  investment: nonNegativeNumber(assets?.investment),
+  other: nonNegativeNumber(assets?.other),
+  debt: nonNegativeNumber(assets?.debt)
+});
+
+const normalizeSimulation = (settings: SimulationSettings | undefined): SimulationSettings => ({
+  monthlyContribution: nonNegativeNumber(settings?.monthlyContribution, defaultPlan.simulation.monthlyContribution),
+  bonusContribution: nonNegativeNumber(settings?.bonusContribution, defaultPlan.simulation.bonusContribution),
+  annualReturnRate: finiteNumber(settings?.annualReturnRate, defaultPlan.simulation.annualReturnRate),
+  years: integerInRange(settings?.years, defaultPlan.simulation.years, 1, 80)
+});
 
 export const loadPlan = (): LifePlan => {
   const saved = localStorage.getItem(STORAGE_KEY);
@@ -45,23 +154,64 @@ export const loadPlan = (): LifePlan => {
 
   try {
     const parsed = JSON.parse(saved) as LifePlan;
-    if (!parsed.version || !parsed.profile || !parsed.household || !parsed.assets) {
-      return defaultPlan;
-    }
+    if (!parsed.profile || !parsed.household || !parsed.assets) return defaultPlan;
     return normalizePlan(parsed);
   } catch {
+    preserveUnreadablePlan(saved);
     return defaultPlan;
   }
 };
 
 export const savePlan = (plan: LifePlan) => {
   const payload = { ...plan, updatedAt: new Date().toISOString() };
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+  } catch {
+    throw new Error("ブラウザ内に保存できませんでした。JSONをエクスポートし、ブラウザの空き容量や保存設定を確認してください。");
+  }
   return payload;
 };
 
 export const clearPlan = () => {
   localStorage.removeItem(STORAGE_KEY);
+};
+
+export const createRecoveryBackup = (plan: LifePlan, reason: Exclude<RecoveryReason, "load-error">) => {
+  const backup: RecoveryBackup = {
+    id: createStorageId(),
+    createdAt: new Date().toISOString(),
+    reason,
+    plan: normalizePlan(plan)
+  };
+  const next = [backup, ...getRecoveryBackups()].slice(0, MAX_RECOVERY_BACKUPS);
+  try {
+    localStorage.setItem(RECOVERY_STORAGE_KEY, JSON.stringify(next));
+  } catch {
+    throw new Error("復旧用コピーを保存できないため、操作を中止しました。先にJSONをエクスポートしてください。");
+  }
+  return backup;
+};
+
+export const getRecoveryBackups = (): RecoveryBackup[] => {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(RECOVERY_STORAGE_KEY) || "[]") as RecoveryBackup[];
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((item) => item && typeof item === "object" && item.plan)
+      .map((item) => ({ ...item, plan: normalizePlan(item.plan) }))
+      .slice(0, MAX_RECOVERY_BACKUPS);
+  } catch {
+    return [];
+  }
+};
+
+export const removeRecoveryBackup = (id: string) => {
+  const next = getRecoveryBackups().filter((backup) => backup.id !== id);
+  try {
+    localStorage.setItem(RECOVERY_STORAGE_KEY, JSON.stringify(next));
+  } catch {
+    throw new Error("復旧用コピーを削除できませんでした。");
+  }
 };
 
 export const exportPlan = (plan: LifePlan) => {
@@ -80,28 +230,49 @@ export const validateImportedPlan = (value: unknown): LifePlan => {
   if (!plan.profile || !plan.household || !plan.assets || !Array.isArray(plan.goals) || !Array.isArray(plan.events)) {
     throw new Error("Life Compass のバックアップJSONではありません。");
   }
+  if (plan.version !== undefined && (typeof plan.version !== "number" || !Number.isFinite(plan.version) || plan.version < 0)) {
+    throw new Error("JSONのバージョン情報が正しくありません。");
+  }
+  if (typeof plan.version === "number" && plan.version > CURRENT_PLAN_VERSION) {
+    throw new Error("このJSONは新しいバージョンのLife Compassで作成されています。アプリを更新してから読み込んでください。");
+  }
   return normalizePlan(plan);
 };
 
 const normalizePlan = (plan: LifePlan): LifePlan => {
   return {
-    ...plan,
-    version: plan.version || 1,
+    version: CURRENT_PLAN_VERSION,
+    profile: normalizeProfile(plan.profile),
+    household: normalizeHousehold(plan.household),
+    assets: normalizeAssets(plan.assets),
     goals: Array.isArray(plan.goals) ? plan.goals.map(normalizeGoal) : [],
     events: Array.isArray(plan.events) ? plan.events.map(normalizeEvent) : [],
-    simulation: plan.simulation || defaultPlan.simulation,
+    simulation: normalizeSimulation(plan.simulation),
     withdrawalPlan: normalizeWithdrawalPlan(plan.withdrawalPlan),
     notes: {
-      general: plan.notes?.general || "",
-      spendingReview: plan.notes?.spendingReview || ""
+      general: stringValue(plan.notes?.general),
+      spendingReview: stringValue(plan.notes?.spendingReview)
     },
     retirementPlan: normalizeRetirementPlan(plan.retirementPlan),
     reviews: Array.isArray(plan.reviews) ? plan.reviews.map(normalizeReview) : [],
     scenarios: Array.isArray(plan.scenarios) ? plan.scenarios.map(normalizeScenario) : [],
     fixedCostItems: Array.isArray(plan.fixedCostItems) ? plan.fixedCostItems.map(normalizeFixedCostItem) : [],
     budgetItems: Array.isArray(plan.budgetItems) ? plan.budgetItems.map(normalizeBudgetItem) : [],
-    updatedAt: new Date().toISOString()
+    updatedAt: normalizeTimestamp(plan.updatedAt)
   };
+};
+
+const createStorageId = () => {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+};
+
+const preserveUnreadablePlan = (raw: string) => {
+  try {
+    localStorage.setItem(`${RECOVERY_STORAGE_KEY}-unreadable`, raw);
+  } catch {
+    // 保存容量不足などの場合も、既定プランで起動を継続します。
+  }
 };
 
 const normalizeMonth = (value: unknown) => {
@@ -109,35 +280,45 @@ const normalizeMonth = (value: unknown) => {
   return Math.max(1, Math.min(12, Math.round(value)));
 };
 
-const normalizeEvent = (event: LifeEvent): LifeEvent => ({
-  ...event,
-  owner: event.owner || "household",
-  month: normalizeMonth(event.month)
+const normalizeEvent = (event: LifeEvent | null | undefined): LifeEvent => ({
+  id: identifierValue(event?.id),
+  title: stringValue(event?.title, "ライフイベント"),
+  owner: enumValue(event?.owner, eventOwners, "household"),
+  category: enumValue(event?.category, eventCategories, "other"),
+  year: integerInRange(event?.year, new Date().getFullYear(), 1900, 2300),
+  month: normalizeMonth(event?.month),
+  age: integerInRange(event?.age, 0, 0, 120),
+  amount: nonNegativeNumber(event?.amount),
+  cashflowType: enumValue(event?.cashflowType, cashflowTypes, "neutral"),
+  memo: stringValue(event?.memo)
 });
 
-const normalizeGoal = (goal: Goal): Goal => {
-  const progress = Number.isFinite(goal.progress) ? goal.progress : 0;
-  const requiredAmount = Number.isFinite(goal.requiredAmount) ? goal.requiredAmount : 0;
+const normalizeGoal = (goal: Goal | null | undefined): Goal => {
+  const progress = finiteNumber(goal?.progress, 0);
+  const requiredAmount = nonNegativeNumber(goal?.requiredAmount);
 
   return {
-    ...goal,
-    goalType: goal.goalType || "oneTime",
+    id: identifierValue(goal?.id),
+    title: stringValue(goal?.title, "目標"),
+    goalType: enumValue(goal?.goalType, goalTypes, "oneTime"),
+    dueYear: integerInRange(goal?.dueYear, new Date().getFullYear(), 1900, 2300),
     requiredAmount,
     savedAmount:
-      typeof goal.savedAmount === "number" && Number.isFinite(goal.savedAmount)
-        ? goal.savedAmount
+      typeof goal?.savedAmount === "number" && Number.isFinite(goal.savedAmount)
+        ? Math.max(0, goal.savedAmount)
         : Math.round((requiredAmount * progress) / 100),
     monthlyAllocation:
-      typeof goal.monthlyAllocation === "number" && Number.isFinite(goal.monthlyAllocation) ? goal.monthlyAllocation : 0,
-    recurrence: goal.recurrence || "yearly",
-    progress
+      typeof goal?.monthlyAllocation === "number" && Number.isFinite(goal.monthlyAllocation)
+        ? Math.max(0, goal.monthlyAllocation)
+        : 0,
+    recurrence: enumValue(goal?.recurrence, recurrenceIntervals, "yearly"),
+    priority: enumValue(goal?.priority, priorities, "medium"),
+    progress: Math.min(100, Math.max(0, progress)),
+    memo: stringValue(goal?.memo)
   };
 };
 
 const finiteOptionalNumber = (value: unknown) => (typeof value === "number" && Number.isFinite(value) ? value : undefined);
-
-const finiteNumber = (value: unknown, fallback: number) =>
-  typeof value === "number" && Number.isFinite(value) ? value : fallback;
 
 const normalizeRetirementPlan = (settings: RetirementPlanSettings | undefined): RetirementPlanSettings => {
   const defaults = defaultPlan.retirementPlan;
@@ -147,21 +328,21 @@ const normalizeRetirementPlan = (settings: RetirementPlanSettings | undefined): 
   return {
     retirementAge,
     planUntilAge,
-    monthlyLivingCost: finiteNumber(settings?.monthlyLivingCost, defaults.monthlyLivingCost),
-    monthlyHousingCost: finiteNumber(settings?.monthlyHousingCost, defaults.monthlyHousingCost),
-    monthlyMedicalCost: finiteNumber(settings?.monthlyMedicalCost, defaults.monthlyMedicalCost),
-    monthlyCareCost: finiteNumber(settings?.monthlyCareCost, defaults.monthlyCareCost),
-    monthlyPublicPension: finiteNumber(settings?.monthlyPublicPension, defaults.monthlyPublicPension),
-    monthlyPrivatePension: finiteNumber(settings?.monthlyPrivatePension, defaults.monthlyPrivatePension),
-    monthlyOtherIncome: finiteNumber(settings?.monthlyOtherIncome, defaults.monthlyOtherIncome),
-    monthlyHealthInsurance: finiteNumber(settings?.monthlyHealthInsurance, defaults.monthlyHealthInsurance),
-    monthlyLongTermCareInsurance: finiteNumber(
+    monthlyLivingCost: nonNegativeNumber(settings?.monthlyLivingCost, defaults.monthlyLivingCost),
+    monthlyHousingCost: nonNegativeNumber(settings?.monthlyHousingCost, defaults.monthlyHousingCost),
+    monthlyMedicalCost: nonNegativeNumber(settings?.monthlyMedicalCost, defaults.monthlyMedicalCost),
+    monthlyCareCost: nonNegativeNumber(settings?.monthlyCareCost, defaults.monthlyCareCost),
+    monthlyPublicPension: nonNegativeNumber(settings?.monthlyPublicPension, defaults.monthlyPublicPension),
+    monthlyPrivatePension: nonNegativeNumber(settings?.monthlyPrivatePension, defaults.monthlyPrivatePension),
+    monthlyOtherIncome: nonNegativeNumber(settings?.monthlyOtherIncome, defaults.monthlyOtherIncome),
+    monthlyHealthInsurance: nonNegativeNumber(settings?.monthlyHealthInsurance, defaults.monthlyHealthInsurance),
+    monthlyLongTermCareInsurance: nonNegativeNumber(
       settings?.monthlyLongTermCareInsurance,
       defaults.monthlyLongTermCareInsurance
     ),
-    monthlyTaxes: finiteNumber(settings?.monthlyTaxes, defaults.monthlyTaxes),
-    annualExtraExpense: finiteNumber(settings?.annualExtraExpense, defaults.annualExtraExpense),
-    retirementLumpSum: finiteNumber(settings?.retirementLumpSum, defaults.retirementLumpSum),
+    monthlyTaxes: nonNegativeNumber(settings?.monthlyTaxes, defaults.monthlyTaxes),
+    annualExtraExpense: nonNegativeNumber(settings?.annualExtraExpense, defaults.annualExtraExpense),
+    retirementLumpSum: nonNegativeNumber(settings?.retirementLumpSum, defaults.retirementLumpSum),
     annualReturnRate: finiteNumber(settings?.annualReturnRate, defaults.annualReturnRate),
     inflationRate: finiteNumber(settings?.inflationRate, defaults.inflationRate)
   };
@@ -172,13 +353,13 @@ const normalizeWithdrawalPeriod = (period: WithdrawalPeriodSettings | undefined,
   const endAge = Math.max(startAge, Math.round(finiteNumber(period?.endAge, fallback.endAge)));
 
   return {
-    id: period?.id || crypto.randomUUID(),
-    label: period?.label || fallback.label || "期間",
+    id: identifierValue(period?.id),
+    label: nonEmptyString(period?.label, fallback.label || "期間"),
     startAge,
     endAge,
-    monthlyIncome: finiteNumber(period?.monthlyIncome, fallback.monthlyIncome),
-    monthlyLivingCost: finiteNumber(period?.monthlyLivingCost, fallback.monthlyLivingCost),
-    annualExtraExpense: finiteNumber(period?.annualExtraExpense, fallback.annualExtraExpense)
+    monthlyIncome: nonNegativeNumber(period?.monthlyIncome, fallback.monthlyIncome),
+    monthlyLivingCost: nonNegativeNumber(period?.monthlyLivingCost, fallback.monthlyLivingCost),
+    annualExtraExpense: nonNegativeNumber(period?.annualExtraExpense, fallback.annualExtraExpense)
   };
 };
 
@@ -194,7 +375,7 @@ const normalizeWithdrawalPlan = (settings: WithdrawalPlanSettings | undefined): 
 
   return {
     startAge,
-    startingAssets: finiteNumber(settings?.startingAssets, defaults.startingAssets),
+    startingAssets: nonNegativeNumber(settings?.startingAssets, defaults.startingAssets),
     years,
     annualReturnRate: finiteNumber(settings?.annualReturnRate, defaults.annualReturnRate),
     inflationRate: finiteNumber(settings?.inflationRate, defaults.inflationRate),
@@ -203,42 +384,42 @@ const normalizeWithdrawalPlan = (settings: WithdrawalPlanSettings | undefined): 
 };
 
 const normalizeReview = (review: ReviewNote): ReviewNote => ({
-  id: review.id || crypto.randomUUID(),
-  date: review.date || new Date().toISOString().slice(0, 10),
+  id: identifierValue(review?.id),
+  date: /^\d{4}-\d{2}-\d{2}$/.test(stringValue(review?.date)) ? review.date : new Date().toISOString().slice(0, 10),
   reviewType: review.reviewType === "quarterly" ? "quarterly" : "monthly",
   plannedNetAssets: finiteOptionalNumber(review.plannedNetAssets),
   plannedMonthlySavings: finiteOptionalNumber(review.plannedMonthlySavings),
   actualNetAssets: finiteOptionalNumber(review.actualNetAssets),
   actualMonthlySavings: finiteOptionalNumber(review.actualMonthlySavings),
-  todo: review.todo || "",
-  todoDone: Boolean(review.todoDone),
-  memo: review.memo || ""
+  todo: stringValue(review?.todo),
+  todoDone: Boolean(review?.todoDone),
+  memo: stringValue(review?.memo)
 });
 
 const normalizeScenarioSnapshot = (snapshot: ScenarioSnapshot | undefined): ScenarioSnapshot => ({
-  household: snapshot?.household || defaultPlan.household,
-  assets: snapshot?.assets || defaultPlan.assets,
+  household: normalizeHousehold(snapshot?.household),
+  assets: normalizeAssets(snapshot?.assets),
   goals: Array.isArray(snapshot?.goals) ? snapshot.goals.map(normalizeGoal) : [],
   events: Array.isArray(snapshot?.events) ? snapshot.events.map(normalizeEvent) : [],
-  simulation: snapshot?.simulation || defaultPlan.simulation
+  simulation: normalizeSimulation(snapshot?.simulation)
 });
 
 const normalizeScenario = (scenario: PlanScenario): PlanScenario => ({
-  id: scenario.id || crypto.randomUUID(),
-  name: scenario.name || "シナリオ",
-  description: scenario.description || "",
-  tag: scenario.tag || "custom",
-  createdAt: scenario.createdAt || new Date().toISOString(),
-  snapshot: normalizeScenarioSnapshot(scenario.snapshot)
+  id: identifierValue(scenario?.id),
+  name: nonEmptyString(scenario?.name, "シナリオ"),
+  description: stringValue(scenario?.description),
+  tag: enumValue(scenario?.tag, scenarioTags, "custom"),
+  createdAt: stringValue(scenario?.createdAt, new Date().toISOString()),
+  snapshot: normalizeScenarioSnapshot(scenario?.snapshot)
 });
 
 const normalizeFixedCostItem = (item: FixedCostItem): FixedCostItem => ({
-  id: item.id || crypto.randomUUID(),
-  name: item.name || "見直し項目",
-  category: item.category || "other",
-  currentMonthlyCost: typeof item.currentMonthlyCost === "number" && Number.isFinite(item.currentMonthlyCost) ? item.currentMonthlyCost : 0,
-  revisedMonthlyCost: typeof item.revisedMonthlyCost === "number" && Number.isFinite(item.revisedMonthlyCost) ? item.revisedMonthlyCost : 0,
-  memo: item.memo || ""
+  id: identifierValue(item?.id),
+  name: nonEmptyString(item?.name, "見直し項目"),
+  category: enumValue(item?.category, fixedCostCategories, "other"),
+  currentMonthlyCost: nonNegativeNumber(item?.currentMonthlyCost),
+  revisedMonthlyCost: nonNegativeNumber(item?.revisedMonthlyCost),
+  memo: stringValue(item?.memo)
 });
 
 const normalizeActuals = (actuals: unknown) => {
@@ -260,11 +441,11 @@ const normalizeBudgetFrequency = (frequency: unknown): BudgetFrequency =>
     : "monthlyVariable";
 
 const normalizeBudgetItem = (item: BudgetItem): BudgetItem => ({
-  id: item.id || crypto.randomUUID(),
-  name: item.name || "予算項目",
-  category: normalizeBudgetCategory(item.category),
-  frequency: normalizeBudgetFrequency(item.frequency),
-  budgetAmount: typeof item.budgetAmount === "number" && Number.isFinite(item.budgetAmount) ? item.budgetAmount : 0,
-  actuals: normalizeActuals(item.actuals),
-  memo: item.memo || ""
+  id: identifierValue(item?.id),
+  name: nonEmptyString(item?.name, "予算項目"),
+  category: normalizeBudgetCategory(item?.category),
+  frequency: normalizeBudgetFrequency(item?.frequency),
+  budgetAmount: nonNegativeNumber(item?.budgetAmount),
+  actuals: normalizeActuals(item?.actuals),
+  memo: stringValue(item?.memo)
 });

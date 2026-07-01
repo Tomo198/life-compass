@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { CURRENT_PLAN_VERSION, RECOVERY_STORAGE_KEY, STORAGE_KEY } from "../src/config";
 import type { LifePlan } from "../src/types";
 import {
   buildPlanFromScenario,
@@ -24,12 +25,46 @@ import {
   simulateWithdrawal,
   simulateContribution
 } from "../src/utils/calculations";
-import { validateImportedPlan } from "../src/utils/storage";
+import {
+  createRecoveryBackup,
+  getRecoveryBackups,
+  loadPlan,
+  removeRecoveryBackup,
+  savePlan,
+  validateImportedPlan
+} from "../src/utils/storage";
 
 const currentYear = new Date().getFullYear();
 
+class MemoryStorage {
+  private values = new Map<string, string>();
+
+  getItem(key: string) {
+    return this.values.get(key) ?? null;
+  }
+
+  setItem(key: string, value: string) {
+    this.values.set(key, String(value));
+  }
+
+  removeItem(key: string) {
+    this.values.delete(key);
+  }
+
+  clear() {
+    this.values.clear();
+  }
+}
+
+const installMemoryStorage = (storage: MemoryStorage = new MemoryStorage()) => {
+  Object.defineProperty(globalThis, "localStorage", {
+    value: storage,
+    configurable: true
+  });
+};
+
 const basePlan: LifePlan = {
-  version: 1,
+  version: CURRENT_PLAN_VERSION,
   profile: {
     name: "test",
     age: 35,
@@ -794,6 +829,42 @@ test("withdrawal simulation supports period-based income and living cost assumpt
   assert.equal(result.finalAssets, 5920000);
 });
 
+test("withdrawal simulation carries the previous phase across schedule gaps", () => {
+  const result = simulateWithdrawal({
+    startAge: 60,
+    currentAssets: 10000000,
+    monthlyLivingCost: 0,
+    monthlyPension: 0,
+    annualReturnRate: 0,
+    inflationRate: 0,
+    years: 6,
+    phases: [
+      {
+        label: "退職直後",
+        startAge: 60,
+        endAge: 61,
+        monthlyIncome: 100000,
+        monthlyLivingCost: 200000,
+        annualExtraExpense: 0
+      },
+      {
+        label: "年金開始後",
+        startAge: 65,
+        endAge: 70,
+        monthlyIncome: 160000,
+        monthlyLivingCost: 180000,
+        annualExtraExpense: 0
+      }
+    ]
+  });
+
+  assert.equal(result.rows[2].age, 62);
+  assert.equal(result.rows[2].phaseLabel, "退職直後");
+  assert.equal(result.rows[4].age, 64);
+  assert.equal(result.rows[4].withdrawalAmount, 1200000);
+  assert.equal(result.rows[5].phaseLabel, "年金開始後");
+});
+
 test("withdrawal variability reports depletion cases from variable annual returns", () => {
   const result = simulateWithdrawalVariability(
     {
@@ -1065,7 +1136,7 @@ test("import validation rejects unrelated JSON and fills optional fields for leg
     budgetItems: undefined
   });
 
-  assert.equal(imported.version, 1);
+  assert.equal(imported.version, CURRENT_PLAN_VERSION);
   assert.deepEqual(imported.simulation, {
     monthlyContribution: 50000,
     bonusContribution: 100000,
@@ -1187,4 +1258,99 @@ test("import validation preserves review actual values and fills missing review 
   assert.equal(imported.reviews[1].todoDone, false);
   assert.equal(imported.reviews[1].plannedNetAssets, undefined);
   assert.equal(imported.reviews[1].actualNetAssets, undefined);
+});
+
+test("import validation normalizes malformed core fields and rejects future backups", () => {
+  const imported = validateImportedPlan({
+    ...basePlan,
+    version: 1,
+    profile: {
+      name: 123,
+      age: "forty",
+      familyType: "invalid",
+      workStyle: "invalid",
+      housing: "invalid"
+    },
+    household: {
+      monthlyIncome: "450000",
+      annualBonus: -100,
+      sideIncome: null,
+      fixedCost: 120000,
+      variableCost: 80000,
+      annualSpecialCost: 240000
+    },
+    assets: {
+      cash: "1000000",
+      investment: 2000000,
+      other: -500,
+      debt: 300000
+    },
+    simulation: {
+      monthlyContribution: -1,
+      bonusContribution: 100000,
+      annualReturnRate: "3",
+      years: 999
+    }
+  });
+
+  assert.equal(imported.profile.name, "マイプラン");
+  assert.equal(imported.profile.age, 35);
+  assert.equal(imported.profile.familyType, "single");
+  assert.equal(imported.household.monthlyIncome, 0);
+  assert.equal(imported.household.annualBonus, 0);
+  assert.equal(imported.assets.cash, 0);
+  assert.equal(imported.assets.other, 0);
+  assert.equal(imported.simulation.monthlyContribution, 0);
+  assert.equal(imported.simulation.annualReturnRate, 3);
+  assert.equal(imported.simulation.years, 80);
+
+  assert.throws(
+    () => validateImportedPlan({ ...basePlan, version: CURRENT_PLAN_VERSION + 1 }),
+    /新しいバージョン/
+  );
+  assert.throws(() => validateImportedPlan({ ...basePlan, version: "2" }), /バージョン情報/);
+});
+
+test("recovery backups keep the newest three plans and can be removed", () => {
+  installMemoryStorage();
+
+  for (let index = 1; index <= 4; index += 1) {
+    createRecoveryBackup(
+      { ...basePlan, profile: { ...basePlan.profile, name: `plan-${index}` } },
+      index === 4 ? "before-import" : "before-reset"
+    );
+  }
+
+  const backups = getRecoveryBackups();
+  assert.equal(backups.length, 3);
+  assert.equal(backups[0].plan.profile.name, "plan-4");
+  assert.equal(backups[0].reason, "before-import");
+  assert.equal(backups[2].plan.profile.name, "plan-2");
+  assert.equal(backups.every((backup) => backup.plan.version === CURRENT_PLAN_VERSION), true);
+
+  removeRecoveryBackup(backups[1].id);
+  assert.equal(getRecoveryBackups().length, 2);
+});
+
+test("unreadable browser data is preserved before the default plan is loaded", () => {
+  installMemoryStorage();
+  localStorage.setItem(STORAGE_KEY, "{broken-json");
+
+  const loaded = loadPlan();
+
+  assert.equal(loaded.profile.name, "マイプラン");
+  assert.equal(localStorage.getItem(`${RECOVERY_STORAGE_KEY}-unreadable`), "{broken-json");
+});
+
+test("storage write failures return a clear error without silently succeeding", () => {
+  class FailingStorage extends MemoryStorage {
+    setItem() {
+      throw new Error("quota");
+    }
+  }
+
+  installMemoryStorage(new FailingStorage());
+
+  assert.throws(() => savePlan(basePlan), /ブラウザ内に保存できません/);
+  assert.throws(() => createRecoveryBackup(basePlan, "before-reset"), /操作を中止/);
 });

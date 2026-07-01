@@ -1,6 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { CURRENT_PLAN_VERSION } from "./config";
+import { EmptyState, Metric, MoneyInput, NumericInput, StepFlowNav, StepTitle } from "./components/CommonUi";
 import { createId, defaultPlan } from "./data/defaultPlan";
 import { proPriceLabel } from "./features";
+import { LegalView as LegalPage } from "./views/LegalView";
+import { PricingView as PricingPage } from "./views/PricingView";
+import { DataView as DataPage } from "./views/DataView";
 import type {
   Assets,
   BudgetCategory,
@@ -62,9 +67,9 @@ import {
   simulateContribution,
   type VariabilityResult
 } from "./utils/calculations";
-import { clearPlan, exportPlan, loadPlan, savePlan, validateImportedPlan } from "./utils/storage";
+import { createRecoveryBackup, exportPlan, loadPlan, savePlan } from "./utils/storage";
 
-const navItems: { key: ViewKey; label: string }[] = [
+const navItems: { key: ViewKey; label: string; tier?: "pro" }[] = [
   { key: "dashboard", label: "ダッシュボード" },
   { key: "profile", label: "ライフプラン" },
   { key: "household", label: "家計入力" },
@@ -73,11 +78,11 @@ const navItems: { key: ViewKey; label: string }[] = [
   { key: "goals", label: "目標管理" },
   { key: "timeline", label: "年表" },
   { key: "simulation", label: "シミュレーション" },
-  { key: "retirement", label: "老後プラン" },
-  { key: "scenarios", label: "シナリオ比較" },
-  { key: "diagnosis", label: "ライフプラン診断" },
+  { key: "retirement", label: "老後プラン", tier: "pro" },
+  { key: "scenarios", label: "シナリオ比較", tier: "pro" },
+  { key: "diagnosis", label: "ライフプラン診断", tier: "pro" },
   { key: "notes", label: "メモ" },
-  { key: "reviews", label: "レビュー履歴" },
+  { key: "reviews", label: "レビュー履歴", tier: "pro" },
   { key: "data", label: "データ管理" },
   { key: "pricing", label: "料金" },
   { key: "pro", label: "Pro機能" },
@@ -229,37 +234,6 @@ const scenarioTagLabels: Record<ScenarioTag, string> = {
 
 const monthLabels = Array.from({ length: 12 }, (_, index) => `${index + 1}月`);
 
-const normalizeNumericText = (value: string, allowDecimal = false) => {
-  const withoutCommas = value.replace(/,/g, "");
-  const allowed = withoutCommas.replace(allowDecimal ? /[^\d.-]/g : /[^\d-]/g, "");
-  const sign = allowed.startsWith("-") ? "-" : "";
-  const unsigned = allowed.replace(/-/g, "");
-
-  if (!allowDecimal) return `${sign}${unsigned}`;
-
-  const [integerPart, ...decimalParts] = unsigned.split(".");
-  const decimal = decimalParts.join("");
-  return decimalParts.length > 0 ? `${sign}${integerPart}.${decimal}` : `${sign}${integerPart}`;
-};
-
-const parseNumericText = (value: string) => {
-  const normalized = value.replace(/,/g, "");
-  if (normalized === "" || normalized === "-" || normalized === "." || normalized === "-.") return 0;
-  const parsed = Number(normalized);
-  return Number.isFinite(parsed) ? parsed : 0;
-};
-
-const clampNumber = (value: number, min?: number, max?: number) => {
-  if (typeof min === "number" && value < min) return min;
-  if (typeof max === "number" && value > max) return max;
-  return value;
-};
-
-const formatNumericText = (value: number, allowDecimal = false) =>
-  new Intl.NumberFormat("ja-JP", {
-    maximumFractionDigits: allowDecimal ? 2 : 0
-  }).format(value || 0);
-
 const exactYenLabel = (value: number) => {
   const rounded = Math.round(value || 0);
   const sign = rounded < 0 ? "-" : "";
@@ -297,7 +271,7 @@ const isSamplePlan = (plan: LifePlan) =>
   plan.events.some((event) => event.title === "資格取得");
 
 const createEmptyPlan = (): LifePlan => ({
-  version: 1,
+  version: CURRENT_PLAN_VERSION,
   profile: {
     name: "新しいプラン",
     age: 0,
@@ -580,6 +554,7 @@ function App() {
   const [plan, setPlan] = useState<LifePlan>(() => loadPlan());
   const [activeView, setActiveView] = useState<ViewKey>("dashboard");
   const [importMessage, setImportMessage] = useState("");
+  const [storageError, setStorageError] = useState("");
   const [settings, setSettings] = useState<AppSettings>(() => loadAppSettings());
 
   useEffect(() => {
@@ -596,8 +571,16 @@ function App() {
   }, [settings.theme]);
 
   const commitPlan = (nextPlan: LifePlan) => {
-    const saved = savePlan(nextPlan);
-    setPlan(saved);
+    try {
+      const saved = savePlan(nextPlan);
+      setPlan(saved);
+      setStorageError("");
+      return true;
+    } catch (error) {
+      setPlan({ ...nextPlan, updatedAt: plan.updatedAt });
+      setStorageError(error instanceof Error ? error.message : "ブラウザ内に保存できませんでした。");
+      return false;
+    }
   };
 
   const updateSettings = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {
@@ -854,14 +837,24 @@ function App() {
   };
 
   const resetPlan = () => {
-    clearPlan();
+    try {
+      createRecoveryBackup(plan, "before-reset");
+    } catch (error) {
+      setStorageError(error instanceof Error ? error.message : "復旧用コピーを保存できませんでした。");
+      return;
+    }
     const next = cloneDefaultPlan();
     commitPlan(next);
     setImportMessage("サンプルプランに戻しました。");
   };
 
   const startEmptyPlan = () => {
-    clearPlan();
+    try {
+      createRecoveryBackup(plan, "before-reset");
+    } catch (error) {
+      setStorageError(error instanceof Error ? error.message : "復旧用コピーを保存できませんでした。");
+      return;
+    }
     commitPlan(createEmptyPlan());
     setImportMessage("空のプランを作成しました。");
   };
@@ -973,7 +966,7 @@ function App() {
         );
       case "data":
         return (
-          <DataView
+          <DataPage
             plan={plan}
             commitPlan={commitPlan}
             importMessage={importMessage}
@@ -983,7 +976,7 @@ function App() {
           />
         );
       case "pricing":
-        return <PricingView setActiveView={setActiveView} />;
+        return <PricingPage setActiveView={setActiveView} />;
       case "pro":
         return (
           <ProView
@@ -1000,14 +993,14 @@ function App() {
       case "settings":
         return <SettingsView settings={settings} updateSettings={updateSettings} setActiveView={setActiveView} />;
       case "legal":
-        return <LegalView />;
+        return <LegalPage />;
       default:
         return null;
     }
   };
 
   return (
-    <div className="app-shell">
+    <div className="app-shell" data-testid="app-shell">
       <aside className="sidebar" aria-label="メインナビゲーション">
         <div className="brand">
           <span className="brand-mark">LC</span>
@@ -1023,8 +1016,10 @@ function App() {
               type="button"
               className={activeView === item.key ? "active" : ""}
               onClick={() => setActiveView(item.key)}
+              data-view={item.key}
             >
-              {item.label}
+              <span>{item.label}</span>
+              {item.tier === "pro" && <small className="nav-tier">Pro</small>}
             </button>
           ))}
         </nav>
@@ -1046,6 +1041,17 @@ function App() {
             </button>
           </div>
         </header>
+        {storageError && (
+          <section className="storage-error-banner" role="alert">
+            <div>
+              <strong>ブラウザ内への保存を確認してください</strong>
+              <p>{storageError}</p>
+            </div>
+            <button type="button" className="secondary" onClick={() => setActiveView("data")}>
+              データ管理を開く
+            </button>
+          </section>
+        )}
         {renderView()}
       </main>
     </div>
@@ -1381,52 +1387,6 @@ function Dashboard({ plan, setActiveView, startEmptyPlan }: DashboardProps) {
   );
 }
 
-function Metric({ label, value, helper }: { label: string; value: string; helper: string }) {
-  return (
-    <div className="metric">
-      <span>{label}</span>
-      <strong>{value}</strong>
-      <small>{helper}</small>
-    </div>
-  );
-}
-
-function EmptyState({ title, detail }: { title: string; detail: string }) {
-  return (
-    <div className="empty-state">
-      <strong>{title}</strong>
-      <span>{detail}</span>
-    </div>
-  );
-}
-
-function StepFlowNav({
-  previous,
-  next,
-  setActiveView
-}: {
-  previous?: { view: ViewKey; label: string };
-  next?: { view: ViewKey; label: string };
-  setActiveView: (view: ViewKey) => void;
-}) {
-  return (
-    <section className="step-flow-nav" aria-label="入力の移動">
-      {previous ? (
-        <button type="button" className="secondary" onClick={() => setActiveView(previous.view)}>
-          前へ: {previous.label}
-        </button>
-      ) : (
-        <span />
-      )}
-      {next && (
-        <button type="button" onClick={() => setActiveView(next.view)}>
-          次へ: {next.label}
-        </button>
-      )}
-    </section>
-  );
-}
-
 function ProfileView({
   plan,
   updateProfile,
@@ -1575,7 +1535,10 @@ function HouseholdView({
       <section className="panel">
         <div className="section-heading">
           <div>
-            <h2>固定費見直しインパクト</h2>
+            <div className="title-with-badge">
+              <h2>固定費見直しインパクト</h2>
+              <span className="pro-inline-badge">Proプレビュー</span>
+            </div>
             <p>保険、通信費、家賃、車、サブスクなどの月額差分を整理します。表示は単純差額で、契約や商品を推奨するものではありません。</p>
           </div>
           <button type="button" onClick={addFixedCostItem}>
@@ -3015,10 +2978,10 @@ function SimulationView({
               基本
             </button>
             <button type="button" className={simulationTab === "contribution" ? "active" : ""} onClick={() => setSimulationTab("contribution")}>
-              詳細積立
+              詳細積立 Pro
             </button>
             <button type="button" className={simulationTab === "withdrawal" ? "active" : ""} onClick={() => setSimulationTab("withdrawal")}>
-              取り崩し
+              取り崩し Pro
             </button>
           </div>
         </div>
@@ -3904,253 +3867,6 @@ function NotesView({
   );
 }
 
-function DataView({
-  plan,
-  commitPlan,
-  importMessage,
-  setImportMessage,
-  resetPlan,
-  startEmptyPlan
-}: {
-  plan: LifePlan;
-  commitPlan: (plan: LifePlan) => void;
-  importMessage: string;
-  setImportMessage: (message: string) => void;
-  resetPlan: () => void;
-  startEmptyPlan: () => void;
-}) {
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const updatedAt = new Date(plan.updatedAt).toLocaleString("ja-JP");
-  const backupSizeKb = Math.max(1, Math.ceil(new Blob([JSON.stringify(plan)]).size / 1024));
-
-  const handleImport = (file: File | undefined) => {
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      try {
-        const parsed = JSON.parse(String(reader.result));
-        const imported = validateImportedPlan(parsed);
-        commitPlan(imported);
-        setImportMessage("JSONをインポートしました。");
-      } catch (error) {
-        setImportMessage(error instanceof Error ? error.message : "インポートできませんでした。");
-      }
-    };
-    reader.readAsText(file);
-  };
-
-  const handleReset = () => {
-    if (window.confirm("現在の入力内容をサンプルプランに戻します。必要な場合は先にJSONエクスポートしてください。")) {
-      resetPlan();
-    }
-  };
-
-  const handleStartEmpty = () => {
-    if (window.confirm("現在の入力内容を消して、空のプランを作成します。必要な場合は先にJSONエクスポートしてください。")) {
-      startEmptyPlan();
-    }
-  };
-
-  return (
-    <div className="view-stack">
-      <section className="panel">
-        <StepTitle step="12" title="データ管理" description="収入・支出・資産・家族情報はこのブラウザ内に保存します。" />
-        <div className="data-status-grid" aria-label="保存状態">
-          <div>
-            <span>保存先</span>
-            <strong>このブラウザ内</strong>
-            <small>サーバー保存やクラウド同期は行いません。</small>
-          </div>
-          <div>
-            <span>最終保存</span>
-            <strong>{updatedAt}</strong>
-            <small>入力変更時に自動保存されます。</small>
-          </div>
-          <div>
-            <span>バックアップ目安</span>
-            <strong>約{backupSizeKb}KB</strong>
-            <small>JSONとして手元に保存できます。</small>
-          </div>
-        </div>
-        <div className="data-actions">
-          <button type="button" onClick={() => exportPlan(plan)}>
-            JSONエクスポート
-          </button>
-          <button type="button" className="secondary" onClick={() => fileInputRef.current?.click()}>
-            JSONインポート
-          </button>
-          <button type="button" className="secondary" onClick={handleReset}>
-            サンプルプランに戻す
-          </button>
-          <button type="button" className="danger" onClick={handleStartEmpty}>
-            空のプランを作成
-          </button>
-          <input
-            ref={fileInputRef}
-            className="hidden-input"
-            type="file"
-            accept="application/json,.json"
-            onChange={(event) => {
-              handleImport(event.target.files?.[0]);
-              event.currentTarget.value = "";
-            }}
-          />
-        </div>
-        <div className="data-guide">
-          <div>
-            <strong>この端末で使うとき</strong>
-            <span>入力内容はこのブラウザ内に保存されます。サーバーには送信しない前提のため、別の端末や別のブラウザには自動同期されません。</span>
-          </div>
-          <div>
-            <strong>バックアップするとき</strong>
-            <span>JSONエクスポートを押すと、現在の入力内容をファイルとして保存できます。端末変更、ブラウザ変更、閲覧データ削除の前に使います。</span>
-          </div>
-          <div>
-            <strong>復元するとき</strong>
-            <span>JSONインポートから保存済みファイルを選ぶと、このブラウザ内のプランに反映されます。</span>
-          </div>
-          <div>
-            <strong>サンプルと空プラン</strong>
-            <span>使い方を確認したい場合はサンプルプラン、最初から入力したい場合は空のプランを使います。どちらも現在の入力内容を置き換えます。</span>
-          </div>
-        </div>
-        <section className="backup-manual">
-          <h2>バックアップと復元の手順</h2>
-          <div className="manual-columns">
-            <div>
-              <strong>バックアップする</strong>
-              <ol className="manual-list">
-                <li>入力を一通り終えたら「JSONエクスポート」を押します。</li>
-                <li>ダウンロードされたJSONファイルを、分かりやすい場所に保管します。</li>
-                <li>端末変更、ブラウザ変更、閲覧データ削除の前には、必ず最新のJSONを保存します。</li>
-              </ol>
-            </div>
-            <div>
-              <strong>復元する</strong>
-              <ol className="manual-list">
-                <li>新しい端末やブラウザでLife Compassを開きます。</li>
-                <li>データ管理の「JSONインポート」を押します。</li>
-                <li>保存しておいたJSONファイルを選ぶと、このブラウザ内のデータに反映されます。</li>
-              </ol>
-            </div>
-          </div>
-          <p>JSONファイルには入力した家計、資産、目標、ライフイベントなどが含まれます。共有、削除、保管場所はユーザー自身で管理してください。</p>
-        </section>
-        {importMessage && <p className="message">{importMessage}</p>}
-      </section>
-      <DisclaimerPanel />
-    </div>
-  );
-}
-
-function PricingView({ setActiveView }: { setActiveView: (view: ViewKey) => void }) {
-  return (
-    <div className="view-stack">
-      <section className="pro-hero">
-        <div>
-          <p className="eyebrow">料金</p>
-          <h2>無料版を中心に、Pro版は Coming soon</h2>
-          <p>現在は課金機能を実装していません。将来のPro版に備えて、無料版とPro版の機能境界だけを明確にしています。</p>
-        </div>
-        <span className="lock-badge">課金なし</span>
-      </section>
-
-      <section className="pricing-grid">
-        <div className="pricing-card current">
-          <span>現在利用可能</span>
-          <h2>無料版</h2>
-          <strong>0円</strong>
-          <ul>
-            <li>1つのライフプラン作成・保存</li>
-            <li>家計、予算・実績、資産、目標、年表、メモ</li>
-            <li>生活防衛資金チェック</li>
-            <li>基本資産推移と簡易積立の参考試算</li>
-            <li>ブラウザ内保存とJSONバックアップ</li>
-          </ul>
-          <button type="button" onClick={() => setActiveView("dashboard")}>
-            ダッシュボードへ
-          </button>
-        </div>
-
-        <div className="pricing-card">
-          <span>Coming soon</span>
-          <h2>Pro版</h2>
-          <strong>{proPriceLabel}</strong>
-          <ul>
-            <li>複数シナリオ保存と比較</li>
-            <li>固定費見直しインパクト</li>
-            <li>予算・実績のレビュー履歴連携</li>
-            <li>ライフプラン診断と世帯イベント管理</li>
-            <li>見直し履歴と月次/四半期レビュー</li>
-            <li>老後生活プランと社会保険・税金の概算入力</li>
-            <li>詳細取り崩しシミュレーション</li>
-            <li>課金連携とPro制限の導入予定</li>
-          </ul>
-          <button type="button" className="secondary" onClick={() => setActiveView("pro")}>
-            Pro予定を見る
-          </button>
-        </div>
-      </section>
-
-      <section className="panel">
-        <h2>無料版とPro版の比較</h2>
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>機能</th>
-                <th>無料版</th>
-                <th>Pro版予定</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td>ライフプラン</td>
-                <td>1つのプランを作成・保存</td>
-                <td>複数シナリオを保存・比較</td>
-              </tr>
-              <tr>
-                <td>家計・資産</td>
-                <td>基本収支、資産、生活防衛資金</td>
-                <td>固定費見直し、詳細レビュー、差分分析</td>
-              </tr>
-              <tr>
-                <td>目標・年表</td>
-                <td>目標管理、ライフイベント年表</td>
-                <td>世帯イベント管理、シナリオ別の見通し</td>
-              </tr>
-              <tr>
-                <td>シミュレーション</td>
-                <td>基本資産推移、簡易積立、基本取り崩し</td>
-                <td>詳細取り崩し、老後生活プラン、ばらつき試算</td>
-              </tr>
-              <tr>
-                <td>データ保存</td>
-                <td>ブラウザ内保存、JSONバックアップ</td>
-                <td>ブラウザ内保存、JSONバックアップ</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <section className="panel">
-        <h2>課金導入前の方針</h2>
-        <div className="boundary-grid">
-          <div>
-            <strong>今は決済情報を入力しません</strong>
-            <p>Stripe、PayPalなどの決済手段は未定です。現在のアプリ内でカード番号や決済情報を入力する場所はありません。</p>
-          </div>
-          <div>
-            <strong>正式提供時に明記すること</strong>
-            <p>価格、更新日、解約方法、返金条件、事業者情報、サポート窓口を料金ページと法務ページに掲載します。</p>
-          </div>
-        </div>
-      </section>
-    </div>
-  );
-}
-
 type ScenarioComparisonViewProps = {
   plan: LifePlan;
   addScenario: (template: ScenarioTemplate) => void;
@@ -4209,11 +3925,14 @@ function getScenarioComparisonMetrics(plan: LifePlan) {
 function ScenarioComparisonView({ plan, addScenario, updateScenario, removeScenario }: ScenarioComparisonViewProps) {
   const scenarios = plan.scenarios || [];
   const [selectedScenarioId, setSelectedScenarioId] = useState("current");
-  const comparisonMetrics = getScenarioComparisonMetrics(plan);
-  const scenarioOptions = [
-    { id: "current", name: "現在プラン", plan },
-    ...scenarios.map((scenario) => ({ id: scenario.id, name: scenario.name, plan: buildPlanFromScenario(plan, scenario) }))
-  ];
+  const comparisonMetrics = useMemo(() => getScenarioComparisonMetrics(plan), [plan]);
+  const scenarioOptions = useMemo(
+    () => [
+      { id: "current", name: "現在プラン", plan },
+      ...scenarios.map((scenario) => ({ id: scenario.id, name: scenario.name, plan: buildPlanFromScenario(plan, scenario) }))
+    ],
+    [plan, scenarios]
+  );
   const selectedScenario = scenarioOptions.find((item) => item.id === selectedScenarioId) || scenarioOptions[0];
   const selectedScenarioRows = getAnnualProjectionRows(selectedScenario.plan, 30);
 
@@ -4353,7 +4072,6 @@ function getLifePlanDiagnosis(plan: LifePlan): DiagnosisItem[] {
   const assets = getAssetSummary(plan.assets);
   const emergency = getEmergencyFundResult(plan);
   const goalAchievements = getGoalAchievements(plan);
-  const currentYear = new Date().getFullYear();
   const eventYears = new Map<number, { count: number; impact: number }>();
 
   plan.events.forEach((event) => {
@@ -4585,49 +4303,7 @@ function ProView({
   const scenarios = plan.scenarios || [];
   const fixedCostItems = plan.fixedCostItems || [];
   const fixedCostImpact = getFixedCostImpact(fixedCostItems);
-  const comparisonPlans = [
-    { id: "current", name: "現在プラン", plan },
-    ...scenarios.map((scenario) => ({
-      id: scenario.id,
-      name: scenario.name,
-      plan: buildPlanFromScenario(plan, scenario)
-    }))
-  ];
-  const comparisonMetrics = comparisonPlans.map((item) => {
-    const cashflow = getCashflowSummary(item.plan.household);
-    const assets = getAssetSummary(item.plan.assets);
-    const projection = projectAssets(item.plan, 30);
-    const primaryGoal = getPrimaryGoal(item.plan);
-    const goalAchievement = primaryGoal ? getGoalAchievement(item.plan, primaryGoal) : null;
-    const emergency = getEmergencyFundResult(item.plan);
-    const goalLabel = !primaryGoal
-      ? "目標未設定"
-      : goalAchievement?.status === "achieved"
-        ? "達成済み"
-        : goalAchievement?.status === "unreachable"
-          ? "毎月の準備額未設定"
-          : goalAchievement?.status === "recurring"
-            ? `${primaryGoal.title}: 継続目標`
-            : `${primaryGoal.title}: ${goalAchievement?.targetAge}歳目安`;
-    const emergencyLabel =
-      emergency.status === "short"
-        ? `${emergency.lowerMonths}ヶ月分まであと${manYen(emergency.shortageToLower)}`
-        : emergency.status === "above"
-          ? `${emergency.upperMonths}ヶ月分を上回る`
-          : `${emergency.lowerMonths}ヶ月分の目安内`;
-
-    return {
-      id: item.id,
-      name: item.name,
-      monthlySavings: cashflow.monthlySavings,
-      annualBalance: cashflow.annualIncome - cashflow.annualLivingCost,
-      netAssets: assets.netAssets,
-      tenYear: projection[10]?.value ?? 0,
-      thirtyYear: projection[30]?.value ?? 0,
-      goalLabel,
-      emergencyLabel
-    };
-  });
+  const comparisonMetrics = useMemo(() => getScenarioComparisonMetrics(plan), [plan]);
 
   return (
     <div className="view-stack">
@@ -4879,181 +4555,6 @@ function SettingsView({
         <p>シミュレーション画面の年次見通しは、グラフ上の点をタップすると年末資産、前年差、年間貯蓄、イベント影響を確認できます。</p>
       </section>
     </div>
-  );
-}
-
-function LegalView() {
-  const legalDocuments = [
-    {
-      title: "利用規約",
-      items: [
-        "Life Compass は、家計、資産、目標、ライフイベントを整理するためのライフプラン管理ツールです。",
-        "表示される結果は、ユーザーが入力した条件に基づく試算です。",
-        "本サービスは投資助言、税務助言、法律助言、保険助言を行うものではありません。",
-        "ユーザーは自身の判断と責任で本サービスを利用します。必要に応じて専門家に相談してください。",
-        "サービス内容、画面、機能、提供条件は改善のため変更される場合があります。"
-      ]
-    },
-    {
-      title: "プライバシーポリシー",
-      items: [
-        "収入、支出、資産、家族情報などをサーバーに保存しません。",
-        "入力データはユーザーのブラウザ内に保存されます。サーバー保存やクラウド同期は行いません。",
-        "JSONエクスポートしたファイルの保管、共有、削除はユーザー自身で管理してください。",
-        "別の端末やブラウザで利用する場合は、ユーザー自身がJSONインポートで復元してください。",
-        "アクセス解析やエラー収集を導入する場合も、収集内容と目的をこのページで説明します。"
-      ]
-    },
-    {
-      title: "特定商取引法に基づく表記",
-      items: [
-        "現在は課金機能を実装しておらず、有料販売は行っていません。",
-        "Pro版は Coming soon であり、現時点の月額500円程度という表示は想定であって正式な販売条件ではありません。",
-        "正式提供時には、販売価格、支払方法、提供時期、解約方法、返金条件、事業者名、所在地、連絡先などを明記します。",
-        "決済手段が決まり次第、Stripe、PayPalなどの利用先と決済情報の取り扱いを説明します。"
-      ]
-    },
-    {
-      title: "返金ポリシー",
-      items: [
-        "現在は有料課金がないため、返金対象となる購入はありません。",
-        "Pro版を正式提供する場合は、返金可否、返金申請方法、対象期間、対象外となるケースを事前に明記します。",
-        "決済事業者を利用する場合、返金処理の反映時期は決済事業者の仕様に従う可能性があります。"
-      ]
-    },
-    {
-      title: "解約ポリシー",
-      items: [
-        "現在はサブスクリプション課金がないため、解約手続きはありません。",
-        "Pro版を正式提供する場合は、更新日、解約方法、解約後に利用できる機能、データの扱いを明記します。",
-        "無料版のブラウザ内データは、ユーザー自身がデータ管理画面またはブラウザ機能で削除できます。"
-      ]
-    }
-  ];
-
-  return (
-    <div className="legal-layout">
-      <section className="panel legal-intro">
-        <p className="eyebrow">法務ページ</p>
-        <h2>利用条件とデータの扱い</h2>
-        <p>現在は無料版のみを提供し、課金機能はありません。将来Pro版を正式提供する前に、料金、返金、解約、事業者情報を確定して追記します。</p>
-      </section>
-      {legalDocuments.map((document) => (
-        <LegalSection key={document.title} title={document.title} items={document.items} />
-      ))}
-      <DisclaimerPanel />
-    </div>
-  );
-}
-
-function LegalSection({ title, items }: { title: string; items: string[] }) {
-  return (
-    <section className="panel legal-section">
-      <h2>{title}</h2>
-      <ul>
-        {items.map((item) => (
-          <li key={item}>{item}</li>
-        ))}
-      </ul>
-    </section>
-  );
-}
-
-function DisclaimerPanel() {
-  return (
-    <section className="panel legal-section">
-      <h2>免責事項</h2>
-      <ul>
-        <li>このアプリは教育・参考目的のライフプラン管理ツールです。</li>
-        <li>表示される結果は入力条件に基づく試算です。</li>
-        <li>投資助言、税務助言、法律助言、保険助言ではありません。</li>
-        <li>個別の金融商品、銘柄、保険商品等を推奨しません。</li>
-        <li>実際の判断は必要に応じて専門家に相談してください。</li>
-        <li>将来の収益や資産形成を保証するものではありません。</li>
-      </ul>
-    </section>
-  );
-}
-
-function StepTitle({ step, title, description }: { step: string; title: string; description: string }) {
-  return (
-    <div className="step-title">
-      <span>{step}</span>
-      <div>
-        <h2>{title}</h2>
-        <p>{description}</p>
-      </div>
-    </div>
-  );
-}
-
-function MoneyInput({ label, value, onChange }: { label: string; value: number; onChange: (value: number) => void }) {
-  return (
-    <label>
-      {label}
-      <NumericInput value={value} min={0} onChange={onChange} />
-    </label>
-  );
-}
-
-function NumericInput({
-  value,
-  onChange,
-  min,
-  max,
-  allowDecimal = false
-}: {
-  value: number;
-  onChange: (value: number) => void;
-  min?: number;
-  max?: number;
-  allowDecimal?: boolean;
-}) {
-  const initialDraft = formatNumericText(value, allowDecimal);
-  const [draft, setDraft] = useState(initialDraft);
-  const draftRef = useRef(initialDraft);
-  const [isFocused, setIsFocused] = useState(false);
-
-  useEffect(() => {
-    if (!isFocused) {
-      const formatted = formatNumericText(value, allowDecimal);
-      draftRef.current = formatted;
-      setDraft(formatted);
-    }
-  }, [allowDecimal, isFocused, value]);
-
-  const commitDraft = (nextDraft: string) => {
-    const normalized = normalizeNumericText(nextDraft, allowDecimal);
-    draftRef.current = normalized;
-    setDraft(normalized);
-    onChange(clampNumber(parseNumericText(normalized), min, max));
-  };
-
-  return (
-    <input
-      inputMode={allowDecimal ? "decimal" : "numeric"}
-      value={draft}
-      onFocus={() => {
-        setIsFocused(true);
-        if (value === 0) {
-          draftRef.current = "";
-          setDraft("");
-        } else {
-          const editable = normalizeNumericText(draftRef.current, allowDecimal);
-          draftRef.current = editable;
-          setDraft(editable);
-        }
-      }}
-      onChange={(event) => commitDraft(event.target.value)}
-      onBlur={() => {
-        setIsFocused(false);
-        const nextValue = clampNumber(parseNumericText(draftRef.current), min, max);
-        onChange(nextValue);
-        const formatted = formatNumericText(nextValue, allowDecimal);
-        draftRef.current = formatted;
-        setDraft(formatted);
-      }}
-    />
   );
 }
 
