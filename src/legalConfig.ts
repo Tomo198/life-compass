@@ -2,7 +2,7 @@ const publicValue = (value: string | undefined) => value?.trim() || "";
 
 export const legalConfig = {
   serviceName: "Life Compass",
-  contactEmail: "tomo.support@gmail.com",
+  contactEmail: "tomo198.support@gmail.com",
   operatorName: publicValue(import.meta.env.VITE_LEGAL_OPERATOR_NAME),
   representativeName: publicValue(import.meta.env.VITE_LEGAL_REPRESENTATIVE_NAME),
   address: publicValue(import.meta.env.VITE_LEGAL_ADDRESS),
