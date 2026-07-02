@@ -32,7 +32,6 @@ import type {
   ScenarioSnapshot,
   ScenarioTag,
   SimulationSettings,
-  WithdrawalPeriodSettings,
   WithdrawalPlanSettings,
   ViewKey,
   WorkStyle
@@ -72,20 +71,19 @@ import { createRecoveryBackup, exportPlan, loadPlan, savePlan } from "./utils/st
 const navItems: { key: ViewKey; label: string; tier?: "pro" }[] = [
   { key: "dashboard", label: "ダッシュボード" },
   { key: "profile", label: "ライフプラン" },
+  { key: "assets", label: "資産入力" },
   { key: "household", label: "家計入力" },
   { key: "budget", label: "予算・実績" },
-  { key: "assets", label: "資産入力" },
   { key: "goals", label: "目標管理" },
-  { key: "timeline", label: "年表" },
   { key: "simulation", label: "シミュレーション" },
+  { key: "timeline", label: "年表" },
+  { key: "notes", label: "メモ" },
   { key: "retirement", label: "老後プラン", tier: "pro" },
   { key: "scenarios", label: "シナリオ比較", tier: "pro" },
   { key: "diagnosis", label: "ライフプラン診断", tier: "pro" },
-  { key: "notes", label: "メモ" },
   { key: "reviews", label: "レビュー履歴", tier: "pro" },
   { key: "data", label: "データ管理" },
-  { key: "pricing", label: "料金" },
-  { key: "pro", label: "Pro機能" },
+  { key: "pricing", label: "Pro・料金" },
   { key: "legal", label: "法務" }
 ];
 
@@ -121,18 +119,29 @@ const legalDocumentViews: LegalDocumentKey[] = ["terms", "privacy", "commercial"
 const getInitialView = (): ViewKey => routeViews[window.location.pathname.replace(/\/$/, "") || "/"] || "dashboard";
 
 const getViewTitle = (view: ViewKey) =>
-  publicViewTitles[view] || (view === "settings" ? "設定" : navItems.find((item) => item.key === view)?.label) || "Life Compass";
+  publicViewTitles[view] ||
+  (view === "settings" ? "設定" : view === "pro" ? "Pro・料金" : navItems.find((item) => item.key === view)?.label) ||
+  "Life Compass";
 
 type ThemePreference = "light" | "dark" | "system";
+type ReviewReminderInterval = "monthly" | "quarterly";
 
 type AppSettings = {
   theme: ThemePreference;
+  remindersEnabled: boolean;
+  actualReminderDay: number;
+  reviewReminderInterval: ReviewReminderInterval;
+  browserNotifications: boolean;
 };
 
 const SETTINGS_KEY = "life-compass-app-settings-v1";
 
 const defaultSettings: AppSettings = {
-  theme: "system"
+  theme: "system",
+  remindersEnabled: true,
+  actualReminderDay: 25,
+  reviewReminderInterval: "monthly",
+  browserNotifications: false
 };
 
 const loadAppSettings = (): AppSettings => {
@@ -198,6 +207,78 @@ const eventCategoryLabels: Record<LifeEventCategory, string> = {
   travel: "大きな旅行",
   qualification: "資格取得",
   other: "その他"
+};
+
+type AppReminder = {
+  id: string;
+  title: string;
+  detail: string;
+  view: ViewKey;
+};
+
+const getAppReminders = (plan: LifePlan, settings: AppSettings): AppReminder[] => {
+  if (!settings.remindersEnabled) return [];
+
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth() + 1;
+  const monthKey = `${currentYear}-${String(currentMonth).padStart(2, "0")}`;
+  const reminders: AppReminder[] = [];
+  const budgetItems = plan.budgetItems || [];
+  const missingActualCount = budgetItems.filter(
+    (item) => !Object.prototype.hasOwnProperty.call(item.actuals || {}, monthKey)
+  ).length;
+
+  if (budgetItems.length > 0 && now.getDate() >= settings.actualReminderDay && missingActualCount > 0) {
+    reminders.push({
+      id: `actual-${monthKey}`,
+      title: `${currentMonth}月の実績入力`,
+      detail: `未入力の予算項目が${missingActualCount}件あります。月末の大まかな支出を記録します。`,
+      view: "budget"
+    });
+  }
+
+  const latestReview = [...(plan.reviews || [])].sort((a, b) => b.date.localeCompare(a.date))[0];
+  const reviewIntervalDays = settings.reviewReminderInterval === "quarterly" ? 90 : 30;
+  const latestReviewDate = latestReview ? new Date(`${latestReview.date}T00:00:00`) : null;
+  const daysSinceReview = latestReviewDate
+    ? Math.floor((now.getTime() - latestReviewDate.getTime()) / (24 * 60 * 60 * 1000))
+    : reviewIntervalDays;
+  if (daysSinceReview >= reviewIntervalDays) {
+    reminders.push({
+      id: `review-${settings.reviewReminderInterval}`,
+      title: settings.reviewReminderInterval === "quarterly" ? "四半期レビューの確認" : "月次レビューの確認",
+      detail: latestReview ? `前回の確認から約${daysSinceReview}日です。` : "最初の見直し内容を記録できます。",
+      view: "reviews"
+    });
+  }
+
+  const dueGoals = plan.goals.filter(
+    (goal) => goal.dueYear <= currentYear && goal.goalType === "oneTime" && getGoalPreparedPercent(goal) < 100
+  );
+  if (dueGoals.length > 0) {
+    reminders.push({
+      id: `goals-${currentYear}`,
+      title: "期限を迎える目標があります",
+      detail: `${dueGoals.slice(0, 2).map((goal) => goal.title).join("、")}の準備状況を確認します。`,
+      view: "goals"
+    });
+  }
+
+  const upcomingEvents = plan.events.filter((event) => {
+    const monthDifference = (event.year - currentYear) * 12 + event.month - currentMonth;
+    return monthDifference >= 0 && monthDifference <= 2;
+  });
+  if (upcomingEvents.length > 0) {
+    reminders.push({
+      id: `events-${monthKey}`,
+      title: "近いライフイベントを確認",
+      detail: `${upcomingEvents.slice(0, 2).map((event) => event.title).join("、")}が3か月以内に予定されています。`,
+      view: "timeline"
+    });
+  }
+
+  return reminders;
 };
 
 const eventOwnerLabels: Record<EventOwner, string> = {
@@ -338,7 +419,10 @@ const createEmptyPlan = (): LifePlan => ({
   withdrawalPlan: {
     startAge: 0,
     startingAssets: 0,
-    years: 40,
+    years: 101,
+    withdrawalMode: "monthlyAmount",
+    monthlyWithdrawalAmount: 0,
+    annualWithdrawalRate: 4,
     annualReturnRate: 0,
     inflationRate: 0,
     periods: [
@@ -590,6 +674,8 @@ function App() {
   const [importMessage, setImportMessage] = useState("");
   const [storageError, setStorageError] = useState("");
   const [settings, setSettings] = useState<AppSettings>(() => loadAppSettings());
+  const [notificationMessage, setNotificationMessage] = useState("");
+  const reminders = useMemo(() => getAppReminders(plan, settings), [plan, settings]);
 
   const setActiveView = (view: ViewKey) => {
     setActiveViewState(view);
@@ -622,6 +708,31 @@ function App() {
     media.addEventListener("change", applyTheme);
     return () => media.removeEventListener("change", applyTheme);
   }, [settings.theme]);
+
+  useEffect(() => {
+    if (
+      !settings.remindersEnabled ||
+      !settings.browserNotifications ||
+      reminders.length === 0 ||
+      !("Notification" in window) ||
+      Notification.permission !== "granted"
+    ) {
+      return;
+    }
+
+    const today = new Date().toISOString().slice(0, 10);
+    const notificationKey = "life-compass-last-reminder-notification";
+    if (localStorage.getItem(notificationKey) === today) return;
+
+    try {
+      new Notification("Life Compassの確認", {
+        body: reminders.length === 1 ? reminders[0].title : `${reminders[0].title} ほか${reminders.length - 1}件`
+      });
+      localStorage.setItem(notificationKey, today);
+    } catch {
+      // ブラウザ通知が使えない環境でも、アプリ内リマインダーは継続します。
+    }
+  }, [reminders, settings.browserNotifications, settings.remindersEnabled]);
 
   const commitPlan = (nextPlan: LifePlan) => {
     try {
@@ -656,6 +767,22 @@ function App() {
 
   const updateSimulation = <K extends keyof SimulationSettings>(key: K, value: SimulationSettings[K]) => {
     commitPlan({ ...plan, simulation: { ...plan.simulation, [key]: value } });
+  };
+
+  const requestBrowserNotifications = async () => {
+    if (!("Notification" in window)) {
+      setNotificationMessage("このブラウザは通知に対応していません。アプリ内リマインダーは利用できます。");
+      return;
+    }
+
+    const permission = await Notification.requestPermission();
+    const enabled = permission === "granted";
+    updateSettings("browserNotifications", enabled);
+    setNotificationMessage(
+      enabled
+        ? "ブラウザ通知を有効にしました。Life Compassを開いた日に、未確認項目があれば通知します。"
+        : "通知は許可されませんでした。アプリ内リマインダーは引き続き利用できます。"
+    );
   };
 
   const updateWithdrawalPlan = <K extends keyof WithdrawalPlanSettings>(key: K, value: WithdrawalPlanSettings[K]) => {
@@ -915,7 +1042,7 @@ function App() {
   const renderView = () => {
     switch (activeView) {
       case "dashboard":
-        return <Dashboard plan={plan} setActiveView={setActiveView} startEmptyPlan={startEmptyPlan} />;
+        return <Dashboard plan={plan} reminders={reminders} setActiveView={setActiveView} startEmptyPlan={startEmptyPlan} />;
       case "profile":
         return <ProfileView plan={plan} updateProfile={updateProfile} setActiveView={setActiveView} />;
       case "household":
@@ -1000,6 +1127,7 @@ function App() {
           <NotesView
             mode="notes"
             plan={plan}
+            setActiveView={setActiveView}
             updateNotes={updateNotes}
             addReview={addReview}
             updateReview={updateReview}
@@ -1011,6 +1139,7 @@ function App() {
           <NotesView
             mode="reviews"
             plan={plan}
+            setActiveView={setActiveView}
             updateNotes={updateNotes}
             addReview={addReview}
             updateReview={updateReview}
@@ -1031,20 +1160,18 @@ function App() {
       case "pricing":
         return <PricingPage setActiveView={setActiveView} />;
       case "pro":
+        return <PricingPage setActiveView={setActiveView} />;
+      case "settings":
         return (
-          <ProView
-            plan={plan}
+          <SettingsView
+            settings={settings}
+            reminders={reminders}
+            notificationMessage={notificationMessage}
+            updateSettings={updateSettings}
+            requestBrowserNotifications={requestBrowserNotifications}
             setActiveView={setActiveView}
-            addScenario={addScenario}
-            updateScenario={updateScenario}
-            removeScenario={removeScenario}
-            addFixedCostItem={addFixedCostItem}
-            updateFixedCostItem={updateFixedCostItem}
-            removeFixedCostItem={removeFixedCostItem}
           />
         );
-      case "settings":
-        return <SettingsView settings={settings} updateSettings={updateSettings} setActiveView={setActiveView} />;
       case "legal":
         return <LegalIndexView setActiveView={setActiveView} />;
       case "terms":
@@ -1120,6 +1247,7 @@ function App() {
 
 type DashboardProps = {
   plan: LifePlan;
+  reminders: AppReminder[];
   setActiveView: (view: ViewKey) => void;
   startEmptyPlan: () => void;
 };
@@ -1203,7 +1331,7 @@ const getDashboardGuidance = ({
   return items.slice(0, 3);
 };
 
-function Dashboard({ plan, setActiveView, startEmptyPlan }: DashboardProps) {
+function Dashboard({ plan, reminders, setActiveView, startEmptyPlan }: DashboardProps) {
   const cashflow = getCashflowSummary(plan.household);
   const assets = getAssetSummary(plan.assets);
   const emergency = getEmergencyFundResult(plan);
@@ -1239,7 +1367,7 @@ function Dashboard({ plan, setActiveView, startEmptyPlan }: DashboardProps) {
               <p>
                 {samplePlan
                   ? "現在の数値は使い方を確認するためのサンプルです。自分用に作る場合は、空のプランに切り替えて基本情報から入力すると迷いにくくなります。"
-                  : "すべてを一度に埋めなくても大丈夫です。プロフィール、家計、資産、目標、年表の順に入れると見通しが作りやすくなります。"}
+                  : "すべてを一度に埋めなくても大丈夫です。基本情報、資産、家計、予算・実績、目標、シミュレーション、年表の順に進められます。"}
               </p>
             </div>
             <div className="button-row">
@@ -1259,21 +1387,56 @@ function Dashboard({ plan, setActiveView, startEmptyPlan }: DashboardProps) {
               <strong>基本情報</strong>
               <small>年齢、家族構成、働き方</small>
             </button>
-            <button type="button" onClick={() => setActiveView("household")}>
+            <button type="button" onClick={() => setActiveView("assets")}>
               <span>2</span>
+              <strong>資産・負債</strong>
+              <small>現金、資産、ローン</small>
+            </button>
+            <button type="button" onClick={() => setActiveView("household")}>
+              <span>3</span>
               <strong>家計</strong>
               <small>収入、生活費、特別支出</small>
             </button>
-            <button type="button" onClick={() => setActiveView("assets")}>
-              <span>3</span>
-              <strong>資産</strong>
-              <small>現金、資産、負債</small>
+            <button type="button" onClick={() => setActiveView("budget")}>
+              <span>4</span>
+              <strong>予算・実績</strong>
+              <small>月の予算と月末実績</small>
             </button>
             <button type="button" onClick={() => setActiveView("goals")}>
-              <span>4</span>
-              <strong>目標と年表</strong>
-              <small>達成したいこと、将来イベント</small>
+              <span>5</span>
+              <strong>目標</strong>
+              <small>目標額、期限、準備状況</small>
             </button>
+            <button type="button" onClick={() => setActiveView("simulation")}>
+              <span>6</span>
+              <strong>シミュレーション</strong>
+              <small>資産推移と生活防衛資金</small>
+            </button>
+            <button type="button" onClick={() => setActiveView("timeline")}>
+              <span>7</span>
+              <strong>年表</strong>
+              <small>将来イベントを時系列で確認</small>
+            </button>
+          </div>
+        </section>
+      )}
+
+      {reminders.length > 0 && (
+        <section className="panel reminder-panel">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">リマインダー</p>
+              <h2>確認する項目が{reminders.length}件あります</h2>
+            </div>
+            <button type="button" className="secondary" onClick={() => setActiveView("settings")}>通知設定</button>
+          </div>
+          <div className="reminder-list">
+            {reminders.map((reminder) => (
+              <button type="button" key={reminder.id} onClick={() => setActiveView(reminder.view)}>
+                <strong>{reminder.title}</strong>
+                <span>{reminder.detail}</span>
+              </button>
+            ))}
           </div>
         </section>
       )}
@@ -1515,7 +1678,7 @@ function ProfileView({
           <span>住宅ローンありの場合は、生活防衛資金をやや厚めに見ます。</span>
         </div>
       </section>
-      <StepFlowNav setActiveView={setActiveView} next={{ view: "household", label: "家計入力" }} />
+      <StepFlowNav setActiveView={setActiveView} next={{ view: "assets", label: "資産入力" }} />
     </div>
   );
 }
@@ -1543,7 +1706,7 @@ function HouseholdView({
   return (
     <div className="view-stack">
       <section className="panel form-panel">
-        <StepTitle step="2" title="基本収支" description="月単位の収支と年間特別支出を整理します。" />
+        <StepTitle step="3" title="基本収支" description="月単位の収支と年間特別支出を整理します。" />
         <div className="form-grid">
           <MoneyInput label="月収" value={plan.household.monthlyIncome} onChange={(value) => updateHousehold("monthlyIncome", value)} />
           <MoneyInput label="ボーナス年額" value={plan.household.annualBonus} onChange={(value) => updateHousehold("annualBonus", value)} />
@@ -1619,7 +1782,7 @@ function HouseholdView({
       </section>
       <StepFlowNav
         setActiveView={setActiveView}
-        previous={{ view: "profile", label: "基本情報" }}
+        previous={{ view: "assets", label: "資産入力" }}
         next={{ view: "budget", label: "予算・実績" }}
       />
     </div>
@@ -1706,6 +1869,12 @@ function BudgetView({
   const [monthKey, setMonthKey] = useState(defaultMonthKey);
   const budgetItems = plan.budgetItems || [];
   const summary = getBudgetSummary(budgetItems, monthKey);
+  const actualEntryCount = budgetItems.filter((item) => Object.prototype.hasOwnProperty.call(item.actuals || {}, monthKey)).length;
+  const moveMonth = (offset: number) => {
+    const [year, month] = monthKey.split("-").map(Number);
+    const next = new Date(year, month - 1 + offset, 1);
+    setMonthKey(`${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}`);
+  };
 
   const handleApplyBudget = () => {
     if (window.confirm("予算・実績の年間換算をもとに、家計入力の固定費・変動費・年間特別支出を更新します。")) {
@@ -1718,9 +1887,9 @@ function BudgetView({
       <section className="panel">
         <div className="section-heading">
           <StepTitle
-            step="3"
+            step="4"
             title="予算・実績プラン"
-            description="日々の明細ではなく、月次レビューと将来見通しに使う予算・実績を整理します。"
+            description="予算を決め、月末にカテゴリごとの大まかな実績を記録します。"
           />
           <div className="button-row">
             <button type="button" className="secondary" onClick={handleApplyBudget}>
@@ -1737,17 +1906,60 @@ function BudgetView({
         </div>
         <div className="budget-toolbar">
           <label>
-            実績を確認する月
+            実績を入力する月
             <input type="month" value={monthKey} onChange={(event) => setMonthKey(event.target.value || defaultMonthKey)} />
           </label>
-          <span>入力した実績は月ごとにブラウザ内へ保存されます。</span>
+          <div className="button-row compact-actions">
+            <button type="button" className="secondary" onClick={() => moveMonth(-1)}>前月</button>
+            <button type="button" className="secondary" onClick={() => setMonthKey(defaultMonthKey)}>今月</button>
+            <button type="button" className="secondary" onClick={() => moveMonth(1)}>翌月</button>
+          </div>
+          <span>{actualEntryCount}/{budgetItems.length}項目入力済み。実績は月ごとにブラウザ内へ保存されます。</span>
         </div>
         <div className="calculation-band compact">
           <Metric label="月平均予算" value={manYen(summary.plannedMonthlyAverage)} helper="頻度を月平均に換算" />
-          <Metric label="選択月の実績" value={manYen(summary.actual)} helper={monthKey} />
-          <Metric label="予算との差" value={manYen(summary.variance)} helper="実績 - 月平均予算" />
+          <Metric label="選択月の実績" value={summary.actualEntryCount > 0 ? manYen(summary.actual) : "未入力"} helper={monthKey} />
+          <Metric label="予算との差" value={summary.actualEntryCount > 0 ? manYen(summary.variance) : "-"} helper="実績 - 月平均予算" />
           <Metric label="年間予算" value={manYen(summary.annualPlan)} helper="月次/年次を合算" />
         </div>
+      </section>
+
+      <section className="panel">
+        <div className="section-heading">
+          <div>
+            <h2>月末の実績入力</h2>
+            <p>レシート単位ではなく、食費や住居費などの大まかな項目ごとに、その月に実際に使った合計額を入力します。</p>
+          </div>
+          <span className="status-pill recurring">{monthKey}</span>
+        </div>
+        {budgetItems.length === 0 ? (
+          <EmptyState title="先に予算項目を追加してください" detail="食費、住居費、通信費など、毎月振り返りたい単位だけで構いません。" />
+        ) : (
+          <div className="monthly-actual-list">
+            {budgetItems.map((item) => {
+              const monthlyBudget = getBudgetMonthlyAverage(item);
+              const hasActual = Object.prototype.hasOwnProperty.call(item.actuals || {}, monthKey);
+              const actual = item.actuals?.[monthKey] ?? 0;
+              return (
+                <div className="monthly-actual-row" key={item.id}>
+                  <div>
+                    <strong>{item.name}</strong>
+                    <small>{budgetCategoryLabels[item.category]} / 月平均予算 {manYen(monthlyBudget)}</small>
+                  </div>
+                  <MoneyInput
+                    label="実際に使った額"
+                    value={actual}
+                    onChange={(value) => updateBudgetActual(item.id, monthKey, value)}
+                  />
+                  <div className={`actual-variance ${hasActual && actual > monthlyBudget ? "over" : "within"}`}>
+                    <span>予算との差</span>
+                    <strong>{hasActual ? manYen(actual - monthlyBudget) : "未入力"}</strong>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </section>
 
       <section className="panel">
@@ -1770,8 +1982,8 @@ function BudgetView({
                   <tr key={row.category}>
                     <td>{budgetCategoryLabels[row.category]}</td>
                     <td>{manYen(row.plannedMonthlyAverage)}</td>
-                    <td>{manYen(row.actual)}</td>
-                    <td>{manYen(row.variance)}</td>
+                    <td>{row.actualEntryCount > 0 ? manYen(row.actual) : "未入力"}</td>
+                    <td>{row.actualEntryCount > 0 ? manYen(row.variance) : "-"}</td>
                   </tr>
                 ))}
               </tbody>
@@ -1813,7 +2025,6 @@ function BudgetView({
                   </select>
                 </label>
                 <MoneyInput label="予算額" value={item.budgetAmount} onChange={(value) => updateBudgetItem(item.id, "budgetAmount", value)} />
-                <MoneyInput label={`${monthKey} 実績`} value={item.actuals?.[monthKey] || 0} onChange={(value) => updateBudgetActual(item.id, monthKey, value)} />
                 <div className="fixed-cost-impact-cell">
                   <span>月平均</span>
                   <strong>{manYen(getBudgetMonthlyAverage(item))}</strong>
@@ -1849,7 +2060,7 @@ function BudgetView({
       <StepFlowNav
         setActiveView={setActiveView}
         previous={{ view: "household", label: "家計入力" }}
-        next={{ view: "assets", label: "資産入力" }}
+        next={{ view: "goals", label: "目標管理" }}
       />
     </div>
   );
@@ -1869,7 +2080,7 @@ function AssetsView({
   return (
     <div className="view-stack">
       <section className="panel form-panel">
-        <StepTitle step="4" title="資産入力" description="現金、投資資産、その他資産、負債を分けて整理します。" />
+        <StepTitle step="2" title="資産入力" description="現金、投資資産、その他資産、負債を分けて整理します。" />
         <div className="form-grid">
           <MoneyInput label="現金" value={plan.assets.cash} onChange={(value) => updateAssets("cash", value)} />
           <MoneyInput label="投資資産" value={plan.assets.investment} onChange={(value) => updateAssets("investment", value)} />
@@ -1904,8 +2115,8 @@ function AssetsView({
       </section>
       <StepFlowNav
         setActiveView={setActiveView}
-        previous={{ view: "budget", label: "予算・実績" }}
-        next={{ view: "goals", label: "目標管理" }}
+        previous={{ view: "profile", label: "基本情報" }}
+        next={{ view: "household", label: "家計入力" }}
       />
     </div>
   );
@@ -2185,8 +2396,8 @@ function GoalsView({
       </section>
       <StepFlowNav
         setActiveView={setActiveView}
-        previous={{ view: "assets", label: "資産入力" }}
-        next={{ view: "timeline", label: "年表" }}
+        previous={{ view: "budget", label: "予算・実績" }}
+        next={{ view: "simulation", label: "シミュレーション" }}
       />
     </div>
   );
@@ -2637,7 +2848,7 @@ function TimelineView({
     <div className="view-stack">
       <section className="panel">
         <div className="section-heading">
-          <StepTitle step="6" title="ライフイベント年表" description="予定年、金額、家計への影響を整理し、資産見通しに反映できます。" />
+          <StepTitle step="7" title="ライフイベント年表" description="予定年、金額、家計への影響を整理し、資産見通しに反映できます。" />
           <button type="button" onClick={addEvent}>
             イベントを追加
           </button>
@@ -2877,8 +3088,8 @@ function TimelineView({
       </section>
       <StepFlowNav
         setActiveView={setActiveView}
-        previous={{ view: "goals", label: "目標管理" }}
-        next={{ view: "simulation", label: "シミュレーション" }}
+        previous={{ view: "simulation", label: "シミュレーション" }}
+        next={{ view: "notes", label: "メモ" }}
       />
     </div>
   );
@@ -2902,84 +3113,41 @@ function SimulationView({
   const [projectionYears, setProjectionYears] = useState<10 | 30>(30);
   const [projectionMonths, setProjectionMonths] = useState<12 | 24>(24);
   const currentNetAssets = getAssetSummary(plan.assets).netAssets;
-  const currentMonthlyLivingCost = getCashflowSummary(plan.household).monthlyLivingCost;
   const withdrawalPlan = plan.withdrawalPlan || defaultPlan.withdrawalPlan;
   const withdrawalStartAge = withdrawalPlan.startAge;
   const withdrawalStartingAssets = withdrawalPlan.startingAssets;
-  const withdrawalYears = withdrawalPlan.years;
+  const withdrawalEndAge = Math.max(100, withdrawalStartAge);
+  const withdrawalYears = Math.max(1, withdrawalEndAge - withdrawalStartAge + 1);
+  const withdrawalMode = withdrawalPlan.withdrawalMode;
+  const monthlyWithdrawalAmount = withdrawalPlan.monthlyWithdrawalAmount;
+  const annualWithdrawalRate = withdrawalPlan.annualWithdrawalRate;
   const withdrawalReturnRate = withdrawalPlan.annualReturnRate;
   const withdrawalInflationRate = withdrawalPlan.inflationRate;
-  const withdrawalPeriods = withdrawalPlan.periods.length > 0 ? withdrawalPlan.periods : defaultPlan.withdrawalPlan.periods;
   const [returnVariabilityRate, setReturnVariabilityRate] = useState(12);
   const updateWithdrawalStartAge = (value: number) => {
     updateWithdrawalPlanPatch({
       startAge: value,
-      periods: withdrawalPeriods.map((item, index) =>
-        index === 0 ? { ...item, startAge: value, endAge: Math.max(value, item.endAge) } : item
-      )
+      years: Math.max(1, Math.max(100, value) - value + 1)
     });
-  };
-  const updateWithdrawalPeriod = (id: string, patch: Partial<WithdrawalPeriodSettings>) => {
-    updateWithdrawalPlan(
-      "periods",
-      withdrawalPeriods.map((item) => {
-        if (item.id !== id) return item;
-        const next = { ...item, ...patch };
-        return {
-          ...next,
-          endAge: Math.max(next.startAge, next.endAge)
-        };
-      })
-    );
-  };
-  const addWithdrawalPhase = () => {
-    const last = withdrawalPeriods[withdrawalPeriods.length - 1];
-    const startAge = (last?.endAge ?? withdrawalStartAge) + 1;
-    updateWithdrawalPlan("periods", [
-      ...withdrawalPeriods,
-      {
-        id: createId(),
-        label: "追加期間",
-        startAge,
-        endAge: startAge + 9,
-        monthlyIncome: last?.monthlyIncome ?? 0,
-        monthlyLivingCost: last?.monthlyLivingCost ?? currentMonthlyLivingCost,
-        annualExtraExpense: last?.annualExtraExpense ?? 0
-      }
-    ]);
-  };
-  const removeWithdrawalPhase = (id: string) => {
-    if (withdrawalPeriods.length <= 1) return;
-    updateWithdrawalPlan(
-      "periods",
-      withdrawalPeriods.filter((item) => item.id !== id)
-    );
-  };
-  const withdrawalPhasesForSimulation = useMemo(() => withdrawalPeriods.map(({ id: _id, ...phase }) => phase), [withdrawalPeriods]);
-  const withdrawalFallbackPhase = withdrawalPhasesForSimulation[0] ?? {
-    label: "基本期間",
-    startAge: withdrawalStartAge,
-    endAge: withdrawalStartAge + withdrawalYears - 1,
-    monthlyIncome: 0,
-    monthlyLivingCost: currentMonthlyLivingCost,
-    annualExtraExpense: 0
   };
   const withdrawalSettings = useMemo(
     () => ({
       startAge: withdrawalStartAge,
       currentAssets: withdrawalStartingAssets,
-      monthlyLivingCost: withdrawalFallbackPhase.monthlyLivingCost,
-      monthlyPension: withdrawalFallbackPhase.monthlyIncome,
+      monthlyLivingCost: 0,
+      monthlyPension: 0,
+      withdrawalMode,
+      monthlyWithdrawalAmount,
+      annualWithdrawalRate,
       annualReturnRate: withdrawalReturnRate,
       inflationRate: withdrawalInflationRate,
-      years: withdrawalYears,
-      phases: withdrawalPhasesForSimulation
+      years: withdrawalYears
     }),
     [
-      withdrawalFallbackPhase.monthlyIncome,
-      withdrawalFallbackPhase.monthlyLivingCost,
+      annualWithdrawalRate,
+      monthlyWithdrawalAmount,
       withdrawalInflationRate,
-      withdrawalPhasesForSimulation,
+      withdrawalMode,
       withdrawalReturnRate,
       withdrawalStartAge,
       withdrawalStartingAssets,
@@ -3051,7 +3219,7 @@ function SimulationView({
       <>
       <section className="panel">
         <div className="section-heading">
-          <StepTitle step="7" title="基本資産推移" description="入力条件に基づく10年/30年の見通しです。" />
+          <StepTitle step="6" title="基本資産推移" description="入力条件に基づく10年/30年の見通しです。" />
           <div className="simulation-controls">
             <div className="segmented-control" aria-label="表示単位">
               <button type="button" className={projectionMode === "annual" ? "active" : ""} onClick={() => setProjectionMode("annual")}>
@@ -3119,7 +3287,7 @@ function SimulationView({
       </section>
 
       <section className="panel">
-        <StepTitle step="8" title="生活防衛資金チェック" description={emergency.note} />
+        <StepTitle step="確認" title="生活防衛資金チェック" description={emergency.note} />
         <div className="calculation-band compact">
           <Metric label="月間生活費" value={manYen(getCashflowSummary(plan.household).monthlyLivingCost)} helper="固定費 + 変動費 + 特別支出月割" />
           <Metric label="推奨生活防衛資金" value={`${manYen(emergency.lowerAmount)}〜${manYen(emergency.upperAmount)}`} helper={`${emergency.lowerMonths}〜${emergency.upperMonths}ヶ月分`} />
@@ -3158,7 +3326,7 @@ function SimulationView({
 
       {simulationTab === "contribution" && (
       <section className="panel form-panel">
-        <StepTitle step="9" title="詳細積立シミュレーション" description="積立額、ボーナス積立、利回り、期間をもとに年ごとの見通しを確認します。" />
+        <StepTitle step="6" title="詳細積立シミュレーション" description="積立額、ボーナス積立、利回り、期間をもとに年ごとの見通しを確認します。" />
         <div className="form-grid">
           <MoneyInput
             label="毎月積立額"
@@ -3264,7 +3432,7 @@ function SimulationView({
 
       {simulationTab === "withdrawal" && (
       <section className="panel form-panel">
-        <StepTitle step="10" title="取り崩しシミュレーション" description="FIRE、セミリタイア、年金開始前のつなぎ期間などを、期間別の収入と生活費で確認します。" />
+        <StepTitle step="6" title="取り崩しシミュレーション" description="開始年齢と資金、取り崩し額を置き、100歳までの資産推移を確認します。" />
         <div className="form-grid">
           <label>
             取り崩し開始年齢
@@ -3272,9 +3440,34 @@ function SimulationView({
           </label>
           <MoneyInput label="試算開始時資金" value={withdrawalStartingAssets} onChange={(value) => updateWithdrawalPlan("startingAssets", value)} />
           <label>
-            試算期間 年
-            <NumericInput value={withdrawalYears} min={1} max={80} onChange={(value) => updateWithdrawalPlan("years", value)} />
+            取り崩し方法
+            <select
+              value={withdrawalMode}
+              onChange={(event) => updateWithdrawalPlan("withdrawalMode", event.target.value as WithdrawalPlanSettings["withdrawalMode"])}
+            >
+              <option value="monthlyAmount">毎月の金額で指定</option>
+              <option value="annualRate">開始時資金に対する年率で指定</option>
+            </select>
           </label>
+          {withdrawalMode === "monthlyAmount" ? (
+            <MoneyInput
+              label="毎月の取り崩し額"
+              value={monthlyWithdrawalAmount}
+              onChange={(value) => updateWithdrawalPlan("monthlyWithdrawalAmount", value)}
+            />
+          ) : (
+            <label>
+              取り崩し率 年率 %
+              <NumericInput
+                value={annualWithdrawalRate}
+                min={0}
+                max={100}
+                allowDecimal
+                onChange={(value) => updateWithdrawalPlan("annualWithdrawalRate", value)}
+              />
+              <small>開始時資金に対する年額を固定し、物価上昇率を反映します。</small>
+            </label>
+          )}
           <label>
             想定利回り %
             <NumericInput value={withdrawalReturnRate} min={0} allowDecimal onChange={(value) => updateWithdrawalPlan("annualReturnRate", value)} />
@@ -3283,140 +3476,83 @@ function SimulationView({
             インフレ率 %
             <NumericInput value={withdrawalInflationRate} min={0} allowDecimal onChange={(value) => updateWithdrawalPlan("inflationRate", value)} />
           </label>
+          <label>
+            年ごとのばらつき幅 %
+            <NumericInput value={returnVariabilityRate} min={0} allowDecimal onChange={setReturnVariabilityRate} />
+          </label>
         </div>
         <div className="button-row">
           <button type="button" className="secondary" onClick={() => updateWithdrawalPlan("startingAssets", currentNetAssets)}>
-            資産入力の純資産を反映
+            資産入力の純資産を試算開始時資金へ反映
           </button>
-          <button type="button" className="secondary" onClick={addWithdrawalPhase}>
-            期間を追加
-          </button>
-        </div>
-        <div className="table-wrap projection-detail-table">
-          <table>
-            <thead>
-              <tr>
-                <th>期間名</th>
-                <th>開始年齢</th>
-                <th>終了年齢</th>
-                <th>月収入</th>
-                <th>月生活費</th>
-                <th>年間特別支出</th>
-                <th>整理</th>
-              </tr>
-            </thead>
-            <tbody>
-              {withdrawalPeriods.map((phase) => (
-                <tr key={phase.id}>
-                  <td>
-                    <input value={phase.label} onChange={(event) => updateWithdrawalPeriod(phase.id, { label: event.target.value })} />
-                  </td>
-                  <td>
-                    <NumericInput value={phase.startAge} min={plan.profile.age} onChange={(value) => updateWithdrawalPeriod(phase.id, { startAge: value })} />
-                  </td>
-                  <td>
-                    <NumericInput value={phase.endAge} min={phase.startAge} onChange={(value) => updateWithdrawalPeriod(phase.id, { endAge: value })} />
-                  </td>
-                  <td>
-                    <NumericInput value={phase.monthlyIncome} min={0} onChange={(value) => updateWithdrawalPeriod(phase.id, { monthlyIncome: value })} />
-                  </td>
-                  <td>
-                    <NumericInput value={phase.monthlyLivingCost} min={0} onChange={(value) => updateWithdrawalPeriod(phase.id, { monthlyLivingCost: value })} />
-                  </td>
-                  <td>
-                    <NumericInput value={phase.annualExtraExpense} min={0} onChange={(value) => updateWithdrawalPeriod(phase.id, { annualExtraExpense: value })} />
-                  </td>
-                  <td>
-                    <button type="button" className="text-button danger" onClick={() => removeWithdrawalPhase(phase.id)} disabled={withdrawalPeriods.length <= 1}>
-                      削除
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <div className="calculation-band compact">
-          <Metric label="試算開始時資金" value={manYen(withdrawalStartingAssets)} helper="必要なら資産入力の純資産を反映できます" />
-          <Metric label="初年度取り崩し" value={manYen(withdrawalResult.rows[0]?.withdrawalAmount ?? 0)} helper="収入で足りない分を資産から補填" />
-          <Metric
-            label="資産が尽きる目安"
-            value={withdrawalResult.depletedAge ? `${withdrawalResult.depletedAge}歳` : `${withdrawalYears}年以上`}
-            helper="前提条件に基づく試算"
-          />
-          <Metric label={`${withdrawalYears}年後の試算額`} value={manYen(withdrawalResult.finalAssets)} helper="運用しながら取り崩す前提" />
-        </div>
-        <div className={`notice-band ${withdrawalVariability.depletionRate > 0 ? "notice" : "check"}`}>
-          <strong>{withdrawalVariability.depletionRate > 0 ? "資金が不足するケースがあります" : "現在の前提では期間内に資金が残る見通しです"}</strong>
-          <span>
-            ばらつき試算では、資産が尽きるケースは {percent(withdrawalVariability.depletionRate)}
-            {withdrawalVariability.medianDepletedAge ? `、中央値では ${withdrawalVariability.medianDepletedAge}歳ごろです。` : " です。"}
-            収入、生活費、試算開始時資金、利回りの前提を変えて見直せます。
-          </span>
-        </div>
-        <div className="table-wrap projection-detail-table">
-          <table>
-            <thead>
-              <tr>
-                <th>年齢</th>
-                <th>期間</th>
-                <th>年末資産</th>
-                <th>年間生活費</th>
-                <th>年間収入</th>
-                <th>取り崩し額</th>
-              </tr>
-            </thead>
-            <tbody>
-              {withdrawalResult.rows.map((row) => (
-                <tr key={row.yearIndex}>
-                  <td>{row.age}歳</td>
-                  <td>{row.phaseLabel ?? "-"}</td>
-                  <td>{manYen(row.assets)}</td>
-                  <td>{manYen(row.annualLivingCost)}</td>
-                  <td>{manYen(row.annualPension)}</td>
-                  <td>{manYen(row.withdrawalAmount)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
         </div>
         <div className="section-heading chart-section-heading">
           <div>
             <h2>取り崩し後の資産推移</h2>
             <p>固定利回りの試算線に、年ごとのばらつき幅を重ねて確認できます。</p>
           </div>
-          <label className="compact-number-field">
-            年ごとのばらつき幅 %
-            <NumericInput value={returnVariabilityRate} min={0} allowDecimal onChange={setReturnVariabilityRate} />
-          </label>
         </div>
         <LineChart points={withdrawalChartPoints} variabilityRows={withdrawalVariability.rows} />
         <div className="calculation-band compact">
-          <Metric label={`${withdrawalYears}年後 下位10%`} value={manYen(withdrawalVariability.lowerFinal)} helper="前提条件に基づく下振れ側の試算" />
-          <Metric label={`${withdrawalYears}年後 中央値`} value={manYen(withdrawalVariability.medianFinal)} helper="ばらつき試算の中央値" />
-          <Metric label={`${withdrawalYears}年後 上位10%`} value={manYen(withdrawalVariability.upperFinal)} helper="上振れ側の試算" />
+          <Metric label="試算開始時資金" value={manYen(withdrawalStartingAssets)} helper={`${withdrawalStartAge}歳から試算`} />
+          <Metric label="初年度取り崩し" value={manYen(withdrawalResult.rows[0]?.withdrawalAmount ?? 0)} helper={withdrawalMode === "monthlyAmount" ? "毎月の指定額 × 12" : "開始時資金 × 取り崩し率"} />
+          <Metric
+            label="資産が尽きる目安"
+            value={withdrawalResult.depletedAge ? `${withdrawalResult.depletedAge}歳` : "100歳まで残る"}
+            helper="前提条件に基づく試算"
+          />
+          <Metric label="100歳時点の試算額" value={manYen(withdrawalResult.finalAssets)} helper="運用しながら取り崩す前提" />
+        </div>
+        <div className={`notice-band ${withdrawalVariability.depletionRate > 0 ? "notice" : "check"}`}>
+          <strong>{withdrawalVariability.depletionRate > 0 ? "資金が不足するケースがあります" : "現在の前提では期間内に資金が残る見通しです"}</strong>
+          <span>
+            ばらつき試算では、資産が尽きるケースは {percent(withdrawalVariability.depletionRate)}
+            {withdrawalVariability.medianDepletedAge ? `、中央値では ${withdrawalVariability.medianDepletedAge}歳ごろです。` : " です。"}
+            取り崩し額、試算開始時資金、利回りの前提を変えて見直せます。
+          </span>
+        </div>
+        <div className="calculation-band compact">
+          <Metric label="100歳時点 下位10%" value={manYen(withdrawalVariability.lowerFinal)} helper="前提条件に基づく下振れ側の試算" />
+          <Metric label="100歳時点 中央値" value={manYen(withdrawalVariability.medianFinal)} helper="ばらつき試算の中央値" />
+          <Metric label="100歳時点 上位10%" value={manYen(withdrawalVariability.upperFinal)} helper="上振れ側の試算" />
           <Metric
             label="資産が尽きるケース"
             value={percent(withdrawalVariability.depletionRate)}
             helper={withdrawalVariability.medianDepletedAge ? `中央値 ${withdrawalVariability.medianDepletedAge}歳` : "期間内の中央値なし"}
           />
         </div>
-        <VariabilityPanel
-          title="取り崩しのばらつき試算"
-          description="年ごとの利回りが一定ではない前提を置き、資産が尽きるケースの割合と資産残高の幅を確認します。"
-          result={withdrawalVariability}
-          suppressPanel
-          volatilityRate={returnVariabilityRate}
-          onVolatilityRateChange={setReturnVariabilityRate}
-          finalLabel={`${withdrawalYears}年後`}
-        />
+        <details className="projection-details">
+          <summary>年次の試算表を確認</summary>
+          <div className="table-wrap projection-detail-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>年齢</th>
+                  <th>年末資産</th>
+                  <th>年間取り崩し額</th>
+                  <th>運用の影響</th>
+                </tr>
+              </thead>
+              <tbody>
+                {withdrawalResult.rows.map((row) => (
+                  <tr key={row.yearIndex}>
+                    <td>{row.age}歳</td>
+                    <td>{manYen(row.assets)}</td>
+                    <td>{manYen(row.withdrawalAmount)}</td>
+                    <td>{manYen(row.returnImpact)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </details>
       </section>
       )}
 
       <StepFlowNav
         setActiveView={setActiveView}
-        previous={{ view: "timeline", label: "年表" }}
-        next={{ view: "retirement", label: "老後プラン" }}
+        previous={{ view: "goals", label: "目標管理" }}
+        next={{ view: "timeline", label: "年表" }}
       />
     </div>
   );
@@ -3748,6 +3884,7 @@ function VariabilityPanel({
 function NotesView({
   mode,
   plan,
+  setActiveView,
   updateNotes,
   addReview,
   updateReview,
@@ -3755,6 +3892,7 @@ function NotesView({
 }: {
   mode: "notes" | "reviews";
   plan: LifePlan;
+  setActiveView: (view: ViewKey) => void;
   updateNotes: <K extends keyof PlanNotes>(key: K, value: PlanNotes[K]) => void;
   addReview: () => void;
   updateReview: <K extends keyof ReviewNote>(id: string, key: K, value: ReviewNote[K]) => void;
@@ -3778,7 +3916,7 @@ function NotesView({
     <div className="view-stack">
       {mode === "notes" && (
       <section className="panel form-panel">
-        <StepTitle step="11" title="メモ" description="無料版では、今の前提や次の見直しを1つのプラン内に保存できます。" />
+        <StepTitle step="8" title="メモ" description="無料版では、今の前提や次の見直しを1つのプラン内に保存できます。" />
         <div className="notes-grid">
           <label>
             現在の考え・見直しメモ
@@ -3800,6 +3938,14 @@ function NotesView({
       </section>
       )}
 
+      {mode === "notes" && (
+        <StepFlowNav
+          setActiveView={setActiveView}
+          previous={{ view: "timeline", label: "年表" }}
+          next={{ view: "data", label: "データ管理" }}
+        />
+      )}
+
       {mode === "reviews" && (
       <section className="panel">
         <div className="section-heading">
@@ -3819,7 +3965,11 @@ function NotesView({
             <Metric label="レビュー件数" value={`${sortedReviews.length}件`} helper="ブラウザ内保存" />
             <Metric label="未完了TODO" value={`${openTodoCount}件`} helper="次回確認すること" />
             <Metric label="最新の前回比" value={latestNetAssetDiff === null ? "-" : manYen(latestNetAssetDiff)} helper="実際の純資産" />
-            <Metric label="予算との差" value={manYen(reviewBudgetSummary.variance)} helper={`${reviewMonthKey} 実績 - 予算`} />
+            <Metric
+              label="予算との差"
+              value={reviewBudgetSummary.actualEntryCount > 0 ? manYen(reviewBudgetSummary.variance) : "未入力"}
+              helper={`${reviewMonthKey} 実績 - 予算`}
+            />
           </div>
           <div className="review-list">
             {sortedReviews.map((review) => {
@@ -4544,11 +4694,17 @@ function ProView({
 
 function SettingsView({
   settings,
+  reminders,
+  notificationMessage,
   updateSettings,
+  requestBrowserNotifications,
   setActiveView
 }: {
   settings: AppSettings;
+  reminders: AppReminder[];
+  notificationMessage: string;
   updateSettings: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void;
+  requestBrowserNotifications: () => Promise<void>;
   setActiveView: (view: ViewKey) => void;
 }) {
   return (
@@ -4575,13 +4731,62 @@ function SettingsView({
       </section>
 
       <section className="panel">
-        <StepTitle step="2" title="基本的な使い方" description="無料版で1つのライフプランを作る流れです。" />
+        <StepTitle step="2" title="リマインダー" description="月末の実績入力、レビュー、目標や近いイベントの確認忘れを減らします。" />
+        <div className="reminder-settings">
+          <label className="setting-switch">
+            <input
+              type="checkbox"
+              checked={settings.remindersEnabled}
+              onChange={(event) => updateSettings("remindersEnabled", event.target.checked)}
+            />
+            <span>
+              <strong>アプリ内リマインダー</strong>
+              <small>ダッシュボードに確認項目を表示します。</small>
+            </span>
+          </label>
+          <label>
+            毎月の実績入力を知らせる日
+            <NumericInput
+              value={settings.actualReminderDay}
+              min={1}
+              max={28}
+              onChange={(value) => updateSettings("actualReminderDay", value)}
+            />
+            <small>29日以降がない月にも対応するため、1〜28日で設定します。</small>
+          </label>
+          <label>
+            レビューの間隔
+            <select
+              value={settings.reviewReminderInterval}
+              onChange={(event) => updateSettings("reviewReminderInterval", event.target.value as ReviewReminderInterval)}
+            >
+              <option value="monthly">月次</option>
+              <option value="quarterly">四半期</option>
+            </select>
+          </label>
+        </div>
+        <div className="notice-band check">
+          <strong>現在の確認項目: {reminders.length}件</strong>
+          <span>入力データと設定はブラウザ内だけに保存されます。</span>
+        </div>
+        <div className="button-row">
+          <button type="button" className="secondary" onClick={requestBrowserNotifications}>
+            {settings.browserNotifications ? "ブラウザ通知を確認" : "ブラウザ通知を許可"}
+          </button>
+        </div>
+        <p className="muted">ブラウザ通知はLife Compassを開いた日に補助表示します。ブラウザを閉じている間の予約通知は行いません。</p>
+        {notificationMessage && <p className="inline-message">{notificationMessage}</p>}
+      </section>
+
+      <section className="panel">
+        <StepTitle step="3" title="基本的な使い方" description="無料版で1つのライフプランを作る流れです。" />
         <ol className="manual-list">
           <li>ライフプランで年齢、家族構成、働き方、住居形態を入力します。</li>
-          <li>家計入力と資産入力で、現在の収支と資産を整理します。</li>
+          <li>資産入力で、現金、投資資産、その他資産、ローンなどの負債を整理します。</li>
+          <li>家計入力で現在の収支を整理し、予算・実績で月末に大まかな支出を振り返ります。</li>
           <li>目標管理で目標額と期限を入力し、達成したい年齢と達成年齢の目安を確認します。</li>
-          <li>年表に住宅、教育、車、転職などのイベントを追加し、予定年齢を確認します。</li>
           <li>シミュレーションで年次見通しを確認し、グラフの点をタップして詳細を見ます。</li>
+          <li>年表に住宅、教育、車、転職などのイベントを追加し、予定年齢を確認します。</li>
           <li>メモに次の見直しや判断の理由を残します。</li>
           <li>データ管理からJSONをエクスポートしてバックアップします。</li>
           <li>別の端末やブラウザで使う場合は、保存済みJSONをインポートして復元します。</li>
@@ -4597,16 +4802,11 @@ function SettingsView({
           </button>
         </div>
         <div className="panel">
-          <h2>Pro機能</h2>
+          <h2>Pro機能・料金</h2>
           <p>複数シナリオ比較、固定費見直しインパクト、見直し履歴の拡張などを予定しています。初期版では課金処理は実装していません。</p>
-          <div className="button-row">
-            <button type="button" className="secondary" onClick={() => setActiveView("pricing")}>
-              料金を見る
-            </button>
-            <button type="button" className="secondary" onClick={() => setActiveView("pro")}>
-              Pro機能を見る
-            </button>
-          </div>
+          <button type="button" className="secondary" onClick={() => setActiveView("pricing")}>
+            Pro機能・料金を見る
+          </button>
         </div>
       </section>
 

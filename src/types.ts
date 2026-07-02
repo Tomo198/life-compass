@@ -119,6 +119,9 @@ export type WithdrawalPlanSettings = {
   startAge: number;
   startingAssets: number;
   years: number;
+  withdrawalMode: "monthlyAmount" | "annualRate";
+  monthlyWithdrawalAmount: number;
+  annualWithdrawalRate: number;
   annualReturnRate: number;
   inflationRate: number;
   periods: WithdrawalPeriodSettings[];

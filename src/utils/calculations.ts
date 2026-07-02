@@ -106,6 +106,9 @@ export type WithdrawalSettings = {
   annualReturnRate: number;
   inflationRate: number;
   years: number;
+  withdrawalMode?: "monthlyAmount" | "annualRate";
+  monthlyWithdrawalAmount?: number;
+  annualWithdrawalRate?: number;
   phases?: WithdrawalPhase[];
 };
 
@@ -154,12 +157,14 @@ export type BudgetCategorySummary = {
   plannedMonthlyAverage: number;
   actual: number;
   variance: number;
+  actualEntryCount: number;
 };
 
 export type BudgetSummary = {
   plannedMonthlyAverage: number;
   actual: number;
   variance: number;
+  actualEntryCount: number;
   annualPlan: number;
   fixedCost: number;
   variableCost: number;
@@ -278,26 +283,31 @@ export const getBudgetSummary = (items: BudgetItem[], monthKey: string): BudgetS
 
   items.forEach((item) => {
     const plannedMonthlyAverage = getBudgetMonthlyAverage(item);
-    const actual = item.actuals?.[monthKey] || 0;
+    const hasActual = Object.prototype.hasOwnProperty.call(item.actuals || {}, monthKey);
+    const actual = hasActual ? item.actuals[monthKey] : 0;
     const current = categoryMap.get(item.category) || {
       category: item.category,
       plannedMonthlyAverage: 0,
       actual: 0,
-      variance: 0
+      variance: 0,
+      actualEntryCount: 0
     };
     current.plannedMonthlyAverage += plannedMonthlyAverage;
     current.actual += actual;
+    current.actualEntryCount += hasActual ? 1 : 0;
     current.variance = current.actual - current.plannedMonthlyAverage;
     categoryMap.set(item.category, current);
   });
 
   const plannedMonthlyAverage = items.reduce((total, item) => total + getBudgetMonthlyAverage(item), 0);
   const actual = items.reduce((total, item) => total + (item.actuals?.[monthKey] || 0), 0);
+  const actualEntryCount = items.filter((item) => Object.prototype.hasOwnProperty.call(item.actuals || {}, monthKey)).length;
 
   return {
     plannedMonthlyAverage,
     actual,
     variance: actual - plannedMonthlyAverage,
+    actualEntryCount,
     annualPlan: items.reduce((total, item) => total + getBudgetAnnualPlan(item), 0),
     ...householdInputs,
     categoryRows: [...categoryMap.values()].sort((a, b) => Math.abs(b.variance) - Math.abs(a.variance))
@@ -732,17 +742,23 @@ export const simulateWithdrawal = (settings: WithdrawalSettings): WithdrawalResu
   const inflationRate = settings.inflationRate / 100;
   let assets = settings.currentAssets;
   let depletedAge: number | null = null;
+  const usesSimpleWithdrawal = Boolean(settings.withdrawalMode);
+  const baseAnnualWithdrawal =
+    settings.withdrawalMode === "annualRate"
+      ? settings.currentAssets * Math.max(0, settings.annualWithdrawalRate ?? 0) / 100
+      : Math.max(0, settings.monthlyWithdrawalAmount ?? 0) * 12;
 
   for (let yearIndex = 1; yearIndex <= settings.years; yearIndex += 1) {
     const age = settings.startAge + yearIndex - 1;
-    const phase = getWithdrawalPhaseForAge(settings, age);
-    const annualLivingCost =
-      (phase.monthlyLivingCost * 12 + phase.annualExtraExpense) * (1 + inflationRate) ** (yearIndex - 1);
-    const annualPension = phase.monthlyIncome * 12;
+    const phase = usesSimpleWithdrawal ? null : getWithdrawalPhaseForAge(settings, age);
+    const annualLivingCost = usesSimpleWithdrawal
+      ? baseAnnualWithdrawal * (1 + inflationRate) ** (yearIndex - 1)
+      : ((phase?.monthlyLivingCost ?? 0) * 12 + (phase?.annualExtraExpense ?? 0)) * (1 + inflationRate) ** (yearIndex - 1);
+    const annualPension = usesSimpleWithdrawal ? 0 : (phase?.monthlyIncome ?? 0) * 12;
     const withdrawalAmount = Math.max(0, annualLivingCost - annualPension);
-    const beforeReturn = assets - withdrawalAmount;
+    const beforeReturn = Math.max(0, assets - withdrawalAmount);
     const returnImpact = beforeReturn * annualReturnRate;
-    assets = beforeReturn + returnImpact;
+    assets = Math.max(0, beforeReturn + returnImpact);
 
     if (assets <= 0 && depletedAge === null) {
       depletedAge = age;
@@ -751,7 +767,7 @@ export const simulateWithdrawal = (settings: WithdrawalSettings): WithdrawalResu
     rows.push({
       age,
       yearIndex,
-      phaseLabel: phase.label,
+      phaseLabel: usesSimpleWithdrawal ? "取り崩し" : phase?.label,
       assets,
       annualLivingCost,
       annualPension,
@@ -775,6 +791,11 @@ export const simulateWithdrawalVariability = (
   const yearlyValues: number[][] = Array.from({ length: settings.years }, () => []);
   const depletedAges: number[] = [];
   const inflationRate = settings.inflationRate / 100;
+  const usesSimpleWithdrawal = Boolean(settings.withdrawalMode);
+  const baseAnnualWithdrawal =
+    settings.withdrawalMode === "annualRate"
+      ? settings.currentAssets * Math.max(0, settings.annualWithdrawalRate ?? 0) / 100
+      : Math.max(0, settings.monthlyWithdrawalAmount ?? 0) * 12;
 
   for (let trial = 0; trial < trials; trial += 1) {
     const random = createSeededRandom(2000 + trial * 53 + Math.round(settings.annualReturnRate * 100));
@@ -783,13 +804,14 @@ export const simulateWithdrawalVariability = (
 
     for (let yearIndex = 1; yearIndex <= settings.years; yearIndex += 1) {
       const age = settings.startAge + yearIndex - 1;
-      const phase = getWithdrawalPhaseForAge(settings, age);
-      const annualLivingCost =
-        (phase.monthlyLivingCost * 12 + phase.annualExtraExpense) * (1 + inflationRate) ** (yearIndex - 1);
-      const annualPension = phase.monthlyIncome * 12;
+      const phase = usesSimpleWithdrawal ? null : getWithdrawalPhaseForAge(settings, age);
+      const annualLivingCost = usesSimpleWithdrawal
+        ? baseAnnualWithdrawal * (1 + inflationRate) ** (yearIndex - 1)
+        : ((phase?.monthlyLivingCost ?? 0) * 12 + (phase?.annualExtraExpense ?? 0)) * (1 + inflationRate) ** (yearIndex - 1);
+      const annualPension = usesSimpleWithdrawal ? 0 : (phase?.monthlyIncome ?? 0) * 12;
       const withdrawalAmount = Math.max(0, annualLivingCost - annualPension);
       const sampledAnnualRate = (settings.annualReturnRate + sampleNormal(random) * annualVolatilityRate) / 100;
-      assets = (assets - withdrawalAmount) * (1 + sampledAnnualRate);
+      assets = Math.max(0, (assets - withdrawalAmount) * (1 + sampledAnnualRate));
 
       if (assets <= 0 && depletedAge === null) {
         depletedAge = age;

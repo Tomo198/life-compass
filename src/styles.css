@@ -49,6 +49,164 @@ body {
     var(--bg);
 }
 
+.projection-details {
+  margin-top: 1rem;
+  border-top: 1px solid var(--line);
+  padding-top: 0.8rem;
+}
+
+.projection-details summary {
+  width: fit-content;
+  cursor: pointer;
+  color: var(--primary-dark);
+  font-weight: 750;
+}
+
+.projection-details[open] summary {
+  margin-bottom: 0.9rem;
+}
+
+.compact-actions {
+  gap: 0.4rem;
+}
+
+.compact-actions button {
+  min-height: 2.4rem;
+  padding: 0.5rem 0.7rem;
+}
+
+.monthly-actual-list,
+.reminder-list {
+  display: grid;
+  gap: 0;
+  border-top: 1px solid var(--line);
+}
+
+.monthly-actual-row {
+  display: grid;
+  grid-template-columns: minmax(12rem, 1.4fr) minmax(11rem, 1fr) minmax(9rem, 0.75fr);
+  gap: 1rem;
+  align-items: end;
+  padding: 0.9rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.monthly-actual-row > div:first-child {
+  display: grid;
+  gap: 0.25rem;
+  align-self: center;
+}
+
+.monthly-actual-row small,
+.setting-switch small {
+  color: var(--muted);
+}
+
+.actual-variance {
+  display: grid;
+  gap: 0.18rem;
+  align-self: center;
+}
+
+.actual-variance span {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.actual-variance.over strong {
+  color: var(--danger);
+}
+
+.actual-variance.within strong {
+  color: var(--primary-dark);
+}
+
+.reminder-panel {
+  border-left: 4px solid var(--accent);
+}
+
+.reminder-list button {
+  display: grid;
+  gap: 0.25rem;
+  width: 100%;
+  padding: 0.8rem 0.2rem;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+}
+
+.reminder-list button:hover {
+  background: var(--surface-soft);
+}
+
+.reminder-list span {
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.reminder-settings {
+  display: grid;
+  grid-template-columns: minmax(15rem, 1.3fr) repeat(2, minmax(12rem, 1fr));
+  gap: 1rem;
+  margin-bottom: 1rem;
+  align-items: end;
+}
+
+.setting-switch {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-height: 3rem;
+}
+
+.setting-switch input {
+  width: 1.15rem;
+  height: 1.15rem;
+}
+
+.setting-switch span {
+  display: grid;
+  gap: 0.15rem;
+}
+
+@media (max-width: 760px) {
+  .monthly-actual-row,
+  .reminder-settings {
+    grid-template-columns: 1fr;
+  }
+
+  .monthly-actual-row {
+    gap: 0.65rem;
+  }
+
+  .actual-variance {
+    grid-template-columns: 1fr auto;
+  }
+
+  .compact-actions {
+    width: 100%;
+  }
+
+  .compact-actions button {
+    flex: 1;
+  }
+
+  .segmented-control {
+    width: 100%;
+  }
+
+  .segmented-control button {
+    flex: 1;
+    min-width: 0;
+    padding: 0.62rem 0.35rem;
+    font-size: 0.82rem;
+    white-space: nowrap;
+  }
+}
+
 button,
 input,
 select,

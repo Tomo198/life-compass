@@ -96,7 +96,10 @@ export const defaultPlan: LifePlan = {
   withdrawalPlan: {
     startAge: 65,
     startingAssets: 2900000,
-    years: 40,
+    years: 36,
+    withdrawalMode: "monthlyAmount",
+    monthlyWithdrawalAmount: 100000,
+    annualWithdrawalRate: 4,
     annualReturnRate: 3,
     inflationRate: 1,
     periods: [

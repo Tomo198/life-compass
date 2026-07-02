@@ -377,6 +377,14 @@ const normalizeWithdrawalPlan = (settings: WithdrawalPlanSettings | undefined): 
     startAge,
     startingAssets: nonNegativeNumber(settings?.startingAssets, defaults.startingAssets),
     years,
+    withdrawalMode: settings?.withdrawalMode === "annualRate" ? "annualRate" : "monthlyAmount",
+    monthlyWithdrawalAmount: nonNegativeNumber(
+      settings?.monthlyWithdrawalAmount,
+      settings?.periods?.[0]
+        ? Math.max(0, settings.periods[0].monthlyLivingCost - settings.periods[0].monthlyIncome)
+        : defaults.monthlyWithdrawalAmount
+    ),
+    annualWithdrawalRate: nonNegativeNumber(settings?.annualWithdrawalRate, defaults.annualWithdrawalRate),
     annualReturnRate: finiteNumber(settings?.annualReturnRate, defaults.annualReturnRate),
     inflationRate: finiteNumber(settings?.inflationRate, defaults.inflationRate),
     periods

@@ -231,6 +231,7 @@ test("budget summary converts frequency to monthly average and selected actuals"
   assert.equal(summary.plannedMonthlyAverage, 100000);
   assert.equal(summary.actual, 110000);
   assert.equal(summary.variance, 10000);
+  assert.equal(summary.actualEntryCount, 2);
   assert.equal(summary.annualPlan, 1200000);
   assert.equal(summary.categoryRows.find((row) => row.category === "travel")?.plannedMonthlyAverage, 20000);
 });
@@ -790,7 +791,43 @@ test("withdrawal simulation reports depletion age and final assets from assumpti
 
   assert.equal(result.rows[0].withdrawalAmount, 1200000);
   assert.equal(result.depletedAge, 65);
-  assert.equal(result.finalAssets, -5000000);
+  assert.equal(result.finalAssets, 0);
+});
+
+test("simple withdrawal simulation supports a fixed monthly amount", () => {
+  const result = simulateWithdrawal({
+    startAge: 50,
+    currentAssets: 6000000,
+    monthlyLivingCost: 0,
+    monthlyPension: 0,
+    withdrawalMode: "monthlyAmount",
+    monthlyWithdrawalAmount: 100000,
+    annualReturnRate: 0,
+    inflationRate: 0,
+    years: 5
+  });
+
+  assert.equal(result.rows[0].withdrawalAmount, 1200000);
+  assert.equal(result.depletedAge, 54);
+  assert.equal(result.finalAssets, 0);
+});
+
+test("simple withdrawal rate uses starting assets as its fixed annual base", () => {
+  const result = simulateWithdrawal({
+    startAge: 60,
+    currentAssets: 10000000,
+    monthlyLivingCost: 0,
+    monthlyPension: 0,
+    withdrawalMode: "annualRate",
+    annualWithdrawalRate: 4,
+    annualReturnRate: 0,
+    inflationRate: 0,
+    years: 3
+  });
+
+  assert.equal(result.rows[0].withdrawalAmount, 400000);
+  assert.equal(result.rows[2].withdrawalAmount, 400000);
+  assert.equal(result.finalAssets, 8800000);
 });
 
 test("withdrawal simulation supports period-based income and living cost assumptions", () => {

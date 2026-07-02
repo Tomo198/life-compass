@@ -7,9 +7,9 @@ export function PricingView({ setActiveView }: { setActiveView: (view: ViewKey) 
     <div className="view-stack">
       <section className="pro-hero">
         <div>
-          <p className="eyebrow">料金</p>
-          <h2>無料版を中心に、Pro版は提供準備中</h2>
-          <p>現在は申込みと課金を受け付けていません。Pro画面は開発中の機能を確認するためのプレビューです。</p>
+          <p className="eyebrow">Pro機能・料金</p>
+          <h2>Proの機能と料金をこのページで確認</h2>
+          <p>現在は申込みと課金を受け付けていません。開発中のPro機能は、確認用のプレビューとして開くことができます。</p>
         </div>
         <span className="lock-badge">課金なし</span>
       </section>
@@ -39,7 +39,25 @@ export function PricingView({ setActiveView }: { setActiveView: (view: ViewKey) 
             <li>家族別イベントと詳細診断</li>
             <li>詳細取り崩し・老後生活プラン</li>
           </ul>
-          <button type="button" className="secondary" onClick={() => setActiveView("pro")}>Pro予定を見る</button>
+          <button type="button" className="secondary" onClick={() => setActiveView("scenarios")}>Pro機能を試す</button>
+        </div>
+      </section>
+
+      <section className="panel">
+        <div className="section-heading">
+          <div>
+            <h2>Pro機能プレビュー</h2>
+            <p>課金開始前のため、現在は以下の開発中機能を確認できます。</p>
+          </div>
+          <span className="status-pill recurring">Coming soon</span>
+        </div>
+        <div className="template-actions">
+          <button type="button" className="secondary" onClick={() => setActiveView("scenarios")}>シナリオ比較</button>
+          <button type="button" className="secondary" onClick={() => setActiveView("retirement")}>老後生活プラン</button>
+          <button type="button" className="secondary" onClick={() => setActiveView("diagnosis")}>ライフプラン診断</button>
+          <button type="button" className="secondary" onClick={() => setActiveView("reviews")}>レビュー履歴</button>
+          <button type="button" className="secondary" onClick={() => setActiveView("simulation")}>詳細シミュレーション</button>
+          <button type="button" className="secondary" onClick={() => setActiveView("household")}>固定費見直し</button>
         </div>
       </section>
 

@@ -7,11 +7,12 @@ const normalizeNumericText = (value: string, allowDecimal = false) => {
   const sign = allowed.startsWith("-") ? "-" : "";
   const unsigned = allowed.replace(/-/g, "");
 
-  if (!allowDecimal) return `${sign}${unsigned}`;
+  if (!allowDecimal) return `${sign}${unsigned.replace(/^0+(?=\d)/, "")}`;
 
   const [integerPart, ...decimalParts] = unsigned.split(".");
+  const normalizedInteger = integerPart.replace(/^0+(?=\d)/, "");
   const decimal = decimalParts.join("");
-  return decimalParts.length > 0 ? `${sign}${integerPart}.${decimal}` : `${sign}${integerPart}`;
+  return decimalParts.length > 0 ? `${sign}${normalizedInteger}.${decimal}` : `${sign}${normalizedInteger}`;
 };
 
 const parseNumericText = (value: string) => {
@@ -152,15 +153,7 @@ export function NumericInput({
     <input
       inputMode={allowDecimal ? "decimal" : "numeric"}
       value={draft}
-      onFocus={(event) => {
-        setIsFocused(true);
-        if (value === 0) {
-          draftRef.current = "";
-          setDraft("");
-        } else {
-          event.currentTarget.select();
-        }
-      }}
+      onFocus={() => setIsFocused(true)}
       onChange={(event) => commitDraft(event.target.value)}
       onBlur={() => {
         setIsFocused(false);
