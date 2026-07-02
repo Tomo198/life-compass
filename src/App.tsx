@@ -3187,7 +3187,6 @@ function SimulationView({
     value: row.assets,
     eventImpact: row.withdrawalAmount,
     returnImpact: row.returnImpact,
-    eventTitles: row.phaseLabel ? [row.phaseLabel] : [],
     impactLabel: "取り崩し額",
     returnLabel: "運用の影響"
   }));
@@ -3383,7 +3382,7 @@ function SimulationView({
         <div className="section-heading chart-section-heading">
           <div>
             <h2>積み立て資産の推移</h2>
-            <p>{contributionVariability.trialCount.toLocaleString("ja-JP")}回のモンテカルロ試行を行い、固定利回り線と結果の分布を重ねています。</p>
+            <p>{contributionVariability.trialCount.toLocaleString("ja-JP")}回の試行結果を、上位10%・下位10%・中央値・最頻帯で表示します。</p>
           </div>
           <label className="compact-number-field">
             年ごとのばらつき幅 %
@@ -3494,7 +3493,7 @@ function SimulationView({
         <div className="section-heading chart-section-heading">
           <div>
             <h2>取り崩し後の資産推移</h2>
-            <p>{withdrawalVariability.trialCount.toLocaleString("ja-JP")}回のモンテカルロ試行を行い、固定利回り線と結果の分布を重ねています。</p>
+            <p>{withdrawalVariability.trialCount.toLocaleString("ja-JP")}回の試行結果を、上位10%・下位10%・中央値・最頻帯で表示します。</p>
           </div>
         </div>
         <LineChart points={withdrawalChartPoints} variabilityRows={withdrawalVariability.rows} />
@@ -4940,16 +4939,18 @@ function LineChart({
     left: 76
   };
   const rangeRows = variabilityRows?.slice(0, points.length) ?? [];
-  const minValue = Math.min(...points.map((point) => point.value), ...rangeRows.map((row) => row.lower), ...rangeRows.map((row) => row.mode), 0);
-  const maxValue = Math.max(...points.map((point) => point.value), ...rangeRows.map((row) => row.upper), ...rangeRows.map((row) => row.mode), 1);
+  const fixedValues = rangeRows.length > 0 ? [] : points.map((point) => point.value);
+  const minValue = Math.min(...fixedValues, ...rangeRows.map((row) => row.lower), ...rangeRows.map((row) => row.mode), 0);
+  const maxValue = Math.max(...fixedValues, ...rangeRows.map((row) => row.upper), ...rangeRows.map((row) => row.mode), 1);
   const valueRange = maxValue - minValue || 1;
   const chartWidth = width - padding.left - padding.right;
   const chartHeight = height - padding.top - padding.bottom;
   const xStep = chartWidth / Math.max(points.length - 1, 1);
   const coordinates = points.map((point, index) => {
     const x = padding.left + index * xStep;
-    const y = height - padding.bottom - ((point.value - minValue) / valueRange) * chartHeight;
-    return { ...point, x, y };
+    const plottedValue = rangeRows[index]?.median ?? point.value;
+    const y = height - padding.bottom - ((plottedValue - minValue) / valueRange) * chartHeight;
+    return { ...point, x, y, plottedValue };
   });
   const rangePointFor = (row: VariabilityResult["rows"][number], index: number, key: "lower" | "mode" | "median" | "upper") => ({
     x: padding.left + index * xStep,
@@ -4972,13 +4973,26 @@ function LineChart({
       : "";
   const medianRangePath = medianRangePoints.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ");
   const modeRangePath = modeRangePoints.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ");
+  const upperRangePath = upperRangePoints.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ");
+  const lowerRangePath = lowerRangePoints.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ");
   const path = coordinates.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ");
   const selectedPoint = selectedIndex === null ? null : coordinates[selectedIndex];
   const selectedRange = selectedIndex === null ? null : rangeRows[selectedIndex] ?? null;
   const previousPoint = selectedIndex !== null && selectedIndex > 0 ? coordinates[selectedIndex - 1] : undefined;
+  const selectedRangeCoordinates =
+    selectedIndex !== null && selectedRange
+      ? {
+          lower: rangePointFor(selectedRange, selectedIndex, "lower"),
+          mode: rangePointFor(selectedRange, selectedIndex, "mode"),
+          median: rangePointFor(selectedRange, selectedIndex, "median"),
+          upper: rangePointFor(selectedRange, selectedIndex, "upper")
+        }
+      : null;
   const labelStep = points.length > 20 ? 5 : points.length > 12 ? 3 : 1;
   const selectedLabelY = selectedPoint ? (selectedPoint.y < padding.top + 28 ? selectedPoint.y + 26 : selectedPoint.y - 16) : 0;
   const selectedPointLabel = selectedPoint?.label ?? (selectedPoint ? `${selectedPoint.year}年` : "");
+  const selectedAgeLabel = selectedPoint?.age ? `${selectedPoint.age}歳` : "";
+  const shouldAppendSelectedAge = selectedAgeLabel !== "" && !selectedPointLabel.includes(selectedAgeLabel);
   const isMonthly = Boolean(selectedPoint && "monthlySavings" in selectedPoint);
 
   return (
@@ -5002,22 +5016,42 @@ function LineChart({
           {rangeRows.length > 0 && (
             <>
               <path d={bandPath} className="range-band" />
+              <path d={upperRangePath} className="range-upper-line" />
+              <path d={lowerRangePath} className="range-lower-line" />
               <path d={medianRangePath} className="range-median-line" />
               <path d={modeRangePath} className="range-mode-line" />
             </>
           )}
-          <path d={path} className="chart-line" />
+          {rangeRows.length === 0 && <path d={path} className="chart-line" />}
+          {selectedPoint && selectedRangeCoordinates && (
+            <>
+              <line
+                x1={selectedPoint.x}
+                y1={padding.top}
+                x2={selectedPoint.x}
+                y2={height - padding.bottom}
+                className="chart-selected-guide"
+              />
+              <circle cx={selectedRangeCoordinates.upper.x} cy={selectedRangeCoordinates.upper.y} r="5" className="selected-range-dot upper" />
+              <circle cx={selectedRangeCoordinates.lower.x} cy={selectedRangeCoordinates.lower.y} r="5" className="selected-range-dot lower" />
+              <circle cx={selectedRangeCoordinates.mode.x} cy={selectedRangeCoordinates.mode.y} r="5" className="selected-range-dot mode" />
+            </>
+          )}
           {coordinates.map((point, index) => {
             const isSelected = selectedIndex === index;
-            const showYearLabel = index % labelStep === 0 || index === coordinates.length - 1 || isSelected;
+            const isScheduledLabel = index % labelStep === 0 || index === coordinates.length - 1;
+            const isNearSelectedLabel =
+              selectedIndex !== null && !isSelected && Math.abs(index - selectedIndex) < labelStep;
+            const showYearLabel = isSelected || (isScheduledLabel && !isNearSelectedLabel);
             const pointLabel = point.label ?? `${point.year}`;
+            const pointValue = rangeRows[index]?.median ?? point.value;
             return (
               <g key={`${pointLabel}-${index}`}>
                 <g
                   role="button"
                   tabIndex={0}
                   className="chart-hit-button"
-                  aria-label={`${pointLabel} ${manYen(point.value)}`}
+                  aria-label={`${pointLabel} ${rangeRows[index] ? "中央値 " : ""}${manYen(pointValue)}`}
                   onClick={() => setSelectedIndex(index)}
                   onKeyDown={(event) => {
                     if (event.key === "Enter" || event.key === " ") {
@@ -5027,11 +5061,16 @@ function LineChart({
                   }}
                 >
                   <circle cx={point.x} cy={point.y} r="16" className="chart-hit-area" />
-                  <circle cx={point.x} cy={point.y} r={isSelected ? "6" : "4"} className={isSelected ? "chart-dot selected" : "chart-dot"} />
+                  <circle
+                    cx={point.x}
+                    cy={point.y}
+                    r={isSelected ? "6" : rangeRows.length > 0 ? "3" : "4"}
+                    className={`${isSelected ? "chart-dot selected" : "chart-dot"}${rangeRows.length > 0 ? " monte-carlo" : ""}`}
+                  />
                 </g>
                 {isSelected && (
                   <text x={point.x} y={selectedLabelY} textAnchor="middle" className="point-value-label">
-                    {manYen(point.value)}
+                    {manYen(pointValue)}
                   </text>
                 )}
                 {showYearLabel && (
@@ -5046,23 +5085,25 @@ function LineChart({
       </div>
       {rangeRows.length > 0 && (
         <div className="chart-legend" aria-label="グラフの凡例">
-          <span><i className="legend-band" />下位10%から上位10%の範囲</span>
+          <span><i className="legend-upper" />上位10%</span>
+          <span><i className="legend-lower" />下位10%</span>
           <span><i className="legend-median" />中央値</span>
           <span><i className="legend-mode" />最頻帯</span>
-          <span><i className="legend-line" />固定利回りの試算</span>
         </div>
       )}
       <div className="chart-selection-panel" aria-live="polite">
         {selectedPoint ? (
           <>
             <div>
-              <span>{selectedPointLabel}{selectedPoint.age ? ` / ${selectedPoint.age}歳` : ""}</span>
-              <strong>{manYen(selectedPoint.value)}</strong>
+              <span>{selectedPointLabel}{shouldAppendSelectedAge ? ` / ${selectedAgeLabel}` : ""}{selectedRange ? " / 中央値" : ""}</span>
+              <strong>{manYen(selectedRange?.median ?? selectedPoint.value)}</strong>
             </div>
-            <div>
-              <span>{isMonthly ? "前月差" : "前年差"}</span>
-              <strong>{previousPoint ? manYen(selectedPoint.value - previousPoint.value) : "-"}</strong>
-            </div>
+            {!selectedRange && (
+              <div>
+                <span>{isMonthly ? "前月差" : "前年差"}</span>
+                <strong>{previousPoint ? manYen(selectedPoint.value - previousPoint.value) : "-"}</strong>
+              </div>
+            )}
             {selectedRange && (
               <>
                 <div>
@@ -5074,22 +5115,18 @@ function LineChart({
                   <strong>{manYen(selectedRange.mode)}</strong>
                 </div>
                 <div>
-                  <span>中央値</span>
-                  <strong>{manYen(selectedRange.median)}</strong>
-                </div>
-                <div>
                   <span>上位10%</span>
                   <strong>{manYen(selectedRange.upper)}</strong>
                 </div>
               </>
             )}
-            {"annualSavings" in selectedPoint && (
+            {!selectedRange && "annualSavings" in selectedPoint && (
               <div>
                 <span>年間貯蓄</span>
                 <strong>{selectedPoint.annualSavings ? manYen(selectedPoint.annualSavings) : "-"}</strong>
               </div>
             )}
-            {"monthlySavings" in selectedPoint && (
+            {!selectedRange && "monthlySavings" in selectedPoint && (
               <div>
                 <span>月間貯蓄</span>
                 <strong>{selectedPoint.monthlySavings ? manYen(selectedPoint.monthlySavings) : "-"}</strong>
@@ -5101,7 +5138,7 @@ function LineChart({
                 <strong>{selectedPoint.eventImpact ? manYen(selectedPoint.eventImpact) : "-"}</strong>
               </div>
             )}
-            {"returnImpact" in selectedPoint && (
+            {!selectedRange && "returnImpact" in selectedPoint && (
               <div>
                 <span>{selectedPoint.returnLabel ?? "利回り等の影響"}</span>
                 <strong>{selectedPoint.returnImpact ? manYen(selectedPoint.returnImpact) : "-"}</strong>
@@ -5111,18 +5148,6 @@ function LineChart({
               <div className="chart-selection-wide">
                 <span>イベント</span>
                 <strong>{selectedPoint.eventTitles.join(" / ")}</strong>
-              </div>
-            )}
-            {"annualSavings" in selectedPoint && (
-              <div className="chart-selection-wide">
-                <span>この年の見方</span>
-                <strong>前年差 = 年間貯蓄 + イベント影響 + 利回り等の影響</strong>
-              </div>
-            )}
-            {"monthlySavings" in selectedPoint && (
-              <div className="chart-selection-wide">
-                <span>この月の見方</span>
-                <strong>前月差 = 月間貯蓄 + イベント影響 + 利回り等の影響</strong>
               </div>
             )}
           </>

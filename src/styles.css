@@ -984,26 +984,64 @@ td select {
 }
 
 .range-band {
-  fill: color-mix(in srgb, var(--primary) 18%, transparent);
+  fill: color-mix(in srgb, #3b82f6 10%, transparent);
   stroke: none;
 }
 
-.range-median-line {
+.range-upper-line,
+.range-lower-line,
+.range-median-line,
+.range-mode-line {
   fill: none;
-  stroke: var(--primary);
-  stroke-width: 3.5;
-  stroke-dasharray: 8 7;
+  stroke-width: 3;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
 
+.range-upper-line {
+  stroke: #159570;
+}
+
+.range-lower-line {
+  stroke: #d97706;
+}
+
+.range-median-line {
+  stroke: #2563eb;
+  stroke-width: 3.5;
+}
+
 .range-mode-line {
-  fill: none;
-  stroke: var(--accent);
-  stroke-width: 2.8;
-  stroke-dasharray: 2 7;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+  stroke: #9333ea;
+  stroke-dasharray: 7 6;
+}
+
+.chart-dot.monte-carlo,
+.chart-dot.monte-carlo.selected {
+  fill: #2563eb;
+}
+
+.chart-selected-guide {
+  stroke: color-mix(in srgb, var(--ink) 35%, transparent);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 5;
+}
+
+.selected-range-dot {
+  stroke: var(--surface);
+  stroke-width: 2.5;
+}
+
+.selected-range-dot.upper {
+  fill: #159570;
+}
+
+.selected-range-dot.lower {
+  fill: #d97706;
+}
+
+.selected-range-dot.mode {
+  fill: #9333ea;
 }
 
 .range-dot {
@@ -1044,12 +1082,22 @@ td select {
 
 .legend-median {
   height: 0.18rem !important;
-  background: repeating-linear-gradient(90deg, var(--primary), var(--primary) 6px, transparent 6px, transparent 11px);
+  background: #2563eb;
 }
 
 .legend-mode {
   height: 0.18rem !important;
-  background: repeating-linear-gradient(90deg, var(--accent), var(--accent) 2px, transparent 2px, transparent 7px);
+  background: repeating-linear-gradient(90deg, #9333ea, #9333ea 7px, transparent 7px, transparent 12px);
+}
+
+.legend-upper {
+  height: 0.18rem !important;
+  background: #159570;
+}
+
+.legend-lower {
+  height: 0.18rem !important;
+  background: #d97706;
 }
 
 .chart-section-heading {
