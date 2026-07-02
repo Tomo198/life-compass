@@ -76,6 +76,7 @@ export type VariabilityProjectionRow = {
   yearIndex: number;
   label: string;
   lower: number;
+  mode: number;
   median: number;
   upper: number;
 };
@@ -83,10 +84,12 @@ export type VariabilityProjectionRow = {
 export type VariabilityResult = {
   rows: VariabilityProjectionRow[];
   lowerFinal: number;
+  modeFinal: number;
   medianFinal: number;
   upperFinal: number;
   depletionRate: number;
   medianDepletedAge: number | null;
+  trialCount: number;
 };
 
 export type WithdrawalPhase = {
@@ -647,6 +650,39 @@ const percentile = (values: number[], ratio: number) => {
   return sorted[index];
 };
 
+const estimateModeBand = (values: number[]) => {
+  const finiteValues = values.filter(Number.isFinite);
+  if (finiteValues.length === 0) return 0;
+
+  const exactCounts = new Map<number, number>();
+  finiteValues.forEach((value) => {
+    const rounded = Math.round(value);
+    exactCounts.set(rounded, (exactCounts.get(rounded) ?? 0) + 1);
+  });
+  const repeatedValue = [...exactCounts.entries()].reduce(
+    (best, current) => (current[1] > best[1] ? current : best),
+    [0, 0]
+  );
+  if (repeatedValue[1] > 1) return repeatedValue[0];
+
+  const minimum = Math.min(...finiteValues);
+  const maximum = Math.max(...finiteValues);
+  if (minimum === maximum) return minimum;
+
+  const binCount = Math.max(10, Math.min(40, Math.round(Math.sqrt(finiteValues.length))));
+  const binWidth = (maximum - minimum) / binCount;
+  const bins = Array.from({ length: binCount }, () => ({ count: 0, total: 0 }));
+
+  finiteValues.forEach((value) => {
+    const index = Math.min(binCount - 1, Math.floor((value - minimum) / binWidth));
+    bins[index].count += 1;
+    bins[index].total += value;
+  });
+
+  const mostFrequentBin = bins.reduce((best, current) => (current.count > best.count ? current : best), bins[0]);
+  return mostFrequentBin.count > 0 ? mostFrequentBin.total / mostFrequentBin.count : percentile(finiteValues, 0.5);
+};
+
 const createSeededRandom = (seed: number) => {
   let state = seed || 1;
   return () => {
@@ -664,7 +700,7 @@ const sampleNormal = (random: () => number) => {
 export const simulateContributionVariability = (
   settings: SimulationSettings,
   annualVolatilityRate = 12,
-  trials = 300
+  trials = 1000
 ): VariabilityResult => {
   const yearlyValues: number[][] = Array.from({ length: settings.years }, () => []);
 
@@ -673,7 +709,7 @@ export const simulateContributionVariability = (
     let value = 0;
 
     for (let year = 1; year <= settings.years; year += 1) {
-      const sampledAnnualRate = (settings.annualReturnRate + sampleNormal(random) * annualVolatilityRate) / 100;
+      const sampledAnnualRate = Math.max(-100, settings.annualReturnRate + sampleNormal(random) * annualVolatilityRate) / 100;
       const monthlyRate = sampledAnnualRate / 12;
       for (let month = 1; month <= 12; month += 1) {
         value = value * (1 + monthlyRate) + settings.monthlyContribution;
@@ -687,6 +723,7 @@ export const simulateContributionVariability = (
     yearIndex: index + 1,
     label: `${index + 1}年目`,
     lower: percentile(values, 0.1),
+    mode: estimateModeBand(values),
     median: percentile(values, 0.5),
     upper: percentile(values, 0.9)
   }));
@@ -694,10 +731,12 @@ export const simulateContributionVariability = (
   return {
     rows,
     lowerFinal: rows[rows.length - 1]?.lower ?? 0,
+    modeFinal: rows[rows.length - 1]?.mode ?? 0,
     medianFinal: rows[rows.length - 1]?.median ?? 0,
     upperFinal: rows[rows.length - 1]?.upper ?? 0,
     depletionRate: 0,
-    medianDepletedAge: null
+    medianDepletedAge: null,
+    trialCount: trials
   };
 };
 
@@ -786,7 +825,7 @@ export const simulateWithdrawal = (settings: WithdrawalSettings): WithdrawalResu
 export const simulateWithdrawalVariability = (
   settings: WithdrawalSettings,
   annualVolatilityRate = 12,
-  trials = 300
+  trials = 1000
 ): VariabilityResult => {
   const yearlyValues: number[][] = Array.from({ length: settings.years }, () => []);
   const depletedAges: number[] = [];
@@ -810,7 +849,7 @@ export const simulateWithdrawalVariability = (
         : ((phase?.monthlyLivingCost ?? 0) * 12 + (phase?.annualExtraExpense ?? 0)) * (1 + inflationRate) ** (yearIndex - 1);
       const annualPension = usesSimpleWithdrawal ? 0 : (phase?.monthlyIncome ?? 0) * 12;
       const withdrawalAmount = Math.max(0, annualLivingCost - annualPension);
-      const sampledAnnualRate = (settings.annualReturnRate + sampleNormal(random) * annualVolatilityRate) / 100;
+      const sampledAnnualRate = Math.max(-100, settings.annualReturnRate + sampleNormal(random) * annualVolatilityRate) / 100;
       assets = Math.max(0, (assets - withdrawalAmount) * (1 + sampledAnnualRate));
 
       if (assets <= 0 && depletedAge === null) {
@@ -826,6 +865,7 @@ export const simulateWithdrawalVariability = (
     yearIndex: index + 1,
     label: `${settings.startAge + index}歳`,
     lower: percentile(values, 0.1),
+    mode: estimateModeBand(values),
     median: percentile(values, 0.5),
     upper: percentile(values, 0.9)
   }));
@@ -833,10 +873,12 @@ export const simulateWithdrawalVariability = (
   return {
     rows,
     lowerFinal: rows[rows.length - 1]?.lower ?? settings.currentAssets,
+    modeFinal: rows[rows.length - 1]?.mode ?? settings.currentAssets,
     medianFinal: rows[rows.length - 1]?.median ?? settings.currentAssets,
     upperFinal: rows[rows.length - 1]?.upper ?? settings.currentAssets,
     depletionRate: trials > 0 ? (depletedAges.length / trials) * 100 : 0,
-    medianDepletedAge: depletedAges.length > 0 ? percentile(depletedAges, 0.5) : null
+    medianDepletedAge: depletedAges.length > 0 ? percentile(depletedAges, 0.5) : null,
+    trialCount: trials
   };
 };
 
@@ -868,9 +910,9 @@ export const simulateRetirementPlan = (plan: LifePlan): RetirementPlanResult => 
     const annualRetirementIncome =
       (settings.monthlyPublicPension + settings.monthlyPrivatePension + settings.monthlyOtherIncome) * 12;
     const withdrawalAmount = Math.max(0, annualLivingCost + annualSocialInsuranceAndTax - annualRetirementIncome);
-    const beforeReturn = assets - withdrawalAmount;
+    const beforeReturn = Math.max(0, assets - withdrawalAmount);
     const returnImpact = beforeReturn * annualReturnRate;
-    assets = beforeReturn + returnImpact;
+    assets = Math.max(0, beforeReturn + returnImpact);
 
     if (assets <= 0 && depletedAge === null) {
       depletedAge = startAge + index;
@@ -904,7 +946,7 @@ export const simulateRetirementPlan = (plan: LifePlan): RetirementPlanResult => 
 export const simulateRetirementPlanVariability = (
   plan: LifePlan,
   annualVolatilityRate = 10,
-  trials = 300
+  trials = 1000
 ): VariabilityResult => {
   const settings = plan.retirementPlan;
   const startAge = Math.max(plan.profile.age, settings.retirementAge);
@@ -936,8 +978,8 @@ export const simulateRetirementPlanVariability = (
       const annualRetirementIncome =
         (settings.monthlyPublicPension + settings.monthlyPrivatePension + settings.monthlyOtherIncome) * 12;
       const withdrawalAmount = Math.max(0, annualLivingCost + annualSocialInsuranceAndTax - annualRetirementIncome);
-      const sampledAnnualRate = (settings.annualReturnRate + sampleNormal(random) * annualVolatilityRate) / 100;
-      assets = (assets - withdrawalAmount) * (1 + sampledAnnualRate);
+      const sampledAnnualRate = Math.max(-100, settings.annualReturnRate + sampleNormal(random) * annualVolatilityRate) / 100;
+      assets = Math.max(0, (assets - withdrawalAmount) * (1 + sampledAnnualRate));
 
       if (assets <= 0 && depletedAge === null) {
         depletedAge = age;
@@ -952,6 +994,7 @@ export const simulateRetirementPlanVariability = (
     yearIndex: index + 1,
     label: `${startAge + index}歳`,
     lower: percentile(values, 0.1),
+    mode: estimateModeBand(values),
     median: percentile(values, 0.5),
     upper: percentile(values, 0.9)
   }));
@@ -959,10 +1002,12 @@ export const simulateRetirementPlanVariability = (
   return {
     rows,
     lowerFinal: rows[rows.length - 1]?.lower ?? retirementStartAssets,
+    modeFinal: rows[rows.length - 1]?.mode ?? retirementStartAssets,
     medianFinal: rows[rows.length - 1]?.median ?? retirementStartAssets,
     upperFinal: rows[rows.length - 1]?.upper ?? retirementStartAssets,
     depletionRate: trials > 0 ? (depletedAges.length / trials) * 100 : 0,
-    medianDepletedAge: depletedAges.length > 0 ? percentile(depletedAges, 0.5) : null
+    medianDepletedAge: depletedAges.length > 0 ? percentile(depletedAges, 0.5) : null,
+    trialCount: trials
   };
 };
 

@@ -997,6 +997,15 @@ td select {
   stroke-linejoin: round;
 }
 
+.range-mode-line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2.8;
+  stroke-dasharray: 2 7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 .range-dot {
   fill: var(--accent);
   stroke: #fff;
@@ -1036,6 +1045,11 @@ td select {
 .legend-median {
   height: 0.18rem !important;
   background: repeating-linear-gradient(90deg, var(--primary), var(--primary) 6px, transparent 6px, transparent 11px);
+}
+
+.legend-mode {
+  height: 0.18rem !important;
+  background: repeating-linear-gradient(90deg, var(--accent), var(--accent) 2px, transparent 2px, transparent 7px);
 }
 
 .chart-section-heading {

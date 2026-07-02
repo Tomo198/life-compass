@@ -3383,7 +3383,7 @@ function SimulationView({
         <div className="section-heading chart-section-heading">
           <div>
             <h2>積み立て資産の推移</h2>
-            <p>固定利回りの試算線に、年ごとのばらつき幅を重ねて確認できます。</p>
+            <p>{contributionVariability.trialCount.toLocaleString("ja-JP")}回のモンテカルロ試行を行い、固定利回り線と結果の分布を重ねています。</p>
           </div>
           <label className="compact-number-field">
             年ごとのばらつき幅 %
@@ -3393,6 +3393,7 @@ function SimulationView({
         <LineChart points={contributionChartPoints} variabilityRows={contributionVariability.rows} />
         <div className="calculation-band compact">
           <Metric label={`${plan.simulation.years}年後 下位10%`} value={manYen(contributionVariability.lowerFinal)} helper="前提条件に基づく下振れ側の試算" />
+          <Metric label={`${plan.simulation.years}年後 最頻帯`} value={manYen(contributionVariability.modeFinal)} helper="最も多かった金額帯の代表額" />
           <Metric label={`${plan.simulation.years}年後 中央値`} value={manYen(contributionVariability.medianFinal)} helper="ばらつき試算の中央値" />
           <Metric label={`${plan.simulation.years}年後 上位10%`} value={manYen(contributionVariability.upperFinal)} helper="上振れ側の試算" />
         </div>
@@ -3432,7 +3433,7 @@ function SimulationView({
 
       {simulationTab === "withdrawal" && (
       <section className="panel form-panel">
-        <StepTitle step="6" title="取り崩しシミュレーション" description="開始年齢と資金、取り崩し額を置き、100歳までの資産推移を確認します。" />
+        <StepTitle step="6" title="取り崩しシミュレーション" description="期間入力は使わず、開始年齢・開始資金・月額または年率から資産推移を確認します。" />
         <div className="form-grid">
           <label>
             取り崩し開始年齢
@@ -3486,10 +3487,14 @@ function SimulationView({
             資産入力の純資産を試算開始時資金へ反映
           </button>
         </div>
+        <div className="notice-band check">
+          <strong>通常の取り崩しを単純に確認する画面です</strong>
+          <span>結果確認のため100歳まで描画しますが、試算期間の入力はありません。年金、社会保険、税金、老後生活費を含める場合は、別枠の老後プランを使います。</span>
+        </div>
         <div className="section-heading chart-section-heading">
           <div>
             <h2>取り崩し後の資産推移</h2>
-            <p>固定利回りの試算線に、年ごとのばらつき幅を重ねて確認できます。</p>
+            <p>{withdrawalVariability.trialCount.toLocaleString("ja-JP")}回のモンテカルロ試行を行い、固定利回り線と結果の分布を重ねています。</p>
           </div>
         </div>
         <LineChart points={withdrawalChartPoints} variabilityRows={withdrawalVariability.rows} />
@@ -3513,13 +3518,9 @@ function SimulationView({
         </div>
         <div className="calculation-band compact">
           <Metric label="100歳時点 下位10%" value={manYen(withdrawalVariability.lowerFinal)} helper="前提条件に基づく下振れ側の試算" />
+          <Metric label="100歳時点 最頻帯" value={manYen(withdrawalVariability.modeFinal)} helper="最も多かった金額帯の代表額" />
           <Metric label="100歳時点 中央値" value={manYen(withdrawalVariability.medianFinal)} helper="ばらつき試算の中央値" />
           <Metric label="100歳時点 上位10%" value={manYen(withdrawalVariability.upperFinal)} helper="上振れ側の試算" />
-          <Metric
-            label="資産が尽きるケース"
-            value={percent(withdrawalVariability.depletionRate)}
-            helper={withdrawalVariability.medianDepletedAge ? `中央値 ${withdrawalVariability.medianDepletedAge}歳` : "期間内の中央値なし"}
-          />
         </div>
         <details className="projection-details">
           <summary>年次の試算表を確認</summary>
@@ -3636,7 +3637,7 @@ function RetirementPlanView({
         <div className="section-heading">
           <div>
             <h2>老後資産の推移グラフ</h2>
-            <p>年齢ごとの年末資産をグラフで確認します。点をタップすると、その年の試算額と前年差を確認できます。</p>
+            <p>{retirementVariability.trialCount.toLocaleString("ja-JP")}回のモンテカルロ試行で、年金・社会保険・税金を含む老後資産の幅を確認します。</p>
           </div>
           <span className="status-pill recurring">{result.startAge}歳〜{settings.planUntilAge}歳</span>
         </div>
@@ -3649,13 +3650,13 @@ function RetirementPlanView({
         <LineChart points={retirementChartPoints} variabilityRows={retirementVariability.rows} />
         <div className="calculation-band compact">
           <Metric label={`${settings.planUntilAge}歳時点 下位10%`} value={manYen(retirementVariability.lowerFinal)} helper="前提条件に基づく下振れ側の試算" />
+          <Metric label={`${settings.planUntilAge}歳時点 最頻帯`} value={manYen(retirementVariability.modeFinal)} helper="最も多かった金額帯の代表額" />
           <Metric label={`${settings.planUntilAge}歳時点 中央値`} value={manYen(retirementVariability.medianFinal)} helper="ばらつき試算の中央値" />
           <Metric label={`${settings.planUntilAge}歳時点 上位10%`} value={manYen(retirementVariability.upperFinal)} helper="上振れ側の試算" />
-          <Metric
-            label="資産が尽きるケース"
-            value={percent(retirementVariability.depletionRate)}
-            helper={retirementVariability.medianDepletedAge ? `中央値 ${retirementVariability.medianDepletedAge}歳` : "期間内の中央値なし"}
-          />
+        </div>
+        <div className={`notice-band ${retirementVariability.depletionRate > 0 ? "notice" : "check"}`}>
+          <strong>資産が尽きるケース: {percent(retirementVariability.depletionRate)}</strong>
+          <span>{retirementVariability.medianDepletedAge ? `資産が尽きた試行の中央値は${retirementVariability.medianDepletedAge}歳です。` : "1,000回の試行では、設定した年齢まで資産が残りました。"}</span>
         </div>
       </section>
 
@@ -3842,18 +3843,14 @@ function VariabilityPanel({
       </div>
       <div className="notice-band">
         <strong>将来を予測するものではありません</strong>
-        <span>同じ平均利回りでも年ごとの結果がぶれる前提を置いた参考試算です。下位・中央値・上位は入力条件に基づく計算上の範囲です。</span>
+        <span>{result.trialCount.toLocaleString("ja-JP")}回のモンテカルロ試行による参考試算です。最頻帯は、最も多く集まった金額帯の代表額です。</span>
       </div>
       <VariabilityBandChart rows={result.rows} />
       <div className="calculation-band compact">
-        <Metric label={`${finalLabel} 下位`} value={manYen(result.lowerFinal)} helper="下位10%水準" />
-        <Metric label={`${finalLabel} 中央`} value={manYen(result.medianFinal)} helper="中央値" />
-        <Metric label={`${finalLabel} 上位`} value={manYen(result.upperFinal)} helper="上位90%水準" />
-        <Metric
-          label="資産が尽きるケース"
-          value={percent(result.depletionRate)}
-          helper={result.medianDepletedAge ? `中央値 ${result.medianDepletedAge}歳` : "期間内は中央値なし"}
-        />
+        <Metric label={`${finalLabel} 下位10%`} value={manYen(result.lowerFinal)} helper="下振れ側の水準" />
+        <Metric label={`${finalLabel} 最頻帯`} value={manYen(result.modeFinal)} helper="最も多かった金額帯" />
+        <Metric label={`${finalLabel} 中央値`} value={manYen(result.medianFinal)} helper="結果を順に並べた中央" />
+        <Metric label={`${finalLabel} 上位10%`} value={manYen(result.upperFinal)} helper="上振れ側の水準" />
       </div>
       <div className="table-wrap projection-detail-table">
         <table>
@@ -3861,6 +3858,7 @@ function VariabilityPanel({
             <tr>
               <th>時点</th>
               <th>下位</th>
+              <th>最頻帯</th>
               <th>中央値</th>
               <th>上位</th>
             </tr>
@@ -3870,6 +3868,7 @@ function VariabilityPanel({
               <tr key={`${row.label}-${row.yearIndex}`}>
                 <td>{row.label}</td>
                 <td>{manYen(row.lower)}</td>
+                <td>{manYen(row.mode)}</td>
                 <td>{manYen(row.median)}</td>
                 <td>{manYen(row.upper)}</td>
               </tr>
@@ -4844,18 +4843,19 @@ function VariabilityBandChart({ rows }: { rows: VariabilityResult["rows"] }) {
     bottom: 48,
     left: 76
   };
-  const minValue = Math.min(...rows.map((row) => row.lower), 0);
-  const maxValue = Math.max(...rows.map((row) => row.upper), 1);
+  const minValue = Math.min(...rows.map((row) => row.lower), ...rows.map((row) => row.mode), 0);
+  const maxValue = Math.max(...rows.map((row) => row.upper), ...rows.map((row) => row.mode), 1);
   const valueRange = maxValue - minValue || 1;
   const chartWidth = width - padding.left - padding.right;
   const chartHeight = height - padding.top - padding.bottom;
   const xStep = chartWidth / Math.max(rows.length - 1, 1);
-  const pointFor = (row: VariabilityResult["rows"][number], index: number, key: "lower" | "median" | "upper") => ({
+  const pointFor = (row: VariabilityResult["rows"][number], index: number, key: "lower" | "mode" | "median" | "upper") => ({
     x: padding.left + index * xStep,
     y: height - padding.bottom - ((row[key] - minValue) / valueRange) * chartHeight
   });
   const upperPoints = rows.map((row, index) => pointFor(row, index, "upper"));
   const lowerPoints = rows.map((row, index) => pointFor(row, index, "lower"));
+  const modePoints = rows.map((row, index) => pointFor(row, index, "mode"));
   const medianPoints = rows.map((row, index) => pointFor(row, index, "median"));
   const bandPath = [
     ...upperPoints.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`),
@@ -4866,6 +4866,7 @@ function VariabilityBandChart({ rows }: { rows: VariabilityResult["rows"] }) {
     "Z"
   ].join(" ");
   const medianPath = medianPoints.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ");
+  const modePath = modePoints.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ");
   const labelStep = rows.length > 20 ? 5 : rows.length > 12 ? 3 : 1;
 
   return (
@@ -4888,6 +4889,7 @@ function VariabilityBandChart({ rows }: { rows: VariabilityResult["rows"] }) {
           </text>
           <path d={bandPath} className="range-band" />
           <path d={medianPath} className="range-median-line" />
+          <path d={modePath} className="range-mode-line" />
           {medianPoints.map((point, index) => {
             const row = rows[index];
             const showLabel = index % labelStep === 0 || index === rows.length - 1;
@@ -4905,8 +4907,9 @@ function VariabilityBandChart({ rows }: { rows: VariabilityResult["rows"] }) {
         </svg>
       </div>
       <div className="chart-legend" aria-label="グラフ凡例">
-        <span><i className="legend-band" />下位〜上位の範囲</span>
-        <span><i className="legend-line" />中央値</span>
+        <span><i className="legend-band" />下位10%〜上位10%</span>
+        <span><i className="legend-median" />中央値</span>
+        <span><i className="legend-mode" />最頻帯</span>
       </div>
     </div>
   );
@@ -4937,8 +4940,8 @@ function LineChart({
     left: 76
   };
   const rangeRows = variabilityRows?.slice(0, points.length) ?? [];
-  const minValue = Math.min(...points.map((point) => point.value), ...rangeRows.map((row) => row.lower), 0);
-  const maxValue = Math.max(...points.map((point) => point.value), ...rangeRows.map((row) => row.upper), 1);
+  const minValue = Math.min(...points.map((point) => point.value), ...rangeRows.map((row) => row.lower), ...rangeRows.map((row) => row.mode), 0);
+  const maxValue = Math.max(...points.map((point) => point.value), ...rangeRows.map((row) => row.upper), ...rangeRows.map((row) => row.mode), 1);
   const valueRange = maxValue - minValue || 1;
   const chartWidth = width - padding.left - padding.right;
   const chartHeight = height - padding.top - padding.bottom;
@@ -4948,12 +4951,13 @@ function LineChart({
     const y = height - padding.bottom - ((point.value - minValue) / valueRange) * chartHeight;
     return { ...point, x, y };
   });
-  const rangePointFor = (row: VariabilityResult["rows"][number], index: number, key: "lower" | "median" | "upper") => ({
+  const rangePointFor = (row: VariabilityResult["rows"][number], index: number, key: "lower" | "mode" | "median" | "upper") => ({
     x: padding.left + index * xStep,
     y: height - padding.bottom - ((row[key] - minValue) / valueRange) * chartHeight
   });
   const upperRangePoints = rangeRows.map((row, index) => rangePointFor(row, index, "upper"));
   const lowerRangePoints = rangeRows.map((row, index) => rangePointFor(row, index, "lower"));
+  const modeRangePoints = rangeRows.map((row, index) => rangePointFor(row, index, "mode"));
   const medianRangePoints = rangeRows.map((row, index) => rangePointFor(row, index, "median"));
   const bandPath =
     rangeRows.length > 0
@@ -4967,6 +4971,7 @@ function LineChart({
         ].join(" ")
       : "";
   const medianRangePath = medianRangePoints.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ");
+  const modeRangePath = modeRangePoints.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ");
   const path = coordinates.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ");
   const selectedPoint = selectedIndex === null ? null : coordinates[selectedIndex];
   const selectedRange = selectedIndex === null ? null : rangeRows[selectedIndex] ?? null;
@@ -4998,6 +5003,7 @@ function LineChart({
             <>
               <path d={bandPath} className="range-band" />
               <path d={medianRangePath} className="range-median-line" />
+              <path d={modeRangePath} className="range-mode-line" />
             </>
           )}
           <path d={path} className="chart-line" />
@@ -5042,6 +5048,7 @@ function LineChart({
         <div className="chart-legend" aria-label="グラフの凡例">
           <span><i className="legend-band" />下位10%から上位10%の範囲</span>
           <span><i className="legend-median" />中央値</span>
+          <span><i className="legend-mode" />最頻帯</span>
           <span><i className="legend-line" />固定利回りの試算</span>
         </div>
       )}
@@ -5061,6 +5068,10 @@ function LineChart({
                 <div>
                   <span>下位10%</span>
                   <strong>{manYen(selectedRange.lower)}</strong>
+                </div>
+                <div>
+                  <span>最頻帯</span>
+                  <strong>{manYen(selectedRange.mode)}</strong>
                 </div>
                 <div>
                   <span>中央値</span>

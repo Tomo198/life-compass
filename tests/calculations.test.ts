@@ -761,7 +761,7 @@ test("contribution projection rows expose yearly contribution and return impact"
   assert.equal(rows[1].value, 480000);
 });
 
-test("contribution variability is deterministic and exposes lower median upper range", () => {
+test("contribution variability is deterministic and exposes percentile and mode ranges", () => {
   const settings = {
     monthlyContribution: 30000,
     bonusContribution: 120000,
@@ -775,7 +775,21 @@ test("contribution variability is deterministic and exposes lower median upper r
   assert.deepEqual(first, second);
   assert.ok(first.lowerFinal <= first.medianFinal);
   assert.ok(first.medianFinal <= first.upperFinal);
+  assert.ok(Number.isFinite(first.modeFinal));
+  assert.equal(first.trialCount, 80);
   assert.equal(first.depletionRate, 0);
+});
+
+test("monte carlo simulations default to one thousand trials", () => {
+  const result = simulateContributionVariability({
+    monthlyContribution: 10000,
+    bonusContribution: 0,
+    annualReturnRate: 3,
+    years: 1
+  });
+
+  assert.equal(result.trialCount, 1000);
+  assert.ok(Number.isFinite(result.modeFinal));
 });
 
 test("withdrawal simulation reports depletion age and final assets from assumptions", () => {
@@ -918,6 +932,8 @@ test("withdrawal variability reports depletion cases from variable annual return
   );
 
   assert.equal(result.rows.length, 5);
+  assert.equal(result.trialCount, 80);
+  assert.ok(Number.isFinite(result.modeFinal));
   assert.ok(result.depletionRate > 0);
   assert.ok(result.medianDepletedAge !== null);
 });
@@ -1001,9 +1017,12 @@ test("retirement plan variability keeps percentile rows and depletion rate", () 
   );
 
   assert.equal(result.rows.length, 6);
+  assert.equal(result.trialCount, 80);
+  assert.ok(Number.isFinite(result.modeFinal));
   assert.ok(result.lowerFinal <= result.medianFinal);
   assert.ok(result.medianFinal <= result.upperFinal);
   assert.ok(result.depletionRate > 0);
+  assert.equal(result.modeFinal, 0);
 });
 
 test("retirement plan uses pre-retirement projection and lump sum before withdrawals", () => {
