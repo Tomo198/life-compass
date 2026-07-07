@@ -102,6 +102,25 @@ export function PricingView({
           <button type="button" className="secondary" onClick={() => setActiveView("contact")}>お問い合わせ</button>
         </div>
       </section>
+
+      <section className="panel">
+        <h2>ログイン・クラウド保存の検討方針</h2>
+        <p className="muted">現在の保存先はこのブラウザ内です。将来クラウド保存を入れる場合も、利用者が選んだときだけ使う任意機能として扱います。</p>
+        <div className="boundary-grid">
+          <div>
+            <strong>初期コストを抑える</strong>
+            <p>Cloudflareの無料枠で検証し、Pro利用者が増えてから有料プランへの移行を判断する方針です。</p>
+          </div>
+          <div>
+            <strong>Googleログイン</strong>
+            <p>本人確認とPro判定に使う予定です。ライフプランデータの保存とは分けて設計します。</p>
+          </div>
+          <div>
+            <strong>暗号化バックアップ</strong>
+            <p>クラウド保存を行う場合は、収入・資産・家族情報をそのまま読める形で保存しない設計を優先します。</p>
+          </div>
+        </div>
+      </section>
     </div>
   );
 }
