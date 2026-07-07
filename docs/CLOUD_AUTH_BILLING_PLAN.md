@@ -9,6 +9,7 @@
 - ライフプラン本体の標準保存先はブラウザ内のままにする
 - クラウド保存は、Pro向けの任意バックアップ機能として扱う
 - 収入、支出、資産、家族情報などをサーバー側で平文保存しない設計を優先する
+- 実装前後の安全確認は `docs/SECURITY_CHECKLIST.md` を基準にする
 
 ## 保存する情報の分類
 
@@ -64,6 +65,31 @@
 4. Stripe test modeでCheckoutとwebhookを確認する
 5. Pro権限チェックを本番仕様へ切り替える
 6. 暗号化クラウドバックアップを任意機能として追加する
+
+## 現在用意しているAPI骨組み
+
+現時点のAPIは、将来の接続先を確認するための固定レスポンスだけを返します。Google、Stripe、R2、D1への実接続はまだ行いません。
+
+| API | 現在の挙動 | 将来の用途 |
+| --- | --- | --- |
+| `GET /api/health` | API骨組みの稼働確認 | 監視、疎通確認 |
+| `GET /api/me` | 未ログイン固定 | Googleログイン後のユーザー確認 |
+| `GET /api/entitlement` | free / preview 固定 | Pro契約状態の判定 |
+| `GET /api/backups` | クラウド未提供・空一覧 | 暗号化バックアップ一覧 |
+| `POST /api/backups` | 未設定として拒否 | 暗号化バックアップ保存 |
+| `POST /api/auth/google` | 未設定として拒否 | Google IDトークン検証 |
+| `POST /api/stripe/webhook` | 未設定として拒否 | Stripe webhook受信 |
+
+## D1スキーマ
+
+初期スキーマ案は `migrations/0001_auth_billing_backup.sql` に置きます。現時点ではWranglerにD1バインディングを設定していないため、デプロイ時にD1は使われません。
+
+主なテーブル:
+
+- `users`: Googleログイン後の最小アカウント情報
+- `subscriptions`: Stripe契約状態とPro判定
+- `cloud_backups`: R2に置く暗号化バックアップのメタ情報
+- `webhook_events`: Stripe webhookの二重処理防止
 
 ## 今は実装しないこと
 
