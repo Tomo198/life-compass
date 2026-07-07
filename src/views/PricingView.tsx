@@ -1,17 +1,27 @@
-import { featureComparison } from "../features";
+import { featureComparison, getEffectiveTier, type AccessState } from "../features";
 import { legalConfig } from "../legalConfig";
 import type { ViewKey } from "../types";
 
-export function PricingView({ setActiveView }: { setActiveView: (view: ViewKey) => void }) {
+export function PricingView({
+  setActiveView,
+  accessState
+}: {
+  setActiveView: (view: ViewKey) => void;
+  accessState: AccessState;
+}) {
+  const effectiveTier = getEffectiveTier(accessState);
+
   return (
     <div className="view-stack">
-      <section className="pro-hero">
+      <section className="pro-hero" data-testid="access-summary">
         <div>
           <p className="eyebrow">Pro機能・料金</p>
           <h2>Proの機能と料金をこのページで確認</h2>
           <p>現在は申込みと課金を受け付けていません。開発中のPro機能は、確認用のプレビューとして開くことができます。</p>
         </div>
-        <span className="lock-badge">課金なし</span>
+        <span className="lock-badge">
+          {accessState.mode === "preview" ? "課金なし・プレビュー" : effectiveTier === "pro" ? "Pro利用中" : "無料版"}
+        </span>
       </section>
 
       <section className="pricing-grid">

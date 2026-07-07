@@ -1,9 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
 import { CURRENT_PLAN_VERSION } from "./config";
 import { EmptyState, Metric, MoneyInput, NumericInput, StepFlowNav, StepTitle } from "./components/CommonUi";
+import { LineChart, VariabilityBandChart } from "./components/Charts";
 import { createId, defaultPlan } from "./data/defaultPlan";
-import { proPriceLabel } from "./features";
+import {
+  canOpenView,
+  defaultAccessState,
+  hasFeatureAccess,
+  proPriceLabel,
+  type AccessState
+} from "./features";
+import { AssetsView } from "./views/AssetsView";
 import { LegalDocumentView, LegalIndexView, type LegalDocumentKey } from "./views/LegalView";
+import { ProfileView } from "./views/ProfileView";
 import { PricingView as PricingPage } from "./views/PricingView";
 import { DataView as DataPage } from "./views/DataView";
 import type {
@@ -13,12 +22,10 @@ import type {
   BudgetItem,
   CashflowType,
   EventOwner,
-  FamilyType,
   FixedCostCategory,
   FixedCostItem,
   Goal,
   Household,
-  Housing,
   LifeEvent,
   LifeEventCategory,
   LifePlan,
@@ -33,8 +40,7 @@ import type {
   ScenarioTag,
   SimulationSettings,
   WithdrawalPlanSettings,
-  ViewKey,
-  WorkStyle
+  ViewKey
 } from "./types";
 import {
   buildPlanFromScenario,
@@ -160,31 +166,6 @@ const saveAppSettings = (settings: AppSettings) => {
 const resolveTheme = (theme: ThemePreference) => {
   if (theme !== "system") return theme;
   return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-};
-
-const familyLabels: Record<FamilyType, string> = {
-  single: "単身",
-  couple: "夫婦",
-  children: "子どもあり",
-  care: "親の支援/介護あり",
-  other: "その他"
-};
-
-const workLabels: Record<WorkStyle, string> = {
-  employee: "会社員",
-  freelance: "フリーランス",
-  selfEmployed: "自営業",
-  variable: "収入変動が大きい",
-  retired: "退職後",
-  other: "その他"
-};
-
-const housingLabels: Record<Housing, string> = {
-  rent: "賃貸",
-  owned: "持ち家",
-  mortgage: "住宅ローンあり",
-  family: "家族と同居",
-  other: "その他"
 };
 
 const priorityLabels: Record<Priority, string> = {
@@ -348,22 +329,6 @@ const scenarioTagLabels: Record<ScenarioTag, string> = {
 };
 
 const monthLabels = Array.from({ length: 12 }, (_, index) => `${index + 1}月`);
-
-const exactYenLabel = (value: number) => {
-  const rounded = Math.round(value || 0);
-  const sign = rounded < 0 ? "-" : "";
-  const absolute = Math.abs(rounded);
-  const oku = Math.floor(absolute / 100000000);
-  const man = Math.floor((absolute % 100000000) / 10000);
-  const yen = absolute % 10000;
-  const parts: string[] = [];
-
-  if (oku > 0) parts.push(`${new Intl.NumberFormat("ja-JP").format(oku)}億`);
-  if (man > 0) parts.push(`${new Intl.NumberFormat("ja-JP").format(man)}万`);
-  if (yen > 0 || parts.length === 0) parts.push(`${new Intl.NumberFormat("ja-JP").format(yen)}`);
-
-  return `${sign}${parts.join("")}円`;
-};
 
 const getTargetAgeForYear = (currentAge: number, dueYear: number) => {
   const currentYear = new Date().getFullYear();
@@ -671,6 +636,7 @@ const eventTemplates: EventTemplate[] = [
 function App() {
   const [plan, setPlan] = useState<LifePlan>(() => loadPlan());
   const [activeView, setActiveViewState] = useState<ViewKey>(() => getInitialView());
+  const [accessState] = useState<AccessState>(() => defaultAccessState);
   const [importMessage, setImportMessage] = useState("");
   const [storageError, setStorageError] = useState("");
   const [settings, setSettings] = useState<AppSettings>(() => loadAppSettings());
@@ -678,8 +644,9 @@ function App() {
   const reminders = useMemo(() => getAppReminders(plan, settings), [plan, settings]);
 
   const setActiveView = (view: ViewKey) => {
-    setActiveViewState(view);
-    const nextPath = publicRoutes[view] || "/";
+    const nextView = canOpenView(accessState, view) ? view : "pricing";
+    setActiveViewState(nextView);
+    const nextPath = publicRoutes[nextView] || "/";
     if (window.location.pathname !== nextPath) {
       window.history.pushState({ view }, "", nextPath);
     }
@@ -687,10 +654,13 @@ function App() {
   };
 
   useEffect(() => {
-    const handlePopState = () => setActiveViewState(getInitialView());
+    const handlePopState = () => {
+      const requestedView = getInitialView();
+      setActiveViewState(canOpenView(accessState, requestedView) ? requestedView : "pricing");
+    };
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
-  }, []);
+  }, [accessState]);
 
   useEffect(() => {
     document.title = `${getViewTitle(activeView)} | Life Compass`;
@@ -1054,6 +1024,7 @@ function App() {
             updateFixedCostItem={updateFixedCostItem}
             removeFixedCostItem={removeFixedCostItem}
             setActiveView={setActiveView}
+            accessState={accessState}
           />
         );
       case "budget":
@@ -1101,6 +1072,7 @@ function App() {
             updateWithdrawalPlan={updateWithdrawalPlan}
             updateWithdrawalPlanPatch={updateWithdrawalPlanPatch}
             setActiveView={setActiveView}
+            accessState={accessState}
           />
         );
       case "retirement":
@@ -1158,9 +1130,9 @@ function App() {
           />
         );
       case "pricing":
-        return <PricingPage setActiveView={setActiveView} />;
+        return <PricingPage setActiveView={setActiveView} accessState={accessState} />;
       case "pro":
-        return <PricingPage setActiveView={setActiveView} />;
+        return <PricingPage setActiveView={setActiveView} accessState={accessState} />;
       case "settings":
         return (
           <SettingsView
@@ -1187,7 +1159,12 @@ function App() {
   };
 
   return (
-    <div className="app-shell" data-testid="app-shell">
+    <div
+      className="app-shell"
+      data-testid="app-shell"
+      data-access-mode={accessState.mode}
+      data-access-tier={accessState.tier}
+    >
       <aside className="sidebar" aria-label="メインナビゲーション">
         <div className="brand">
           <span className="brand-mark">LC</span>
@@ -1610,86 +1587,14 @@ function Dashboard({ plan, reminders, setActiveView, startEmptyPlan }: Dashboard
   );
 }
 
-function ProfileView({
-  plan,
-  updateProfile,
-  setActiveView
-}: {
-  plan: LifePlan;
-  updateProfile: <K extends keyof Profile>(key: K, value: Profile[K]) => void;
-  setActiveView: (view: ViewKey) => void;
-}) {
-  return (
-    <div className="view-stack">
-      <section className="panel form-panel">
-        <StepTitle step="1" title="基本プロフィール" description="生活防衛資金や年表の年齢表示に使います。" />
-        <div className="form-grid">
-          <label>
-            プラン名
-            <input value={plan.profile.name} onChange={(event) => updateProfile("name", event.target.value)} />
-          </label>
-          <label>
-            現在の年齢
-            <NumericInput value={plan.profile.age} min={0} onChange={(value) => updateProfile("age", value)} />
-          </label>
-          <label>
-            家族構成
-            <select value={plan.profile.familyType} onChange={(event) => updateProfile("familyType", event.target.value as FamilyType)}>
-              {Object.entries(familyLabels).map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            働き方
-            <select value={plan.profile.workStyle} onChange={(event) => updateProfile("workStyle", event.target.value as WorkStyle)}>
-              {Object.entries(workLabels).map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            住居形態
-            <select value={plan.profile.housing} onChange={(event) => updateProfile("housing", event.target.value as Housing)}>
-              {Object.entries(housingLabels).map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-      </section>
-      <section className="helper-grid">
-        <div>
-          <strong>年齢</strong>
-          <span>目標の達成年齢、年表の予定年齢、将来見通しの表示に使います。</span>
-        </div>
-        <div>
-          <strong>家族構成と働き方</strong>
-          <span>生活防衛資金の目安月数を決めるための前提として使います。</span>
-        </div>
-        <div>
-          <strong>住居形態</strong>
-          <span>住宅ローンありの場合は、生活防衛資金をやや厚めに見ます。</span>
-        </div>
-      </section>
-      <StepFlowNav setActiveView={setActiveView} next={{ view: "assets", label: "資産入力" }} />
-    </div>
-  );
-}
-
 function HouseholdView({
   plan,
   updateHousehold,
   addFixedCostItem,
   updateFixedCostItem,
   removeFixedCostItem,
-  setActiveView
+  setActiveView,
+  accessState
 }: {
   plan: LifePlan;
   updateHousehold: <K extends keyof Household>(key: K, value: Household[K]) => void;
@@ -1697,10 +1602,12 @@ function HouseholdView({
   updateFixedCostItem: <K extends keyof FixedCostItem>(id: string, key: K, value: FixedCostItem[K]) => void;
   removeFixedCostItem: (id: string) => void;
   setActiveView: (view: ViewKey) => void;
+  accessState: AccessState;
 }) {
   const cashflow = getCashflowSummary(plan.household);
   const fixedCostItems = plan.fixedCostItems || [];
   const fixedCostImpact = getFixedCostImpact(fixedCostItems);
+  const canUseFixedCostImpact = hasFeatureAccess(accessState, "fixedCostImpact");
   const monthlySavingsTone =
     cashflow.monthlySavings < 0 ? "notice" : cashflow.savingsRate >= 20 ? "good" : cashflow.monthlySavings > 0 ? "check" : "neutral";
   return (
@@ -1755,7 +1662,7 @@ function HouseholdView({
           <span>旅行、家電、帰省、税金、車検など年に数回ある支出を年額で入れます。</span>
         </div>
       </section>
-      <section className="panel">
+      {canUseFixedCostImpact ? <section className="panel">
         <div className="section-heading">
           <div>
             <div className="title-with-badge">
@@ -1779,7 +1686,16 @@ function HouseholdView({
           updateFixedCostItem={updateFixedCostItem}
           removeFixedCostItem={removeFixedCostItem}
         />
-      </section>
+      </section> : (
+        <section className="panel pro-locked-panel">
+          <div className="title-with-badge">
+            <h2>固定費見直しインパクト</h2>
+            <span className="pro-inline-badge">Pro</span>
+          </div>
+          <p>月額差分と長期の単純差額はPro版で確認できます。</p>
+          <button type="button" className="secondary" onClick={() => setActiveView("pricing")}>Pro機能・料金を見る</button>
+        </section>
+      )}
       <StepFlowNav
         setActiveView={setActiveView}
         previous={{ view: "assets", label: "資産入力" }}
@@ -2061,62 +1977,6 @@ function BudgetView({
         setActiveView={setActiveView}
         previous={{ view: "household", label: "家計入力" }}
         next={{ view: "goals", label: "目標管理" }}
-      />
-    </div>
-  );
-}
-
-function AssetsView({
-  plan,
-  updateAssets,
-  setActiveView
-}: {
-  plan: LifePlan;
-  updateAssets: <K extends keyof Assets>(key: K, value: Assets[K]) => void;
-  setActiveView: (view: ViewKey) => void;
-}) {
-  const assets = getAssetSummary(plan.assets);
-  const cashShare = assets.grossAssets > 0 ? Math.round((plan.assets.cash / assets.grossAssets) * 100) : 0;
-  return (
-    <div className="view-stack">
-      <section className="panel form-panel">
-        <StepTitle step="2" title="資産入力" description="現金、投資資産、その他資産、負債を分けて整理します。" />
-        <div className="form-grid">
-          <MoneyInput label="現金" value={plan.assets.cash} onChange={(value) => updateAssets("cash", value)} />
-          <MoneyInput label="投資資産" value={plan.assets.investment} onChange={(value) => updateAssets("investment", value)} />
-          <MoneyInput label="その他資産" value={plan.assets.other} onChange={(value) => updateAssets("other", value)} />
-          <MoneyInput label="負債" value={plan.assets.debt} onChange={(value) => updateAssets("debt", value)} />
-        </div>
-      </section>
-      <section className="calculation-band">
-        <Metric label="資産合計" value={exactYenLabel(assets.grossAssets)} helper="現金 + 投資資産 + その他資産" />
-        <Metric label="負債" value={exactYenLabel(plan.assets.debt)} helper="住宅ローン、借入など" />
-        <Metric label="純資産" value={exactYenLabel(assets.netAssets)} helper="資産合計 - 負債" />
-      </section>
-      <section className="asset-formula">
-        <span>計算式</span>
-        <strong>
-          {exactYenLabel(assets.grossAssets)} - {exactYenLabel(plan.assets.debt)} = {exactYenLabel(assets.netAssets)}
-        </strong>
-      </section>
-      <section className="helper-grid">
-        <div>
-          <strong>現金比率</strong>
-          <span>総資産のうち現金は約{cashShare}%です。生活防衛資金チェックでは現金額を使います。</span>
-        </div>
-        <div>
-          <strong>負債の扱い</strong>
-          <span>住宅ローンや借入は資産合計から差し引き、純資産として表示します。</span>
-        </div>
-        <div>
-          <strong>入力の目安</strong>
-          <span>細かく分けすぎず、まずは現金、投資資産、その他資産、負債の4つで整理します。</span>
-        </div>
-      </section>
-      <StepFlowNav
-        setActiveView={setActiveView}
-        previous={{ view: "profile", label: "基本情報" }}
-        next={{ view: "household", label: "家計入力" }}
       />
     </div>
   );
@@ -3100,18 +2960,30 @@ function SimulationView({
   updateSimulation,
   updateWithdrawalPlan,
   updateWithdrawalPlanPatch,
-  setActiveView
+  setActiveView,
+  accessState
 }: {
   plan: LifePlan;
   updateSimulation: <K extends keyof SimulationSettings>(key: K, value: SimulationSettings[K]) => void;
   updateWithdrawalPlan: <K extends keyof WithdrawalPlanSettings>(key: K, value: WithdrawalPlanSettings[K]) => void;
   updateWithdrawalPlanPatch: (patch: Partial<WithdrawalPlanSettings>) => void;
   setActiveView: (view: ViewKey) => void;
+  accessState: AccessState;
 }) {
   const [simulationTab, setSimulationTab] = useState<"basic" | "contribution" | "withdrawal">("basic");
   const [projectionMode, setProjectionMode] = useState<"annual" | "monthly">("annual");
   const [projectionYears, setProjectionYears] = useState<10 | 30>(30);
   const [projectionMonths, setProjectionMonths] = useState<12 | 24>(24);
+  const openProSimulation = (
+    tab: "contribution" | "withdrawal",
+    feature: "detailedContribution" | "detailedWithdrawal"
+  ) => {
+    if (!hasFeatureAccess(accessState, feature)) {
+      setActiveView("pricing");
+      return;
+    }
+    setSimulationTab(tab);
+  };
   const currentNetAssets = getAssetSummary(plan.assets).netAssets;
   const withdrawalPlan = plan.withdrawalPlan || defaultPlan.withdrawalPlan;
   const withdrawalStartAge = withdrawalPlan.startAge;
@@ -3204,10 +3076,18 @@ function SimulationView({
             <button type="button" className={simulationTab === "basic" ? "active" : ""} onClick={() => setSimulationTab("basic")}>
               基本
             </button>
-            <button type="button" className={simulationTab === "contribution" ? "active" : ""} onClick={() => setSimulationTab("contribution")}>
+            <button
+              type="button"
+              className={simulationTab === "contribution" ? "active" : ""}
+              onClick={() => openProSimulation("contribution", "detailedContribution")}
+            >
               詳細積立 Pro
             </button>
-            <button type="button" className={simulationTab === "withdrawal" ? "active" : ""} onClick={() => setSimulationTab("withdrawal")}>
+            <button
+              type="button"
+              className={simulationTab === "withdrawal" ? "active" : ""}
+              onClick={() => openProSimulation("withdrawal", "detailedWithdrawal")}
+            >
               取り崩し Pro
             </button>
           </div>
@@ -4812,349 +4692,6 @@ function SettingsView({
         <h2>グラフの詳細表示</h2>
         <p>シミュレーション画面の年次見通しは、グラフ上の点をタップすると年末資産、前年差、年間貯蓄、イベント影響を確認できます。</p>
       </section>
-    </div>
-  );
-}
-
-type ChartPoint = {
-  year: number;
-  month?: number;
-  label?: string;
-  value: number;
-  age?: number;
-  annualSavings?: number;
-  monthlySavings?: number;
-  eventImpact?: number;
-  returnImpact?: number;
-  eventTitles?: string[];
-  impactLabel?: string;
-  returnLabel?: string;
-};
-
-function VariabilityBandChart({ rows }: { rows: VariabilityResult["rows"] }) {
-  if (rows.length === 0) return null;
-
-  const width = 900;
-  const height = 300;
-  const padding = {
-    top: 38,
-    right: 42,
-    bottom: 48,
-    left: 76
-  };
-  const minValue = Math.min(...rows.map((row) => row.lower), ...rows.map((row) => row.mode), 0);
-  const maxValue = Math.max(...rows.map((row) => row.upper), ...rows.map((row) => row.mode), 1);
-  const valueRange = maxValue - minValue || 1;
-  const chartWidth = width - padding.left - padding.right;
-  const chartHeight = height - padding.top - padding.bottom;
-  const xStep = chartWidth / Math.max(rows.length - 1, 1);
-  const pointFor = (row: VariabilityResult["rows"][number], index: number, key: "lower" | "mode" | "median" | "upper") => ({
-    x: padding.left + index * xStep,
-    y: height - padding.bottom - ((row[key] - minValue) / valueRange) * chartHeight
-  });
-  const upperPoints = rows.map((row, index) => pointFor(row, index, "upper"));
-  const lowerPoints = rows.map((row, index) => pointFor(row, index, "lower"));
-  const modePoints = rows.map((row, index) => pointFor(row, index, "mode"));
-  const medianPoints = rows.map((row, index) => pointFor(row, index, "median"));
-  const bandPath = [
-    ...upperPoints.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`),
-    ...lowerPoints
-      .slice()
-      .reverse()
-      .map((point) => `L ${point.x} ${point.y}`),
-    "Z"
-  ].join(" ");
-  const medianPath = medianPoints.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ");
-  const modePath = modePoints.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ");
-  const labelStep = rows.length > 20 ? 5 : rows.length > 12 ? 3 : 1;
-
-  return (
-    <div className="chart-block">
-      <div className="chart-wrap">
-        <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="ばらつき試算の範囲グラフ">
-          <line
-            x1={padding.left}
-            y1={height - padding.bottom}
-            x2={width - padding.right}
-            y2={height - padding.bottom}
-            className="axis"
-          />
-          <line x1={padding.left} y1={padding.top} x2={padding.left} y2={height - padding.bottom} className="axis" />
-          <text x={padding.left - 10} y={padding.top + 4} textAnchor="end" className="axis-label">
-            {manYen(maxValue)}
-          </text>
-          <text x={padding.left - 10} y={height - padding.bottom + 4} textAnchor="end" className="axis-label">
-            {manYen(minValue)}
-          </text>
-          <path d={bandPath} className="range-band" />
-          <path d={medianPath} className="range-median-line" />
-          <path d={modePath} className="range-mode-line" />
-          {medianPoints.map((point, index) => {
-            const row = rows[index];
-            const showLabel = index % labelStep === 0 || index === rows.length - 1;
-            return (
-              <g key={`${row.label}-${index}`}>
-                <circle cx={point.x} cy={point.y} r="3.5" className="range-dot" />
-                {showLabel && (
-                  <text x={point.x} y={height - 16} textAnchor="middle" className="year-label">
-                    {row.label}
-                  </text>
-                )}
-              </g>
-            );
-          })}
-        </svg>
-      </div>
-      <div className="chart-legend" aria-label="グラフ凡例">
-        <span><i className="legend-band" />下位10%〜上位10%</span>
-        <span><i className="legend-median" />中央値</span>
-        <span><i className="legend-mode" />最頻帯</span>
-      </div>
-    </div>
-  );
-}
-
-function LineChart({
-  points,
-  variabilityRows
-}: {
-  points: ChartPoint[];
-  variabilityRows?: VariabilityResult["rows"];
-}) {
-  const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
-  useEffect(() => {
-    if (selectedIndex !== null && selectedIndex >= points.length) {
-      setSelectedIndex(null);
-    }
-  }, [points.length, selectedIndex]);
-
-  if (points.length === 0) return null;
-
-  const width = 900;
-  const height = 330;
-  const padding = {
-    top: 54,
-    right: 42,
-    bottom: 50,
-    left: 76
-  };
-  const rangeRows = variabilityRows?.slice(0, points.length) ?? [];
-  const fixedValues = rangeRows.length > 0 ? [] : points.map((point) => point.value);
-  const minValue = Math.min(...fixedValues, ...rangeRows.map((row) => row.lower), ...rangeRows.map((row) => row.mode), 0);
-  const maxValue = Math.max(...fixedValues, ...rangeRows.map((row) => row.upper), ...rangeRows.map((row) => row.mode), 1);
-  const valueRange = maxValue - minValue || 1;
-  const chartWidth = width - padding.left - padding.right;
-  const chartHeight = height - padding.top - padding.bottom;
-  const xStep = chartWidth / Math.max(points.length - 1, 1);
-  const coordinates = points.map((point, index) => {
-    const x = padding.left + index * xStep;
-    const plottedValue = rangeRows[index]?.median ?? point.value;
-    const y = height - padding.bottom - ((plottedValue - minValue) / valueRange) * chartHeight;
-    return { ...point, x, y, plottedValue };
-  });
-  const rangePointFor = (row: VariabilityResult["rows"][number], index: number, key: "lower" | "mode" | "median" | "upper") => ({
-    x: padding.left + index * xStep,
-    y: height - padding.bottom - ((row[key] - minValue) / valueRange) * chartHeight
-  });
-  const upperRangePoints = rangeRows.map((row, index) => rangePointFor(row, index, "upper"));
-  const lowerRangePoints = rangeRows.map((row, index) => rangePointFor(row, index, "lower"));
-  const modeRangePoints = rangeRows.map((row, index) => rangePointFor(row, index, "mode"));
-  const medianRangePoints = rangeRows.map((row, index) => rangePointFor(row, index, "median"));
-  const bandPath =
-    rangeRows.length > 0
-      ? [
-          ...upperRangePoints.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`),
-          ...lowerRangePoints
-            .slice()
-            .reverse()
-            .map((point) => `L ${point.x} ${point.y}`),
-          "Z"
-        ].join(" ")
-      : "";
-  const medianRangePath = medianRangePoints.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ");
-  const modeRangePath = modeRangePoints.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ");
-  const upperRangePath = upperRangePoints.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ");
-  const lowerRangePath = lowerRangePoints.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ");
-  const path = coordinates.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ");
-  const selectedPoint = selectedIndex === null ? null : coordinates[selectedIndex];
-  const selectedRange = selectedIndex === null ? null : rangeRows[selectedIndex] ?? null;
-  const previousPoint = selectedIndex !== null && selectedIndex > 0 ? coordinates[selectedIndex - 1] : undefined;
-  const selectedRangeCoordinates =
-    selectedIndex !== null && selectedRange
-      ? {
-          lower: rangePointFor(selectedRange, selectedIndex, "lower"),
-          mode: rangePointFor(selectedRange, selectedIndex, "mode"),
-          median: rangePointFor(selectedRange, selectedIndex, "median"),
-          upper: rangePointFor(selectedRange, selectedIndex, "upper")
-        }
-      : null;
-  const labelStep = points.length > 20 ? 5 : points.length > 12 ? 3 : 1;
-  const selectedLabelY = selectedPoint ? (selectedPoint.y < padding.top + 28 ? selectedPoint.y + 26 : selectedPoint.y - 16) : 0;
-  const selectedPointLabel = selectedPoint?.label ?? (selectedPoint ? `${selectedPoint.year}年` : "");
-  const selectedAgeLabel = selectedPoint?.age ? `${selectedPoint.age}歳` : "";
-  const shouldAppendSelectedAge = selectedAgeLabel !== "" && !selectedPointLabel.includes(selectedAgeLabel);
-  const isMonthly = Boolean(selectedPoint && "monthlySavings" in selectedPoint);
-
-  return (
-    <div className="chart-block">
-      <div className="chart-wrap">
-        <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="将来資産の見通しグラフ">
-          <line
-            x1={padding.left}
-            y1={height - padding.bottom}
-            x2={width - padding.right}
-            y2={height - padding.bottom}
-            className="axis"
-          />
-          <line x1={padding.left} y1={padding.top} x2={padding.left} y2={height - padding.bottom} className="axis" />
-          <text x={padding.left - 10} y={padding.top + 4} textAnchor="end" className="axis-label">
-            {manYen(maxValue)}
-          </text>
-          <text x={padding.left - 10} y={height - padding.bottom + 4} textAnchor="end" className="axis-label">
-            {manYen(minValue)}
-          </text>
-          {rangeRows.length > 0 && (
-            <>
-              <path d={bandPath} className="range-band" />
-              <path d={upperRangePath} className="range-upper-line" />
-              <path d={lowerRangePath} className="range-lower-line" />
-              <path d={medianRangePath} className="range-median-line" />
-              <path d={modeRangePath} className="range-mode-line" />
-            </>
-          )}
-          {rangeRows.length === 0 && <path d={path} className="chart-line" />}
-          {selectedPoint && selectedRangeCoordinates && (
-            <>
-              <line
-                x1={selectedPoint.x}
-                y1={padding.top}
-                x2={selectedPoint.x}
-                y2={height - padding.bottom}
-                className="chart-selected-guide"
-              />
-              <circle cx={selectedRangeCoordinates.upper.x} cy={selectedRangeCoordinates.upper.y} r="5" className="selected-range-dot upper" />
-              <circle cx={selectedRangeCoordinates.lower.x} cy={selectedRangeCoordinates.lower.y} r="5" className="selected-range-dot lower" />
-              <circle cx={selectedRangeCoordinates.mode.x} cy={selectedRangeCoordinates.mode.y} r="5" className="selected-range-dot mode" />
-            </>
-          )}
-          {coordinates.map((point, index) => {
-            const isSelected = selectedIndex === index;
-            const isScheduledLabel = index % labelStep === 0 || index === coordinates.length - 1;
-            const isNearSelectedLabel =
-              selectedIndex !== null && !isSelected && Math.abs(index - selectedIndex) < labelStep;
-            const showYearLabel = isSelected || (isScheduledLabel && !isNearSelectedLabel);
-            const pointLabel = point.label ?? `${point.year}`;
-            const pointValue = rangeRows[index]?.median ?? point.value;
-            return (
-              <g key={`${pointLabel}-${index}`}>
-                <g
-                  role="button"
-                  tabIndex={0}
-                  className="chart-hit-button"
-                  aria-label={`${pointLabel} ${rangeRows[index] ? "中央値 " : ""}${manYen(pointValue)}`}
-                  onClick={() => setSelectedIndex(index)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" || event.key === " ") {
-                      event.preventDefault();
-                      setSelectedIndex(index);
-                    }
-                  }}
-                >
-                  <circle cx={point.x} cy={point.y} r="16" className="chart-hit-area" />
-                  <circle
-                    cx={point.x}
-                    cy={point.y}
-                    r={isSelected ? "6" : rangeRows.length > 0 ? "3" : "4"}
-                    className={`${isSelected ? "chart-dot selected" : "chart-dot"}${rangeRows.length > 0 ? " monte-carlo" : ""}`}
-                  />
-                </g>
-                {isSelected && (
-                  <text x={point.x} y={selectedLabelY} textAnchor="middle" className="point-value-label">
-                    {manYen(pointValue)}
-                  </text>
-                )}
-                {showYearLabel && (
-                  <text x={point.x} y={height - 16} textAnchor="middle" className="year-label">
-                    {pointLabel}
-                  </text>
-                )}
-              </g>
-            );
-          })}
-        </svg>
-      </div>
-      {rangeRows.length > 0 && (
-        <div className="chart-legend" aria-label="グラフの凡例">
-          <span><i className="legend-upper" />上位10%</span>
-          <span><i className="legend-lower" />下位10%</span>
-          <span><i className="legend-median" />中央値</span>
-          <span><i className="legend-mode" />最頻帯</span>
-        </div>
-      )}
-      <div className="chart-selection-panel" aria-live="polite">
-        {selectedPoint ? (
-          <>
-            <div>
-              <span>{selectedPointLabel}{shouldAppendSelectedAge ? ` / ${selectedAgeLabel}` : ""}{selectedRange ? " / 中央値" : ""}</span>
-              <strong>{manYen(selectedRange?.median ?? selectedPoint.value)}</strong>
-            </div>
-            {!selectedRange && (
-              <div>
-                <span>{isMonthly ? "前月差" : "前年差"}</span>
-                <strong>{previousPoint ? manYen(selectedPoint.value - previousPoint.value) : "-"}</strong>
-              </div>
-            )}
-            {selectedRange && (
-              <>
-                <div>
-                  <span>下位10%</span>
-                  <strong>{manYen(selectedRange.lower)}</strong>
-                </div>
-                <div>
-                  <span>最頻帯</span>
-                  <strong>{manYen(selectedRange.mode)}</strong>
-                </div>
-                <div>
-                  <span>上位10%</span>
-                  <strong>{manYen(selectedRange.upper)}</strong>
-                </div>
-              </>
-            )}
-            {!selectedRange && "annualSavings" in selectedPoint && (
-              <div>
-                <span>年間貯蓄</span>
-                <strong>{selectedPoint.annualSavings ? manYen(selectedPoint.annualSavings) : "-"}</strong>
-              </div>
-            )}
-            {!selectedRange && "monthlySavings" in selectedPoint && (
-              <div>
-                <span>月間貯蓄</span>
-                <strong>{selectedPoint.monthlySavings ? manYen(selectedPoint.monthlySavings) : "-"}</strong>
-              </div>
-            )}
-            {"eventImpact" in selectedPoint && (
-              <div>
-                <span>{selectedPoint.impactLabel ?? "イベント影響"}</span>
-                <strong>{selectedPoint.eventImpact ? manYen(selectedPoint.eventImpact) : "-"}</strong>
-              </div>
-            )}
-            {!selectedRange && "returnImpact" in selectedPoint && (
-              <div>
-                <span>{selectedPoint.returnLabel ?? "利回り等の影響"}</span>
-                <strong>{selectedPoint.returnImpact ? manYen(selectedPoint.returnImpact) : "-"}</strong>
-              </div>
-            )}
-            {selectedPoint.eventTitles && selectedPoint.eventTitles.length > 0 && (
-              <div className="chart-selection-wide">
-                <span>イベント</span>
-                <strong>{selectedPoint.eventTitles.join(" / ")}</strong>
-              </div>
-            )}
-          </>
-        ) : (
-          <p>グラフ上の点をタップすると、その時点の試算額を確認できます。</p>
-        )}
-      </div>
     </div>
   );
 }

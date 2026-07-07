@@ -78,6 +78,8 @@ test("ブラウザ保存に失敗した場合は画面上へ通知する", async
 });
 
 test("無料版とPro版の境界が表示され、横方向にはみ出さない", async ({ page }) => {
+  await expect(page.getByTestId("app-shell")).toHaveAttribute("data-access-mode", "preview");
+  await expect(page.getByTestId("app-shell")).toHaveAttribute("data-access-tier", "free");
   await page.locator('[data-view="household"]').click();
   await expect(page.getByText("Proプレビュー", { exact: true })).toBeVisible();
   await page.locator('[data-view="simulation"]').click();
@@ -87,8 +89,51 @@ test("無料版とPro版の境界が表示され、横方向にはみ出さな�
   await page.locator('[data-view="pricing"]').click();
   await expect(page.getByRole("heading", { name: "無料版とPro版の比較" })).toBeVisible();
   await expect(page.getByRole("cell", { name: "ブラウザ内保存・JSONバックアップ", exact: true })).toBeVisible();
-  await expect(page.getByText("Pro画面は開発中の機能を確認するためのプレビューです。")).toBeVisible();
+  await expect(page.getByText("現在は申込みと課金を受け付けていません。開発中のPro機能は、確認用のプレビューとして開くことができます。")).toBeVisible();
+  await expect(page.getByTestId("access-summary")).toContainText("課金なし・プレビュー");
 
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow).toBeLessThanOrEqual(1);
+});
+
+test("詳細シミュレーションのグラフを操作して試算値を確認できる", async ({ page }) => {
+  await page.locator('[data-view="simulation"]').click();
+  await page.getByRole("button", { name: "詳細積立 Pro" }).click();
+
+  const contributionPoint = page.getByRole("button", { name: /15年目 中央値/ });
+  await contributionPoint.click();
+  const contributionDetails = page.locator(".chart-selection-panel");
+  await expect(contributionDetails).toContainText("15年目 / 中央値");
+  await expect(contributionDetails).toContainText("下位10%");
+  await expect(contributionDetails).toContainText("最頻帯");
+  await expect(contributionDetails).toContainText("上位10%");
+
+  await page.getByRole("button", { name: "取り崩し Pro" }).click();
+  await page.getByRole("button", { name: /72歳 中央値/ }).click();
+  const withdrawalDetails = page.locator(".chart-selection-panel");
+  await expect(withdrawalDetails).toContainText("72歳 / 中央値");
+  await expect(withdrawalDetails).toContainText("取り崩し額");
+
+  const ageLabels = await page.locator(".year-label").allTextContents();
+  expect(ageLabels).toContain("72歳");
+  expect(ageLabels).not.toContain("70歳");
+  expect(ageLabels).not.toContain("75歳");
+});
+
+test("法務・料金ページをURLから直接開ける", async ({ page }) => {
+  const pages = [
+    ["/terms", "利用規約"],
+    ["/privacy", "プライバシーポリシー"],
+    ["/commercial-disclosure", "特定商取引法に基づく表記"],
+    ["/refund", "解約・返金方針"],
+    ["/pricing", "Pro・料金"],
+    ["/contact", "お問い合わせ"],
+    ["/disclaimer", "免責事項"]
+  ] as const;
+
+  for (const [path, title] of pages) {
+    await page.goto(path);
+    await expect(page.getByRole("heading", { name: title, level: 1 })).toBeVisible();
+    await expect(page).toHaveURL(new RegExp(`${path.replace("/", "\\/")}$`));
+  }
 });

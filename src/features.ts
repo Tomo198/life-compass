@@ -1,4 +1,14 @@
+import type { ViewKey } from "./types";
+
 export type AccessTier = "free" | "pro";
+export type AccessMode = "preview" | "enforced";
+export type AccessSource = "local-preview" | "anonymous" | "subscription";
+
+export type AccessState = {
+  tier: AccessTier;
+  mode: AccessMode;
+  source: AccessSource;
+};
 
 export type FeatureKey =
   | "singlePlan"
@@ -26,6 +36,7 @@ export const featureTiers = {
     advancedBudgetReview: false,
     lifePlanDiagnosis: false,
     householdEventOwners: false,
+    detailedContribution: false,
     detailedWithdrawal: false,
     retirementPlanning: false
   },
@@ -39,10 +50,40 @@ export const featureTiers = {
     advancedBudgetReview: true,
     lifePlanDiagnosis: true,
     householdEventOwners: true,
+    detailedContribution: true,
     detailedWithdrawal: true,
     retirementPlanning: true
   }
 };
+
+export type FeatureAccessKey = Exclude<keyof typeof featureTiers.free, "planLimit" | "scenarioLimit">;
+
+export const defaultAccessState: AccessState = {
+  tier: "free",
+  mode: "preview",
+  source: "local-preview"
+};
+
+const proViewFeatures: Partial<Record<ViewKey, FeatureAccessKey>> = {
+  retirement: "retirementPlanning",
+  scenarios: "scenarioComparison",
+  diagnosis: "lifePlanDiagnosis",
+  reviews: "reviewHistory"
+};
+
+export const getEffectiveTier = (access: AccessState): AccessTier =>
+  access.mode === "preview" ? "pro" : access.tier;
+
+export const hasFeatureAccess = (access: AccessState, feature: FeatureAccessKey) =>
+  Boolean(featureTiers[getEffectiveTier(access)][feature]);
+
+export const canOpenView = (access: AccessState, view: ViewKey) => {
+  const feature = proViewFeatures[view];
+  return feature ? hasFeatureAccess(access, feature) : true;
+};
+
+export const getPlanLimit = (access: AccessState) => featureTiers[getEffectiveTier(access)].planLimit;
+export const getScenarioLimit = (access: AccessState) => featureTiers[getEffectiveTier(access)].scenarioLimit;
 
 export const proPriceLabel = "月額590円（税込・予定）";
 
@@ -64,4 +105,4 @@ export const featureComparison: Array<{
 ];
 
 // 課金導入前はPro画面を試用できる状態にし、境界はバッジと料金表で明示します。
-export const proPreviewEnabled = true;
+export const proPreviewEnabled = defaultAccessState.mode === "preview";

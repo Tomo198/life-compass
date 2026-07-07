@@ -1,6 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { CURRENT_PLAN_VERSION, RECOVERY_STORAGE_KEY, STORAGE_KEY } from "../src/config";
+import {
+  canOpenView,
+  defaultAccessState,
+  getEffectiveTier,
+  getScenarioLimit,
+  hasFeatureAccess,
+  type AccessState
+} from "../src/features";
 import type { LifePlan } from "../src/types";
 import {
   buildPlanFromScenario,
@@ -35,6 +43,31 @@ import {
 } from "../src/utils/storage";
 
 const currentYear = new Date().getFullYear();
+
+test("preview access keeps Pro features available before billing is enabled", () => {
+  assert.equal(defaultAccessState.tier, "free");
+  assert.equal(defaultAccessState.mode, "preview");
+  assert.equal(getEffectiveTier(defaultAccessState), "pro");
+  assert.equal(hasFeatureAccess(defaultAccessState, "detailedWithdrawal"), true);
+  assert.equal(canOpenView(defaultAccessState, "scenarios"), true);
+  assert.equal(getScenarioLimit(defaultAccessState), 20);
+});
+
+test("enforced free access blocks Pro views and capabilities", () => {
+  const access: AccessState = { tier: "free", mode: "enforced", source: "anonymous" };
+  assert.equal(getEffectiveTier(access), "free");
+  assert.equal(hasFeatureAccess(access, "fixedCostImpact"), false);
+  assert.equal(hasFeatureAccess(access, "detailedContribution"), false);
+  assert.equal(canOpenView(access, "retirement"), false);
+  assert.equal(canOpenView(access, "dashboard"), true);
+});
+
+test("enforced Pro access unlocks Pro views without preview mode", () => {
+  const access: AccessState = { tier: "pro", mode: "enforced", source: "subscription" };
+  assert.equal(getEffectiveTier(access), "pro");
+  assert.equal(hasFeatureAccess(access, "lifePlanDiagnosis"), true);
+  assert.equal(canOpenView(access, "diagnosis"), true);
+});
 
 class MemoryStorage {
   private values = new Map<string, string>();
