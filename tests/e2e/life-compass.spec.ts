@@ -1,4 +1,30 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
+
+const mobilePrimaryViews: Partial<Record<string, string>> = {
+  dashboard: "home",
+  household: "household",
+  goals: "goals",
+  simulation: "forecast"
+};
+
+const openView = async (page: Page, view: string) => {
+  if ((page.viewportSize()?.width || 999) > 720) {
+    await page.locator(`.sidebar [data-view="${view}"]`).click();
+    return;
+  }
+
+  const primaryKey = mobilePrimaryViews[view];
+  if (primaryKey) {
+    await page.locator(`[data-mobile-nav="${primaryKey}"]`).click();
+    return;
+  }
+
+  const menuButton = page.locator('[data-mobile-nav="menu"]');
+  if (await menuButton.getAttribute("aria-expanded") !== "true") {
+    await menuButton.click();
+  }
+  await page.locator(`.sidebar [data-view="${view}"]`).click();
+};
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
@@ -7,30 +33,30 @@ test.beforeEach(async ({ page }) => {
 });
 
 test("基本入力が画面移動と再読み込み後も保存される", async ({ page }) => {
-  await page.locator('[data-view="profile"]').click();
+  await openView(page, "profile");
   await page.getByLabel("プラン名").fill("E2E確認プラン");
   const ageInput = page.getByLabel("現在の年齢");
   await ageInput.fill("42");
   await ageInput.blur();
 
-  await page.locator('[data-view="household"]').click();
+  await openView(page, "household");
   const incomeInput = page.getByLabel("月収");
   await incomeInput.fill("450000");
   await incomeInput.blur();
   await expect(incomeInput).toHaveValue("450,000");
 
   await page.reload();
-  await page.locator('[data-view="profile"]').click();
+  await openView(page, "profile");
   await expect(page.getByLabel("プラン名")).toHaveValue("E2E確認プラン");
   await expect(page.getByLabel("現在の年齢")).toHaveValue("42");
-  await page.locator('[data-view="household"]').click();
+  await openView(page, "household");
   await expect(page.getByLabel("月収")).toHaveValue("450,000");
 });
 
 test("JSONの書き出し・初期化前復旧・読み込みを行える", async ({ page }) => {
-  await page.locator('[data-view="profile"]').click();
+  await openView(page, "profile");
   await page.getByLabel("プラン名").fill("復旧確認プラン");
-  await page.locator('[data-view="data"]').click();
+  await openView(page, "data");
 
   const downloadPromise = page.waitForEvent("download");
   await page.getByRole("button", { name: "JSONエクスポート", exact: true }).last().click();
@@ -45,10 +71,10 @@ test("JSONの書き出し・初期化前復旧・読み込みを行える", asyn
 
   page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: "この状態へ戻す" }).click();
-  await page.locator('[data-view="profile"]').click();
+  await openView(page, "profile");
   await expect(page.getByLabel("プラン名")).toHaveValue("復旧確認プラン");
 
-  await page.locator('[data-view="data"]').click();
+  await openView(page, "data");
   await page.getByTestId("json-import-input").setInputFiles(downloadPath!);
   await expect(page.getByRole("status")).toContainText("JSONをインポートしました");
 
@@ -63,7 +89,7 @@ test("JSONの書き出し・初期化前復旧・読み込みを行える", asyn
 });
 
 test("ブラウザ保存に失敗した場合は画面上へ通知する", async ({ page }) => {
-  await page.locator('[data-view="profile"]').click();
+  await openView(page, "profile");
   await page.evaluate(() => {
     const originalSetItem = Storage.prototype.setItem;
     Storage.prototype.setItem = function setItem(key: string, value: string) {
@@ -77,27 +103,45 @@ test("ブラウザ保存に失敗した場合は画面上へ通知する", async
   await expect(page.getByRole("button", { name: "データ管理を開く" })).toBeVisible();
 });
 
-test("無料版とPro版の境界が表示され、横方向にはみ出さない", async ({ page }) => {
+test("無料版とPro版の境界が表示され、横方向にはみ出さない", async ({ page }, testInfo) => {
   await expect(page.getByTestId("app-shell")).toHaveAttribute("data-access-mode", "preview");
   await expect(page.getByTestId("app-shell")).toHaveAttribute("data-access-tier", "free");
-  await page.locator('[data-view="household"]').click();
+  await openView(page, "household");
   await expect(page.getByText("Proプレビュー", { exact: true })).toBeVisible();
-  await page.locator('[data-view="simulation"]').click();
+  await openView(page, "simulation");
   await expect(page.getByRole("button", { name: "詳細積立 Pro" })).toBeVisible();
   await expect(page.getByRole("button", { name: "取り崩し Pro" })).toBeVisible();
 
-  await page.locator('[data-view="pricing"]').click();
+  await openView(page, "pricing");
   await expect(page.getByRole("heading", { name: "無料版とPro版の比較" })).toBeVisible();
-  await expect(page.getByRole("cell", { name: "ブラウザ内保存・JSONバックアップ", exact: true })).toBeVisible();
-  await expect(page.getByText("現在は申込みと課金を受け付けていません。開発中のPro機能は、確認用のプレビューとして開くことができます。")).toBeVisible();
   await expect(page.getByTestId("access-summary")).toContainText("課金なし・プレビュー");
+
+  if (testInfo.project.name === "mobile") {
+    const bottomNav = page.getByTestId("mobile-bottom-nav");
+    await expect(bottomNav).toBeVisible();
+    await expect(bottomNav.locator("button")).toHaveCount(5);
+    await expect(bottomNav.locator('[data-mobile-nav="menu"]')).toHaveAttribute("aria-current", "page");
+    await expect(page.getByTestId("pricing-comparison-mobile")).toBeVisible();
+    await expect(page.getByTestId("pricing-comparison-mobile")).toContainText("ブラウザ内保存・JSONバックアップ");
+    const comparisonOverflow = await page.getByTestId("pricing-comparison-mobile").evaluate(
+      (element) => element.scrollWidth - element.clientWidth
+    );
+    expect(comparisonOverflow).toBeLessThanOrEqual(1);
+  } else {
+    await expect(page.getByRole("cell", { name: "ブラウザ内保存・JSONバックアップ", exact: true })).toBeVisible();
+  }
 
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow).toBeLessThanOrEqual(1);
+
+  await page.getByRole("button", { name: "開発中のPro機能を確認する", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "シナリオ比較", level: 1 })).toBeVisible();
+  await expect(page.getByTestId("app-shell")).toHaveAttribute("data-access-mode", "preview");
+  await expect(page.getByTestId("app-shell")).toHaveAttribute("data-access-tier", "free");
 });
 
 test("詳細シミュレーションのグラフを操作して試算値を確認できる", async ({ page }) => {
-  await page.locator('[data-view="simulation"]').click();
+  await openView(page, "simulation");
   await page.getByRole("button", { name: "詳細積立 Pro" }).click();
 
   const contributionPoint = page.getByRole("button", { name: /15年目 中央値/ });

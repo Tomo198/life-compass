@@ -93,6 +93,26 @@ const navItems: { key: ViewKey; label: string; tier?: "pro" }[] = [
   { key: "legal", label: "法務" }
 ];
 
+type MobileNavKey = "home" | "household" | "goals" | "forecast" | "menu";
+
+const mobilePrimaryNavItems: Array<{ key: MobileNavKey; label: string; view?: ViewKey }> = [
+  { key: "home", label: "ホーム", view: "dashboard" },
+  { key: "household", label: "家計", view: "household" },
+  { key: "goals", label: "目標", view: "goals" },
+  { key: "forecast", label: "見通し", view: "simulation" },
+  { key: "menu", label: "メニュー" }
+];
+
+const mobileViewGroups: Record<Exclude<MobileNavKey, "menu">, ViewKey[]> = {
+  home: ["dashboard"],
+  household: ["profile", "assets", "household", "budget"],
+  goals: ["goals", "timeline", "notes"],
+  forecast: ["simulation", "retirement"]
+};
+
+const getMobileNavKey = (view: ViewKey): MobileNavKey =>
+  (Object.entries(mobileViewGroups).find(([, views]) => views.includes(view))?.[0] as MobileNavKey | undefined) || "menu";
+
 const publicRoutes: Partial<Record<ViewKey, string>> = {
   dashboard: "/",
   pricing: "/pricing",
@@ -636,6 +656,7 @@ const eventTemplates: EventTemplate[] = [
 function App() {
   const [plan, setPlan] = useState<LifePlan>(() => loadPlan());
   const [activeView, setActiveViewState] = useState<ViewKey>(() => getInitialView());
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [accessState] = useState<AccessState>(() => defaultAccessState);
   const [importMessage, setImportMessage] = useState("");
   const [storageError, setStorageError] = useState("");
@@ -645,6 +666,7 @@ function App() {
 
   const setActiveView = (view: ViewKey) => {
     const nextView = canOpenView(accessState, view) ? view : "pricing";
+    setMobileMenuOpen(false);
     setActiveViewState(nextView);
     const nextPath = publicRoutes[nextView] || "/";
     if (window.location.pathname !== nextPath) {
@@ -656,6 +678,7 @@ function App() {
   useEffect(() => {
     const handlePopState = () => {
       const requestedView = getInitialView();
+      setMobileMenuOpen(false);
       setActiveViewState(canOpenView(accessState, requestedView) ? requestedView : "pricing");
     };
     window.addEventListener("popstate", handlePopState);
@@ -1165,7 +1188,22 @@ function App() {
       data-access-mode={accessState.mode}
       data-access-tier={accessState.tier}
     >
-      <aside className="sidebar" aria-label="メインナビゲーション">
+      {mobileMenuOpen && (
+        <button
+          type="button"
+          className="mobile-menu-backdrop"
+          aria-label="メニューを閉じる"
+          onClick={() => setMobileMenuOpen(false)}
+        />
+      )}
+      <aside className={`sidebar${mobileMenuOpen ? " mobile-open" : ""}`} aria-label="メインナビゲーション">
+        <div className="mobile-menu-heading">
+          <div>
+            <strong>すべての機能</strong>
+            <small>入力、見直し、データ管理</small>
+          </div>
+          <button type="button" className="secondary" onClick={() => setMobileMenuOpen(false)}>閉じる</button>
+        </div>
         <div className="brand">
           <span className="brand-mark">LC</span>
           <div>
@@ -1197,10 +1235,10 @@ function App() {
             <h1>{getViewTitle(activeView)}</h1>
           </div>
           <div className="topbar-actions">
-            <button type="button" className="secondary" onClick={() => exportPlan(plan)}>
+            <button type="button" className="secondary topbar-export" onClick={() => exportPlan(plan)}>
               JSONエクスポート
             </button>
-            <button type="button" onClick={() => setActiveView("settings")}>
+            <button type="button" className="topbar-settings" onClick={() => setActiveView("settings")}>
               設定
             </button>
           </div>
@@ -1218,6 +1256,25 @@ function App() {
         )}
         {renderView()}
       </main>
+      <nav className="mobile-bottom-nav" aria-label="スマートフォン用ナビゲーション" data-testid="mobile-bottom-nav">
+        {mobilePrimaryNavItems.map((item) => {
+          const currentKey = getMobileNavKey(activeView);
+          const active = item.key === "menu" ? mobileMenuOpen || currentKey === "menu" : currentKey === item.key;
+          return (
+            <button
+              key={item.key}
+              type="button"
+              className={active ? "active" : ""}
+              aria-current={active ? "page" : undefined}
+              aria-expanded={item.key === "menu" ? mobileMenuOpen : undefined}
+              data-mobile-nav={item.key}
+              onClick={() => item.view ? setActiveView(item.view) : setMobileMenuOpen((open) => !open)}
+            >
+              {item.label}
+            </button>
+          );
+        })}
+      </nav>
     </div>
   );
 }

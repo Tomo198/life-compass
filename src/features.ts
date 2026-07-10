@@ -101,11 +101,12 @@ export const featureComparison: Array<{
   { key: "budgetPlanning", label: "予算・実績", free: "月次の予算と実績", pro: "履歴・前年差・レビュー連携" },
   { key: "basicSimulation", label: "見通し", free: "基本資産推移・積立・基本取り崩し", pro: "詳細条件・ばらつき・老後設計" },
   { key: "jsonBackup", label: "データ保存", free: "ブラウザ内保存・JSONバックアップ", pro: "無料版と同じ" },
-  { key: "encryptedCloudBackup", label: "クラウドバックアップ", free: "未提供", pro: "任意・暗号化保存を検討" },
   { key: "scenarioComparison", label: "シナリオ比較", free: "プレビュー", pro: "保存・比較・差分確認" },
   { key: "reviewHistory", label: "見直し履歴", free: "現在のメモ", pro: "月次・四半期履歴とTODO" },
+  { key: "fixedCostImpact", label: "固定費見直し", free: "固定費の入力", pro: "年間・10年後・30年後への影響比較" },
   { key: "householdEventOwners", label: "家族・世帯", free: "世帯全体の予定", pro: "本人・配偶者・子・親ごとの管理" },
-  { key: "lifePlanDiagnosis", label: "ライフプラン診断", free: "入力完了度", pro: "確認ポイントと改善履歴" }
+  { key: "lifePlanDiagnosis", label: "ライフプラン診断", free: "入力完了度", pro: "確認ポイントと改善履歴" },
+  { key: "detailedWithdrawal", label: "詳細取り崩し・老後設計", free: "基本取り崩し", pro: "ばらつき・年金等を含む詳細見通し" }
 ];
 
 // 課金導入前はPro画面を試用できる状態にし、境界はバッジと料金表で明示します。
