@@ -181,3 +181,52 @@ test("法務・料金ページをURLから直接開ける", async ({ page }) => 
     await expect(page).toHaveURL(new RegExp(`${path.replace("/", "\\/")}$`));
   }
 });
+
+test("設定画面でログインが任意でありクラウド保存を開始しないと確認できる", async ({ page }) => {
+  await page.getByRole("button", { name: "設定", exact: true }).click();
+  const accountPanel = page.getByTestId("account-panel");
+  await expect(accountPanel).toBeVisible();
+  await expect(accountPanel).toContainText("無料版はログインなしで利用できます");
+  await expect(accountPanel).toContainText("ログインしても自動でクラウド保存しません");
+  await expect(accountPanel).toContainText("Googleログインは設定中です");
+});
+
+test("ログアウトとアカウント削除後にGoogleログインボタンを再表示できる", async ({ page }) => {
+  await page.route("**/api/auth/config", (route) => route.fulfill({ json: { configured: true, clientId: "test-client-id" } }));
+  await page.route("**/api/me", (route) => route.fulfill({ json: { authenticated: true, user: { id: "user-1", email: "test@example.com", emailVerified: true } } }));
+  await page.route("**/api/entitlement", (route) => route.fulfill({ json: { access: { tier: "free", mode: "preview", source: "local-preview" } } }));
+  await page.route("**/api/auth/logout", (route) => route.fulfill({ json: { ok: true } }));
+  await page.route("**/api/account", (route) => route.fulfill({ json: { ok: true, accountDeleted: true } }));
+  await page.route("**/api/auth/nonce", (route) => route.fulfill({ json: { nonce: "test-nonce" } }));
+  await page.addInitScript(() => {
+    window.google = {
+      accounts: {
+        id: {
+          initialize: () => undefined,
+          renderButton: (element: HTMLElement) => {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.textContent = "Googleで再ログイン";
+            element.appendChild(button);
+          },
+          disableAutoSelect: () => undefined
+        }
+      }
+    };
+  });
+  await page.reload();
+  await page.getByRole("button", { name: "設定", exact: true }).click();
+
+  await expect(page.getByTestId("account-logout")).toBeVisible();
+  await page.getByTestId("account-logout").click();
+  await expect(page.getByTestId("google-sign-in-slot").getByRole("button", { name: "Googleで再ログイン" })).toBeVisible();
+
+  await page.reload();
+  await page.getByRole("button", { name: "設定", exact: true }).click();
+  const planBeforeDeletion = await page.evaluate(() => localStorage.getItem("life-compass-plan-v1"));
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByTestId("account-delete").click();
+  await expect(page.getByText("アカウント情報を削除しました。ブラウザ内のライフプランデータは残っています。")).toBeVisible();
+  await expect(page.getByTestId("google-sign-in-slot").getByRole("button", { name: "Googleで再ログイン" })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => localStorage.getItem("life-compass-plan-v1"))).toBe(planBeforeDeletion);
+});

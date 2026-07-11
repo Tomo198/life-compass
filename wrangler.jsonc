@@ -1,13 +1,30 @@
 {
-  "$schema": "./node_modules/wrangler/config-schema.json",
-  "name": "life-compass",
-  "main": "worker/index.js",
-  "compatibility_date": "2026-07-02",
-  "assets": {
-    "directory": "./dist",
-    "not_found_handling": "single-page-application"
-  },
-  "observability": {
-    "enabled": true
-  }
+	"$schema": "./node_modules/wrangler/config-schema.json",
+	"name": "life-compass",
+	"main": "worker/index.js",
+	"compatibility_date": "2026-07-02",
+	"assets": {
+		"binding": "ASSETS",
+		"directory": "./dist",
+		"html_handling": "none",
+		"not_found_handling": "single-page-application",
+		"run_worker_first": ["/api/*"]
+	},
+	"observability": {
+		"enabled": true
+	},
+	"triggers": {
+		"crons": ["17 3 * * *"]
+	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "life-compass-auth",
+			"database_id": "e5917d86-2d73-4169-9b2d-bec423040930"
+		}
+	],
+	"vars": {
+		"GOOGLE_CLIENT_ID": "875666861951-90nn38bijltn61p37volprll3e1odi2i.apps.googleusercontent.com",
+		"ACCESS_MODE": "preview"
+	}
 }

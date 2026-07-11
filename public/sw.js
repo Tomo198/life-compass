@@ -1,5 +1,5 @@
-const CACHE_NAME = "life-compass-v2";
-const APP_SHELL = ["/", "/index.html", "/manifest.webmanifest", "/icons/life-compass.svg"];
+const CACHE_NAME = "life-compass-v5";
+const APP_SHELL = ["/index.html", "/manifest.webmanifest", "/icons/life-compass.svg"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL)).then(() => self.skipWaiting()));
@@ -19,6 +19,11 @@ self.addEventListener("fetch", (event) => {
   const requestUrl = new URL(request.url);
 
   if (request.method !== "GET" || requestUrl.origin !== self.location.origin) {
+    return;
+  }
+
+  // Authentication, entitlement, and future billing responses must never enter the app cache.
+  if (requestUrl.pathname.startsWith("/api/")) {
     return;
   }
 

@@ -2935,6 +2935,56 @@ td select {
   gap: 1rem;
 }
 
+.account-signed-in {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--line);
+  background: var(--surface-soft);
+}
+
+.account-signed-in span,
+.account-signed-in strong,
+.account-signed-in small {
+  display: block;
+}
+
+.account-signed-in span,
+.account-signed-in small {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.account-signed-in strong {
+  margin: 0.25rem 0;
+  overflow-wrap: anywhere;
+}
+
+.account-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 0.6rem;
+}
+
+.google-sign-in-button {
+  min-height: 2.75rem;
+  margin-top: 0.85rem;
+}
+
+.account-privacy-note {
+  margin-top: 1rem;
+  padding: 0.85rem 1rem;
+  border-left: 0.24rem solid var(--primary);
+  background: var(--surface-soft);
+}
+
+.account-privacy-note p {
+  margin: 0.35rem 0 0;
+  color: var(--muted);
+}
+
 .pro-item span {
   color: var(--accent);
   font-weight: 700;
@@ -3519,6 +3569,20 @@ td select {
   .section-heading-row {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .account-signed-in {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .account-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .account-actions button {
+    width: 100%;
   }
 
   .nav-list button.active::before {

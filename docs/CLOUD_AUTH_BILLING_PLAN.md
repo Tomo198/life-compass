@@ -24,7 +24,7 @@
 ## Cloudflare構成案
 
 - Workers: API、Googleログイン検証、Stripe webhook、権限チェック
-- D1: ユーザー、契約状態、バックアップメタ情報
+- D1: ユーザー、契約状態、セッション、バックアップメタ情報
 - R2: 暗号化済みバックアップJSON
 - KV: 短期キャッシュ、機能フラグ、非重要な一時情報
 - Secrets: Stripe、Google、署名検証用の秘密値
@@ -35,6 +35,11 @@
 - ユーザーIDはメールではなくGoogle IDトークンの `sub` を使う
 - メールアドレスは連絡、表示、Stripe顧客作成の補助情報として扱う
 - ログインしただけでライフプラン本文をサーバー保存しない
+- 実装と管理画面設定の手順は `docs/GOOGLE_LOGIN_SETUP.md` を使う
+- セッションCookieの生値はD1へ保存せず、SHA-256ハッシュだけを保存する
+- 利用者は設定画面からD1上のアカウント情報を削除できる
+- 期限切れ・失効済みセッションはCloudflare Cronで毎日削除する
+- 課金開始前は `ACCESS_MODE=preview` を維持する
 
 ## Stripe課金
 
@@ -68,21 +73,25 @@
 
 ## 現在用意しているAPI骨組み
 
-現時点のAPIは、将来の接続先を確認するための固定レスポンスだけを返します。Google、Stripe、R2、D1への実接続はまだ行いません。
+認証APIのコードは実装済みですが、GoogleクライアントIDとD1バインディングを設定するまではログインを拒否します。Stripe、R2への実接続はまだ行いません。
 
 | API | 現在の挙動 | 将来の用途 |
 | --- | --- | --- |
 | `GET /api/health` | API骨組みの稼働確認 | 監視、疎通確認 |
-| `GET /api/me` | 未ログイン固定 | Googleログイン後のユーザー確認 |
-| `GET /api/entitlement` | free / preview 固定 | Pro契約状態の判定 |
+| `GET /api/me` | CookieとD1からログイン状態を確認 | Googleログイン後のユーザー確認 |
+| `GET /api/entitlement` | D1契約状態を確認、初期値はfree / preview | Pro契約状態の判定 |
 | `GET /api/backups` | クラウド未提供・空一覧 | 暗号化バックアップ一覧 |
 | `POST /api/backups` | 未設定として拒否 | 暗号化バックアップ保存 |
-| `POST /api/auth/google` | 未設定として拒否 | Google IDトークン検証 |
+| `POST /api/auth/google` | Google・D1設定後にIDトークン検証 | Google IDトークン検証 |
+| `GET /api/auth/config` | Google・D1設定状態 | Google公式ボタンの初期化 |
+| `GET /api/auth/nonce` | 10分有効のnonce発行 | CSRF・リプレイ対策 |
+| `POST /api/auth/logout` | セッション失効 | ログアウト |
+| `DELETE /api/account` | D1上の利用者情報と関連セッションを削除 | アカウント削除 |
 | `POST /api/stripe/webhook` | 未設定として拒否 | Stripe webhook受信 |
 
 ## D1スキーマ
 
-初期スキーマ案は `migrations/0001_auth_billing_backup.sql` に置きます。現時点ではWranglerにD1バインディングを設定していないため、デプロイ時にD1は使われません。
+初期スキーマは `migrations/0001_auth_billing_backup.sql`、セッションは `migrations/0002_auth_sessions.sql` に置きます。WranglerにD1バインディングを設定するまでは、デプロイ時にD1は使われません。
 
 主なテーブル:
 
@@ -90,11 +99,13 @@
 - `subscriptions`: Stripe契約状態とPro判定
 - `cloud_backups`: R2に置く暗号化バックアップのメタ情報
 - `webhook_events`: Stripe webhookの二重処理防止
+- `sessions`: ハッシュ化セッション、有効期限、失効日時
 
 ## 今は実装しないこと
 
 - 決済情報の自前保存
 - ライフプラン本文の平文クラウド保存
+- Google Driveへのライフプラン保存
 - 自動同期を前提にしたデータ上書き
 - Googleログイン必須化
 - Cloudflare有料プラン前提の運用

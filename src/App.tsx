@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { CURRENT_PLAN_VERSION } from "./config";
+import { AccountPanel } from "./components/AccountPanel";
 import { EmptyState, Metric, MoneyInput, NumericInput, StepFlowNav, StepTitle } from "./components/CommonUi";
 import { LineChart, VariabilityBandChart } from "./components/Charts";
 import { createId, defaultPlan } from "./data/defaultPlan";
@@ -657,12 +658,34 @@ function App() {
   const [plan, setPlan] = useState<LifePlan>(() => loadPlan());
   const [activeView, setActiveViewState] = useState<ViewKey>(() => getInitialView());
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [accessState] = useState<AccessState>(() => defaultAccessState);
+  const [accessState, setAccessState] = useState<AccessState>(() => defaultAccessState);
   const [importMessage, setImportMessage] = useState("");
   const [storageError, setStorageError] = useState("");
   const [settings, setSettings] = useState<AppSettings>(() => loadAppSettings());
   const [notificationMessage, setNotificationMessage] = useState("");
   const reminders = useMemo(() => getAppReminders(plan, settings), [plan, settings]);
+
+  const refreshAccessState = useCallback(async () => {
+    try {
+      const response = await fetch("/api/entitlement", { credentials: "same-origin" });
+      if (!response.ok) return;
+      const body = await response.json() as { access?: Partial<AccessState> };
+      const access = body.access;
+      if (
+        (access?.tier === "free" || access?.tier === "pro") &&
+        (access.mode === "preview" || access.mode === "enforced") &&
+        (access.source === "local-preview" || access.source === "anonymous" || access.source === "subscription")
+      ) {
+        setAccessState({ tier: access.tier, mode: access.mode, source: access.source });
+      }
+    } catch {
+      // Static development mode keeps the local preview state when the Worker API is unavailable.
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshAccessState();
+  }, [refreshAccessState]);
 
   const setActiveView = (view: ViewKey) => {
     const nextView = canOpenView(accessState, view) ? view : "pricing";
@@ -1165,6 +1188,7 @@ function App() {
             updateSettings={updateSettings}
             requestBrowserNotifications={requestBrowserNotifications}
             setActiveView={setActiveView}
+            refreshAccessState={refreshAccessState}
           />
         );
       case "legal":
@@ -4633,7 +4657,8 @@ function SettingsView({
   notificationMessage,
   updateSettings,
   requestBrowserNotifications,
-  setActiveView
+  setActiveView,
+  refreshAccessState
 }: {
   settings: AppSettings;
   reminders: AppReminder[];
@@ -4641,9 +4666,12 @@ function SettingsView({
   updateSettings: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void;
   requestBrowserNotifications: () => Promise<void>;
   setActiveView: (view: ViewKey) => void;
+  refreshAccessState: () => Promise<void>;
 }) {
   return (
     <div className="view-stack">
+      <AccountPanel onAccountChange={refreshAccessState} />
+
       <section className="panel">
         <StepTitle step="1" title="表示スタイル" description="ライト、ダーク、端末設定に合わせる表示を選べます。" />
         <div className="setting-options" role="radiogroup" aria-label="表示スタイル">
