@@ -35,6 +35,12 @@
 			"database_id": "e5917d86-2d73-4169-9b2d-bec423040930"
 		}
 	],
+	"r2_buckets": [
+		{
+			"binding": "BACKUPS",
+			"bucket_name": "life-compass-backups"
+		}
+	],
 	"vars": {
 		"GOOGLE_CLIENT_ID": "875666861951-90nn38bijltn61p37volprll3e1odi2i.apps.googleusercontent.com",
 		"ACCESS_MODE": "preview"
