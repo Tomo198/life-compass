@@ -272,19 +272,22 @@ test("暗号化クラウドバックアップを手動保存・復元・削除�
   await page.getByLabel("プラン名").fill("クラウド保存前プラン");
   await openView(page, "data");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-  const passwordInputs = page.locator(".cloud-password-grid input");
-  await passwordInputs.nth(0).fill("e2e secure recovery password");
-  await passwordInputs.nth(1).fill("e2e secure recovery password");
-  await page.getByRole("button", { name: "暗号化して保存" }).click();
+  await expect(page.getByText("現在のプランを、ここで設定する復旧パスワードで暗号化して保存します。")).toBeVisible();
+  await page.getByLabel("保存用の復旧パスワード", { exact: true }).fill("e2e secure recovery password");
+  await page.getByLabel("保存用の復旧パスワード（確認）", { exact: true }).fill("e2e secure recovery password");
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "内容を確認して保存" }).click();
   await expect(page.getByText("暗号化クラウドバックアップを保存しました。復旧パスワードは運営側では確認できません。")).toBeVisible();
   expect(JSON.stringify(savedEnvelope)).not.toContain("クラウド保存前プラン");
 
   await openView(page, "profile");
   await page.getByLabel("プラン名").fill("復元前の変更プラン");
   await openView(page, "data");
-  await page.locator(".cloud-password-grid input").nth(0).fill("e2e secure recovery password");
+  await expect(page.getByText("復元するバックアップを選択し、保存したときの復旧パスワードを入力してから実行します。")).toBeVisible();
+  await page.getByLabel("復元するバックアップ").selectOption(backup.id);
+  await page.getByLabel("保存時の復旧パスワード").fill("e2e secure recovery password");
   page.once("dialog", (dialog) => dialog.accept());
-  await page.getByRole("button", { name: "復元", exact: true }).click();
+  await page.getByRole("button", { name: "復元内容を確認" }).click();
   await expect(page.getByText("暗号化クラウドバックアップから復元しました。")).toBeVisible();
   await openView(page, "profile");
   await expect(page.getByLabel("プラン名")).toHaveValue("クラウド保存前プラン");

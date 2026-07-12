@@ -2941,8 +2941,46 @@ td select {
   color: var(--muted);
 }
 
+.cloud-action-heading {
+  margin: 1.25rem 0 0.8rem;
+}
+
+.cloud-action-heading h3,
+.cloud-action-heading p,
+.cloud-restore-controls h3,
+.cloud-restore-controls p {
+  margin: 0;
+}
+
+.cloud-action-heading p,
+.cloud-restore-controls p,
+.cloud-restore-controls small {
+  color: var(--muted);
+}
+
+.cloud-list-heading {
+  padding-top: 1rem;
+  border-top: 1px solid var(--line);
+}
+
 .cloud-backup-list {
   margin-top: 1rem;
+}
+
+.cloud-restore-controls {
+  display: grid;
+  gap: 0.8rem;
+  margin-top: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+
+.cloud-restore-controls label {
+  display: grid;
+  gap: 0.45rem;
+  max-width: 38rem;
 }
 
 .cloud-backup-footnote {

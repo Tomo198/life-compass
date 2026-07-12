@@ -46,8 +46,10 @@ export function CloudBackupPanel({
   const [state, setState] = useState<CloudState>("loading");
   const [backups, setBackups] = useState<CloudBackupSummary[]>([]);
   const [limit, setLimit] = useState(5);
-  const [password, setPassword] = useState("");
-  const [confirmation, setConfirmation] = useState("");
+  const [savePassword, setSavePassword] = useState("");
+  const [saveConfirmation, setSaveConfirmation] = useState("");
+  const [restoreTarget, setRestoreTarget] = useState<CloudBackupSummary | null>(null);
+  const [restorePassword, setRestorePassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const hasProAccess = hasFeatureAccess(accessState, "encryptedCloudBackup");
@@ -76,7 +78,9 @@ export function CloudBackupPanel({
         setBackups([]);
         return;
       }
-      setBackups(Array.isArray(body.backups) ? body.backups : []);
+      const nextBackups = Array.isArray(body.backups) ? body.backups : [];
+      setBackups(nextBackups);
+      setRestoreTarget((current) => current && nextBackups.some((backup) => backup.id === current.id) ? current : null);
       setLimit(typeof body.limit === "number" ? body.limit : 5);
       setState("available");
     } catch (error) {
@@ -94,14 +98,21 @@ export function CloudBackupPanel({
   }, [hasProAccess, loadBackups]);
 
   const saveBackup = async () => {
-    if (password !== confirmation) {
+    if (savePassword.length < 12) {
+      setMessage("保存用の復旧パスワードは12文字以上で入力してください。");
+      return;
+    }
+    if (savePassword !== saveConfirmation) {
       setMessage("復旧パスワードと確認入力が一致していません。");
       return;
     }
+    if (!window.confirm(
+      "現在のプランを暗号化してクラウドへ保存します。\n\n復旧パスワードを忘れると復元できません。安全な場所へ保管したことを確認してから保存してください。"
+    )) return;
     setBusy(true);
     setMessage("ブラウザ内で暗号化しています。画面を閉じずにお待ちください。");
     try {
-      const envelope = await encryptCloudBackup(plan, password);
+      const envelope = await encryptCloudBackup(plan, savePassword);
       const response = await fetch("/api/backups", {
         method: "POST",
         credentials: "same-origin",
@@ -109,8 +120,8 @@ export function CloudBackupPanel({
         body: JSON.stringify({ planVersion: plan.version, envelope })
       });
       if (!response.ok) throw new Error(await apiError(response, "クラウドバックアップを保存できませんでした。"));
-      setPassword("");
-      setConfirmation("");
+      setSavePassword("");
+      setSaveConfirmation("");
       setMessage("暗号化クラウドバックアップを保存しました。復旧パスワードは運営側では確認できません。");
       await loadBackups();
     } catch (error) {
@@ -121,8 +132,8 @@ export function CloudBackupPanel({
   };
 
   const restoreBackup = async (backup: CloudBackupSummary) => {
-    if (!password) {
-      setMessage("保存時に設定した復旧パスワードを入力してください。");
+    if (restorePassword.length < 12) {
+      setMessage("選択したバックアップの保存時に設定した復旧パスワードを入力してください。");
       return;
     }
     if (!window.confirm(`${new Date(backup.createdAt).toLocaleString("ja-JP")}のバックアップを復号して現在のプランへ反映しますか？`)) return;
@@ -132,10 +143,10 @@ export function CloudBackupPanel({
       const response = await fetch(`/api/backups/${backup.id}`, { credentials: "same-origin" });
       if (!response.ok) throw new Error(await apiError(response, "クラウドバックアップを取得できませんでした。"));
       const body = await response.json() as { envelope?: unknown };
-      const restored = await decryptCloudBackup(body.envelope, password);
+      const restored = await decryptCloudBackup(body.envelope, restorePassword);
       restorePlan(restored);
-      setPassword("");
-      setConfirmation("");
+      setRestorePassword("");
+      setRestoreTarget(null);
       setMessage("暗号化クラウドバックアップから復元しました。");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "クラウドバックアップから復元できませんでした。");
@@ -187,54 +198,113 @@ export function CloudBackupPanel({
 
       {state === "available" && (
         <>
+          <div className="cloud-action-heading">
+            <h3>新しいバックアップを保存</h3>
+            <p>現在のプランを、ここで設定する復旧パスワードで暗号化して保存します。</p>
+          </div>
           <div className="cloud-password-grid">
             <label>
-              復旧パスワード
+              保存用の復旧パスワード
               <input
                 type="password"
+                aria-label="保存用の復旧パスワード"
                 autoComplete="new-password"
-                value={password}
+                value={savePassword}
                 minLength={12}
                 maxLength={200}
-                onChange={(event) => setPassword(event.target.value)}
+                onChange={(event) => setSavePassword(event.target.value)}
               />
               <small>12文字以上。保存されず、忘れると運営者でも復元できません。</small>
             </label>
             <label>
-              復旧パスワード（確認）
+              保存用の復旧パスワード（確認）
               <input
                 type="password"
+                aria-label="保存用の復旧パスワード（確認）"
                 autoComplete="new-password"
-                value={confirmation}
+                value={saveConfirmation}
                 minLength={12}
                 maxLength={200}
-                onChange={(event) => setConfirmation(event.target.value)}
+                onChange={(event) => setSaveConfirmation(event.target.value)}
               />
-              <small>新しく保存するときだけ確認入力が必要です。</small>
+              <small>上の欄と同じパスワードを入力してください。</small>
             </label>
           </div>
           <div className="button-row">
-            <button type="button" disabled={busy || backups.length >= limit} onClick={saveBackup}>暗号化して保存</button>
+            <button type="button" disabled={busy || backups.length >= limit} onClick={saveBackup}>内容を確認して保存</button>
             <button type="button" className="secondary" disabled={busy} onClick={() => void loadBackups()}>一覧を更新</button>
           </div>
 
+          <div className="cloud-action-heading cloud-list-heading">
+            <h3>保存済みバックアップ</h3>
+            <p>保存日時と容量を確認できます。復元するときは、この下の専用欄を使用します。</p>
+          </div>
           {backups.length === 0 ? (
             <p className="muted">クラウドバックアップはまだありません。</p>
           ) : (
-            <div className="recovery-list cloud-backup-list">
-              {backups.map((backup) => (
-                <div className="recovery-item" key={backup.id}>
-                  <div>
-                    <strong>{new Date(backup.createdAt).toLocaleString("ja-JP")}</strong>
-                    <span>v{backup.planVersion}・約{Math.max(1, Math.ceil(backup.sizeBytes / 1024))}KB・暗号化済み</span>
-                  </div>
-                  <div className="button-row">
-                    <button type="button" className="secondary" disabled={busy} onClick={() => void restoreBackup(backup)}>復元</button>
+            <>
+              <div className="recovery-list cloud-backup-list">
+                {backups.map((backup) => (
+                  <div className="recovery-item" key={backup.id}>
+                    <div>
+                      <strong>{new Date(backup.createdAt).toLocaleString("ja-JP")}</strong>
+                      <span>v{backup.planVersion}・約{Math.max(1, Math.ceil(backup.sizeBytes / 1024))}KB・暗号化済み</span>
+                    </div>
                     <button type="button" className="text-button danger-text" disabled={busy} onClick={() => void deleteBackup(backup)}>削除</button>
                   </div>
+                ))}
+              </div>
+
+              <div className="cloud-restore-controls">
+                <div>
+                  <h3>バックアップを復元</h3>
+                  <p>復元するバックアップを選択し、保存したときの復旧パスワードを入力してから実行します。</p>
                 </div>
-              ))}
-            </div>
+                <label>
+                  復元するバックアップ
+                  <select
+                    value={restoreTarget?.id || ""}
+                    onChange={(event) => {
+                      setRestoreTarget(backups.find((backup) => backup.id === event.target.value) || null);
+                      setRestorePassword("");
+                    }}
+                  >
+                    <option value="">選択してください</option>
+                    {backups.map((backup) => (
+                      <option value={backup.id} key={backup.id}>
+                        {new Date(backup.createdAt).toLocaleString("ja-JP")}・約{Math.max(1, Math.ceil(backup.sizeBytes / 1024))}KB
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  保存時の復旧パスワード
+                  <input
+                    type="password"
+                    aria-label="保存時の復旧パスワード"
+                    autoComplete="off"
+                    value={restorePassword}
+                    minLength={12}
+                    maxLength={200}
+                    disabled={!restoreTarget}
+                    onChange={(event) => setRestorePassword(event.target.value)}
+                  />
+                  <small>新しいパスワードを設定する欄ではありません。選択したバックアップを保存したときのパスワードを入力してください。</small>
+                </label>
+                <div className="button-row">
+                  <button type="button" disabled={busy || !restoreTarget} onClick={() => restoreTarget && void restoreBackup(restoreTarget)}>復元内容を確認</button>
+                  <button
+                    type="button"
+                    className="secondary"
+                    disabled={busy || (!restoreTarget && !restorePassword)}
+                    onClick={() => {
+                      setRestoreTarget(null);
+                      setRestorePassword("");
+                    }}
+                  >入力をクリア</button>
+                </div>
+              </div>
+            </>
           )}
         </>
       )}
