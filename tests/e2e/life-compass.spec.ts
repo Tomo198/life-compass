@@ -218,6 +218,7 @@ test("ログアウトとアカウント削除後にGoogleログインボタン�
   await page.getByRole("button", { name: "設定", exact: true }).click();
 
   await expect(page.getByTestId("account-logout")).toBeVisible();
+  await expect(page.getByTestId("account-logout-all")).toBeVisible();
   await page.getByTestId("account-logout").click();
   await expect(page.getByTestId("google-sign-in-slot").getByRole("button", { name: "Googleで再ログイン" })).toBeVisible();
 
@@ -229,4 +230,68 @@ test("ログアウトとアカウント削除後にGoogleログインボタン�
   await expect(page.getByText("アカウント情報を削除しました。ブラウザ内のライフプランデータは残っています。")).toBeVisible();
   await expect(page.getByTestId("google-sign-in-slot").getByRole("button", { name: "Googleで再ログイン" })).toBeVisible();
   await expect.poll(() => page.evaluate(() => localStorage.getItem("life-compass-plan-v1"))).toBe(planBeforeDeletion);
+});
+
+test("暗号化クラウドバックアップを手動保存・復元・削除できる", async ({ page }) => {
+  let savedEnvelope: unknown = null;
+  let backupExists = false;
+  const backup = {
+    id: "11111111-1111-4111-8111-111111111111",
+    planVersion: 3,
+    sizeBytes: 2048,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+  await page.route("**/api/backups**", async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (request.method() === "GET" && url.pathname === "/api/backups") {
+      await route.fulfill({ json: { ok: true, available: true, backups: backupExists ? [backup] : [], limit: 5 } });
+      return;
+    }
+    if (request.method() === "POST" && url.pathname === "/api/backups") {
+      const body = request.postDataJSON() as { envelope?: unknown };
+      savedEnvelope = body.envelope;
+      backupExists = true;
+      await route.fulfill({ status: 201, json: { ok: true, available: true, backup } });
+      return;
+    }
+    if (request.method() === "GET" && url.pathname === `/api/backups/${backup.id}`) {
+      await route.fulfill({ json: { ok: true, envelope: savedEnvelope } });
+      return;
+    }
+    if (request.method() === "DELETE" && url.pathname === `/api/backups/${backup.id}`) {
+      backupExists = false;
+      await route.fulfill({ json: { ok: true, deleted: true, id: backup.id } });
+      return;
+    }
+    await route.fulfill({ status: 404, json: { error: { code: "not_found" } } });
+  });
+
+  await openView(page, "profile");
+  await page.getByLabel("プラン名").fill("クラウド保存前プラン");
+  await openView(page, "data");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  const passwordInputs = page.locator(".cloud-password-grid input");
+  await passwordInputs.nth(0).fill("e2e secure recovery password");
+  await passwordInputs.nth(1).fill("e2e secure recovery password");
+  await page.getByRole("button", { name: "暗号化して保存" }).click();
+  await expect(page.getByText("暗号化クラウドバックアップを保存しました。復旧パスワードは運営側では確認できません。")).toBeVisible();
+  expect(JSON.stringify(savedEnvelope)).not.toContain("クラウド保存前プラン");
+
+  await openView(page, "profile");
+  await page.getByLabel("プラン名").fill("復元前の変更プラン");
+  await openView(page, "data");
+  await page.locator(".cloud-password-grid input").nth(0).fill("e2e secure recovery password");
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "復元", exact: true }).click();
+  await expect(page.getByText("暗号化クラウドバックアップから復元しました。")).toBeVisible();
+  await openView(page, "profile");
+  await expect(page.getByLabel("プラン名")).toHaveValue("クラウド保存前プラン");
+
+  await openView(page, "data");
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByTestId("cloud-backup-panel").getByRole("button", { name: "削除", exact: true }).click();
+  await expect(page.getByText("暗号化クラウドバックアップを削除しました。")).toBeVisible();
+  await expect(page.getByText("クラウドバックアップはまだありません。")).toBeVisible();
 });

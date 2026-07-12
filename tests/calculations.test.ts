@@ -10,6 +10,7 @@ import {
   type AccessState
 } from "../src/features";
 import type { LifePlan } from "../src/types";
+import { decryptCloudBackup, encryptCloudBackup } from "../src/utils/cloudBackupCrypto";
 import {
   buildPlanFromScenario,
   getAssetSummary,
@@ -1442,4 +1443,35 @@ test("storage write failures return a clear error without silently succeeding", 
 
   assert.throws(() => savePlan(basePlan), /ブラウザ内に保存できません/);
   assert.throws(() => createRecoveryBackup(basePlan, "before-reset"), /操作を中止/);
+});
+
+test("cloud backup encryption round-trips without exposing plan contents", async () => {
+  const password = "correct horse battery staple";
+  const envelope = await encryptCloudBackup(basePlan, password);
+  const restored = await decryptCloudBackup(envelope, password);
+
+  assert.equal(restored.profile.name, basePlan.profile.name);
+  assert.equal(restored.household.monthlyIncome, basePlan.household.monthlyIncome);
+  assert.equal(JSON.stringify(envelope).includes(basePlan.profile.name), false);
+  assert.equal(envelope.encryption.name, "AES-GCM");
+  assert.equal(envelope.keyDerivation.iterations, 600_000);
+});
+
+test("cloud backups use unique randomness and reject wrong passwords or tampering", async () => {
+  const password = "another secure recovery password";
+  const first = await encryptCloudBackup(basePlan, password);
+  const second = await encryptCloudBackup(basePlan, password);
+
+  assert.notEqual(first.keyDerivation.salt, second.keyDerivation.salt);
+  assert.notEqual(first.encryption.iv, second.encryption.iv);
+  assert.notEqual(first.ciphertext, second.ciphertext);
+  await assert.rejects(() => decryptCloudBackup(first, "this password is incorrect"), /違うか、バックアップが破損/);
+
+  const replacement = first.ciphertext.endsWith("A") ? "B" : "A";
+  const tampered = { ...first, ciphertext: `${first.ciphertext.slice(0, -1)}${replacement}` };
+  await assert.rejects(() => decryptCloudBackup(tampered, password), /違うか、バックアップが破損/);
+});
+
+test("cloud backup encryption rejects weak recovery passwords", async () => {
+  await assert.rejects(() => encryptCloudBackup(basePlan, "short"), /12文字以上/);
 });

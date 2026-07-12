@@ -1,6 +1,8 @@
 import { useMemo, useRef, useState } from "react";
 import { DisclaimerPanel, StepTitle } from "../components/CommonUi";
+import { CloudBackupPanel } from "../components/CloudBackupPanel";
 import { MAX_IMPORT_FILE_BYTES } from "../config";
+import type { AccessState } from "../features";
 import type { LifePlan } from "../types";
 import {
   createRecoveryBackup,
@@ -24,7 +26,8 @@ export function DataView({
   importMessage,
   setImportMessage,
   resetPlan,
-  startEmptyPlan
+  startEmptyPlan,
+  accessState
 }: {
   plan: LifePlan;
   commitPlan: (plan: LifePlan) => boolean;
@@ -32,6 +35,7 @@ export function DataView({
   setImportMessage: (message: string) => void;
   resetPlan: () => void;
   startEmptyPlan: () => void;
+  accessState: AccessState;
 }) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [recoveryBackups, setRecoveryBackups] = useState<RecoveryBackup[]>(() => getRecoveryBackups());
@@ -109,12 +113,24 @@ export function DataView({
     }
   };
 
+  const restoreCloudPlan = (restoredPlan: LifePlan) => {
+    const imported = validateImportedPlan(restoredPlan);
+    createRecoveryBackup(plan, "before-import");
+    const saved = commitPlan(imported);
+    refreshRecoveryBackups();
+    setImportMessage(
+      saved
+        ? "クラウドバックアップを復元しました。復元前の内容も復旧用コピーへ保存しています。"
+        : "復元内容は画面に反映しましたが、ブラウザ内に保存できていません。"
+    );
+  };
+
   return (
     <div className="view-stack" data-testid="data-view">
       <section className="panel">
         <StepTitle step="12" title="データ管理" description="収入・支出・資産・家族情報はこのブラウザ内に保存します。" />
         <div className="data-status-grid" aria-label="保存状態">
-          <div><span>保存先</span><strong>このブラウザ内</strong><small>サーバー保存やクラウド同期は行いません。</small></div>
+          <div><span>通常の保存先</span><strong>このブラウザ内</strong><small>自動同期は行いません。クラウド保存は任意の手動バックアップだけです。</small></div>
           <div><span>最終保存</span><strong>{updatedAt}</strong><small>入力変更時に自動保存されます。</small></div>
           <div><span>バックアップ目安</span><strong>約{backupSizeKb}KB</strong><small>{versionLabel}・JSONとして保存できます。</small></div>
         </div>
@@ -134,6 +150,8 @@ export function DataView({
         </div>
         {importMessage && <p className="message" role="status">{importMessage}</p>}
       </section>
+
+      <CloudBackupPanel plan={plan} accessState={accessState} restorePlan={restoreCloudPlan} />
 
       <section className="panel backup-manual">
         <h2>バックアップと復元の手順</h2>

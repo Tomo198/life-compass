@@ -59,8 +59,14 @@ const loadGoogleScript = () => {
 
 const readError = async (response: Response, fallback: string) => {
   try {
-    const body = await response.json() as { error?: { message?: string } };
-    return body.error?.message || fallback;
+    const body = await response.json() as { error?: { code?: string; message?: string } };
+    const messages: Record<string, string> = {
+      authentication_required: "Googleで再ログインしてください。",
+      fresh_authentication_required: "安全確認のため、一度ログアウトしてGoogleで再ログインしてから削除してください。",
+      active_subscription: "契約中のProプランを解約してからアカウント情報を削除してください。",
+      backup_storage_unavailable: "クラウドバックアップを確認できないため、現在はアカウント情報を削除できません。"
+    };
+    return (body.error?.code && messages[body.error.code]) || fallback;
   } catch {
     return fallback;
   }
@@ -188,6 +194,27 @@ export function AccountPanel({ onAccountChange }: { onAccountChange: () => Promi
     }
   };
 
+  const handleLogoutAll = async () => {
+    if (!window.confirm("このGoogleアカウントで利用中のLife Compassセッションを、すべての端末でログアウトしますか？")) return;
+    setLoading(true);
+    setMessage("");
+    try {
+      const response = await fetch("/api/auth/logout-all", {
+        method: "POST",
+        credentials: "same-origin"
+      });
+      if (!response.ok) throw new Error(await readError(response, "すべての端末からログアウトできませんでした。"));
+      window.google?.accounts.id.disableAutoSelect();
+      setUser(null);
+      setMessage("すべての端末のLife Compassセッションをログアウトしました。ブラウザ内のデータは残っています。");
+      await onAccountChange();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "すべての端末からログアウトできませんでした。");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleDeleteAccount = async () => {
     const confirmed = window.confirm(
       "Googleログインの利用者情報とセッションを削除します。ブラウザ内のライフプランデータは削除されません。\n\nこの操作は取り消せません。続けますか？"
@@ -235,6 +262,7 @@ export function AccountPanel({ onAccountChange }: { onAccountChange: () => Promi
           </div>
           <div className="account-actions">
             <button type="button" className="secondary" data-testid="account-logout" onClick={handleLogout}>ログアウト</button>
+            <button type="button" className="secondary" data-testid="account-logout-all" onClick={handleLogoutAll}>全端末ログアウト</button>
             <button type="button" className="danger" data-testid="account-delete" onClick={handleDeleteAccount}>アカウント情報を削除</button>
           </div>
         </div>

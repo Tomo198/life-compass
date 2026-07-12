@@ -17,6 +17,8 @@ class FakeD1 {
     this.usersBySub = new Map();
     this.usersById = new Map();
     this.sessionsByHash = new Map();
+    this.cloudBackups = new Map();
+    this.failCloudBackupInsert = false;
   }
 
   prepare(sql) {
@@ -35,13 +37,50 @@ class FakeD1 {
           }
           if (normalized.startsWith("INSERT INTO sessions")) {
             const [id, userId, tokenHash, expiresAt] = args;
-            this.sessionsByHash.set(tokenHash, { id, user_id: userId, token_hash: tokenHash, expires_at: expiresAt, revoked_at: null });
+            this.sessionsByHash.set(tokenHash, {
+              id,
+              user_id: userId,
+              token_hash: tokenHash,
+              expires_at: expiresAt,
+              created_at: Math.floor(Date.now() / 1000),
+              revoked_at: null
+            });
             return { success: true };
           }
           if (normalized.startsWith("UPDATE sessions SET revoked_at")) {
-            const [tokenHash] = args;
-            const session = this.sessionsByHash.get(tokenHash);
-            if (session) session.revoked_at = new Date().toISOString();
+            if (normalized.includes("WHERE user_id")) {
+              const [userId] = args;
+              for (const session of this.sessionsByHash.values()) {
+                if (session.user_id === userId && !session.revoked_at) session.revoked_at = new Date().toISOString();
+              }
+            } else {
+              const [tokenHash] = args;
+              const session = this.sessionsByHash.get(tokenHash);
+              if (session) session.revoked_at = new Date().toISOString();
+            }
+            return { success: true };
+          }
+          if (normalized.startsWith("INSERT INTO cloud_backups")) {
+            if (this.failCloudBackupInsert) throw new Error("simulated metadata failure");
+            const [id, userId, objectKey, planVersion, encryptionVersion, sizeBytes, checksum] = args;
+            const timestamp = new Date().toISOString();
+            this.cloudBackups.set(id, {
+              id,
+              user_id: userId,
+              r2_object_key: objectKey,
+              plan_version: planVersion,
+              encryption_version: encryptionVersion,
+              size_bytes: sizeBytes,
+              checksum_sha256: checksum,
+              created_at: timestamp,
+              updated_at: timestamp
+            });
+            return { success: true };
+          }
+          if (normalized.startsWith("DELETE FROM cloud_backups")) {
+            const [id, userId] = args;
+            const backup = this.cloudBackups.get(id);
+            if (backup?.user_id === userId) this.cloudBackups.delete(id);
             return { success: true };
           }
           if (normalized.startsWith("DELETE FROM users")) {
@@ -51,6 +90,9 @@ class FakeD1 {
             this.usersById.delete(userId);
             for (const [tokenHash, session] of this.sessionsByHash) {
               if (session.user_id === userId) this.sessionsByHash.delete(tokenHash);
+            }
+            for (const [id, backup] of this.cloudBackups) {
+              if (backup.user_id === userId) this.cloudBackups.delete(id);
             }
             return { success: true };
           }
@@ -70,13 +112,48 @@ class FakeD1 {
           if (normalized.includes("FROM sessions") && normalized.includes("JOIN users")) {
             const session = this.sessionsByHash.get(args[0]);
             if (!session || session.revoked_at || session.expires_at <= Math.floor(Date.now() / 1000)) return null;
-            return this.usersById.get(session.user_id) || null;
+            const user = this.usersById.get(session.user_id);
+            return user ? { ...user, session_created_at: session.created_at } : null;
+          }
+          if (normalized.startsWith("SELECT COUNT(*) AS count FROM cloud_backups")) {
+            return { count: [...this.cloudBackups.values()].filter((backup) => backup.user_id === args[0]).length };
+          }
+          if (normalized.includes("FROM cloud_backups WHERE id = ? AND user_id = ?")) {
+            const backup = this.cloudBackups.get(args[0]);
+            return backup?.user_id === args[1] ? backup : null;
           }
           if (normalized.includes("FROM subscriptions")) return null;
           throw new Error(`Unexpected D1 first query: ${normalized}`);
+        },
+        all: async () => {
+          if (normalized.includes("FROM cloud_backups") && normalized.includes("WHERE user_id = ?")) {
+            return { results: [...this.cloudBackups.values()].filter((backup) => backup.user_id === args[0]) };
+          }
+          throw new Error(`Unexpected D1 all query: ${normalized}`);
         }
       })
     };
+  }
+}
+
+class FakeR2 {
+  constructor() {
+    this.objects = new Map();
+  }
+
+  async put(key, value) {
+    this.objects.set(key, String(value));
+    return { key };
+  }
+
+  async get(key) {
+    const value = this.objects.get(key);
+    return value === undefined ? null : { text: async () => value };
+  }
+
+  async delete(keyOrKeys) {
+    const keys = Array.isArray(keyOrKeys) ? keyOrKeys : [keyOrKeys];
+    keys.forEach((key) => this.objects.delete(key));
   }
 }
 
@@ -133,7 +210,139 @@ test("cloud backup writes are rejected while not configured", async () => {
 
   assert.equal(response.status, 501);
   assert.equal(body.ok, false);
-  assert.equal(body.error.feature, "encrypted_cloud_backup");
+  assert.equal(body.error.code, "cloud_backup_disabled");
+});
+
+test("encrypted cloud backups enforce login, preview allowlist, ownership, integrity and deletion", async () => {
+  const DB = new FakeD1();
+  const BACKUPS = new FakeR2();
+  const secureWorker = createWorker({
+    verifyGoogleToken: async ({ credential }) => ({
+      sub: credential,
+      email: `${credential}@example.com`,
+      emailVerified: true
+    })
+  });
+  const authEnv = {
+    ...env,
+    DB,
+    BACKUPS,
+    GOOGLE_CLIENT_ID: "google-client-id",
+    CLOUD_BACKUP_MODE: "preview",
+    CLOUD_BACKUP_TEST_USERS: "owner@example.com,other@example.com"
+  };
+  const authRequest = (path, init) => secureWorker.fetch(new Request(`https://life.example${path}`, init), authEnv, {});
+  const loginAs = async (identity) => {
+    const nonceResponse = await authRequest("/api/auth/nonce");
+    const nonceBody = await json(nonceResponse);
+    const loginResponse = await authRequest("/api/auth/google", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "https://life.example",
+        Cookie: `__Host-lc_oauth_nonce=${nonceBody.nonce}`
+      },
+      body: JSON.stringify({ credential: identity, nonce: nonceBody.nonce })
+    });
+    return cookieValue(loginResponse, "__Host-lc_session");
+  };
+  const envelope = {
+    format: "life-compass-encrypted-backup",
+    version: 1,
+    encryption: { name: "AES-GCM", keyLength: 256, iv: "AAAAAAAAAAAAAAAA" },
+    keyDerivation: { name: "PBKDF2", hash: "SHA-256", iterations: 600000, salt: "AAAAAAAAAAAAAAAAAAAAAA==" },
+    ciphertext: "AQIDBAUGBwgJCgsMDQ4PEBES"
+  };
+
+  const anonymousList = await authRequest("/api/backups");
+  assert.equal(anonymousList.status, 401);
+
+  const ownerCookie = await loginAs("owner");
+  const ownerHeaders = { Cookie: `__Host-lc_session=${ownerCookie}` };
+  const crossOrigin = await authRequest("/api/backups", {
+    method: "POST",
+    headers: { ...ownerHeaders, "Content-Type": "application/json", Origin: "https://attacker.example" },
+    body: JSON.stringify({ planVersion: 3, envelope })
+  });
+  assert.equal(crossOrigin.status, 403);
+
+  const createResponse = await authRequest("/api/backups", {
+    method: "POST",
+    headers: { ...ownerHeaders, "Content-Type": "application/json", Origin: "https://life.example" },
+    body: JSON.stringify({ planVersion: 3, envelope })
+  });
+  const created = await json(createResponse);
+  assert.equal(createResponse.status, 201);
+  assert.equal(DB.cloudBackups.size, 1);
+  assert.equal(BACKUPS.objects.size, 1);
+  assert.equal(created.backup.planVersion, 3);
+
+  const listResponse = await authRequest("/api/backups", { headers: ownerHeaders });
+  const list = await json(listResponse);
+  assert.equal(listResponse.status, 200);
+  assert.equal(list.backups.length, 1);
+  assert.equal(JSON.stringify(list).includes("r2_object_key"), false);
+
+  const otherCookie = await loginAs("other");
+  const otherRead = await authRequest(`/api/backups/${created.backup.id}`, {
+    headers: { Cookie: `__Host-lc_session=${otherCookie}` }
+  });
+  assert.equal(otherRead.status, 404);
+
+  const downloadResponse = await authRequest(`/api/backups/${created.backup.id}`, { headers: ownerHeaders });
+  const download = await json(downloadResponse);
+  assert.deepEqual(download.envelope, envelope);
+
+  const objectKey = [...BACKUPS.objects.keys()][0];
+  BACKUPS.objects.set(objectKey, `${BACKUPS.objects.get(objectKey)} `);
+  const tampered = await authRequest(`/api/backups/${created.backup.id}`, { headers: ownerHeaders });
+  assert.equal(tampered.status, 409);
+  BACKUPS.objects.set(objectKey, JSON.stringify(envelope));
+
+  const deleteResponse = await authRequest(`/api/backups/${created.backup.id}`, {
+    method: "DELETE",
+    headers: { ...ownerHeaders, Origin: "https://life.example" }
+  });
+  assert.equal(deleteResponse.status, 200);
+  assert.equal(DB.cloudBackups.size, 0);
+  assert.equal(BACKUPS.objects.size, 0);
+
+  DB.failCloudBackupInsert = true;
+  const failedMetadata = await authRequest("/api/backups", {
+    method: "POST",
+    headers: { ...ownerHeaders, "Content-Type": "application/json", Origin: "https://life.example" },
+    body: JSON.stringify({ planVersion: 3, envelope })
+  });
+  assert.equal(failedMetadata.status, 500);
+  assert.equal(DB.cloudBackups.size, 0);
+  assert.equal(BACKUPS.objects.size, 0);
+});
+
+test("cloud backup preview rejects users outside the server-side allowlist", async () => {
+  const DB = new FakeD1();
+  const BACKUPS = new FakeR2();
+  const secureWorker = createWorker({
+    verifyGoogleToken: async () => ({ sub: "not-allowed", email: "not-allowed@example.com", emailVerified: true })
+  });
+  const authEnv = {
+    ...env,
+    DB,
+    BACKUPS,
+    GOOGLE_CLIENT_ID: "google-client-id",
+    CLOUD_BACKUP_MODE: "preview",
+    CLOUD_BACKUP_TEST_USERS: "owner@example.com"
+  };
+  const authRequest = (path, init) => secureWorker.fetch(new Request(`https://life.example${path}`, init), authEnv, {});
+  const nonceResponse = await authRequest("/api/auth/nonce");
+  const nonceBody = await json(nonceResponse);
+  const loginResponse = await authRequest("/api/auth/google", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Origin: "https://life.example", Cookie: `__Host-lc_oauth_nonce=${nonceBody.nonce}` },
+    body: JSON.stringify({ credential: "valid", nonce: nonceBody.nonce })
+  });
+  const sessionCookie = cookieValue(loginResponse, "__Host-lc_session");
+  const response = await authRequest("/api/backups", { headers: { Cookie: `__Host-lc_session=${sessionCookie}` } });
+  assert.equal(response.status, 403);
 });
 
 test("non-api requests fall through to static assets", async () => {
@@ -169,6 +378,22 @@ test("Cloudflare serves the SPA as assets and runs the Worker first only for API
   assert.equal(config.assets.not_found_handling, "single-page-application");
   assert.deepEqual(config.assets.run_worker_first, ["/api/*"]);
   assert.deepEqual(config.triggers.crons, ["17 3 * * *"]);
+  assert.deepEqual(config.ratelimits.map((item) => item.name), ["AUTH_RATE_LIMITER", "BACKUP_RATE_LIMITER"]);
+});
+
+test("authentication rate limiting returns 429 without issuing a nonce", async () => {
+  const response = await worker.fetch(new Request("https://life.example/api/auth/nonce", {
+    headers: { "CF-Connecting-IP": "192.0.2.1" }
+  }), {
+    ...env,
+    DB: new FakeD1(),
+    GOOGLE_CLIENT_ID: "google-client-id",
+    AUTH_RATE_LIMITER: { limit: async () => ({ success: false }) }
+  }, {});
+  const body = await json(response);
+  assert.equal(response.status, 429);
+  assert.equal(response.headers.get("Retry-After"), "60");
+  assert.equal(body.error.code, "rate_limited");
 });
 
 test("Google login creates a minimal D1 user and a hashed server session", async () => {
@@ -244,10 +469,11 @@ test("Google login creates a minimal D1 user and a hashed server session", async
 
 test("account deletion requires same-origin confirmation and removes the D1 identity", async () => {
   const DB = new FakeD1();
+  const BACKUPS = new FakeR2();
   const secureWorker = createWorker({
     verifyGoogleToken: async () => ({ sub: "delete-sub", email: "delete@example.com", emailVerified: true })
   });
-  const authEnv = { ...env, DB, GOOGLE_CLIENT_ID: "google-client-id" };
+  const authEnv = { ...env, DB, BACKUPS, GOOGLE_CLIENT_ID: "google-client-id" };
   const authRequest = (path, init) => secureWorker.fetch(new Request(`https://life.example${path}`, init), authEnv, {});
 
   const nonceResponse = await authRequest("/api/auth/nonce");
@@ -274,6 +500,16 @@ test("account deletion requires same-origin confirmation and removes the D1 iden
   });
   assert.equal(crossOrigin.status, 403);
 
+  const session = [...DB.sessionsByHash.values()][0];
+  session.created_at = Math.floor(Date.now() / 1000) - 601;
+  const staleSession = await authRequest("/api/account", {
+    method: "DELETE",
+    headers: { ...sessionHeaders, Origin: "https://life.example" },
+    body: JSON.stringify({ confirmation: "DELETE_ACCOUNT" })
+  });
+  assert.equal(staleSession.status, 401);
+  session.created_at = Math.floor(Date.now() / 1000);
+
   const unconfirmed = await authRequest("/api/account", {
     method: "DELETE",
     headers: { ...sessionHeaders, Origin: "https://life.example" },
@@ -281,6 +517,15 @@ test("account deletion requires same-origin confirmation and removes the D1 iden
   });
   assert.equal(unconfirmed.status, 400);
   assert.equal(DB.usersBySub.size, 1);
+
+  const userId = [...DB.usersById.keys()][0];
+  const objectKey = `users/${userId}/backups/account-delete-test.json`;
+  BACKUPS.objects.set(objectKey, "encrypted");
+  DB.cloudBackups.set("account-delete-test", {
+    id: "account-delete-test",
+    user_id: userId,
+    r2_object_key: objectKey
+  });
 
   const deletedResponse = await authRequest("/api/account", {
     method: "DELETE",
@@ -293,6 +538,8 @@ test("account deletion requires same-origin confirmation and removes the D1 iden
   assert.match(deletedResponse.headers.get("Set-Cookie") || "", /Max-Age=0/u);
   assert.equal(DB.usersBySub.size, 0);
   assert.equal(DB.sessionsByHash.size, 0);
+  assert.equal(DB.cloudBackups.size, 0);
+  assert.equal(BACKUPS.objects.size, 0);
 
   const meResponse = await authRequest("/api/me", { headers: { Cookie: `__Host-lc_session=${sessionCookie}` } });
   assert.equal((await json(meResponse)).authenticated, false);
@@ -308,6 +555,39 @@ test("scheduled cleanup removes expired and revoked sessions but keeps active se
   await createWorker().scheduled({}, { DB });
 
   assert.deepEqual([...DB.sessionsByHash.keys()], ["active"]);
+});
+
+test("logout-all revokes every active session for the signed-in user", async () => {
+  const DB = new FakeD1();
+  const secureWorker = createWorker({
+    verifyGoogleToken: async () => ({ sub: "same-user", email: "same@example.com", emailVerified: true })
+  });
+  const authEnv = { ...env, DB, GOOGLE_CLIENT_ID: "google-client-id" };
+  const authRequest = (path, init) => secureWorker.fetch(new Request(`https://life.example${path}`, init), authEnv, {});
+  const login = async () => {
+    const nonceResponse = await authRequest("/api/auth/nonce");
+    const nonceBody = await json(nonceResponse);
+    const response = await authRequest("/api/auth/google", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Origin: "https://life.example", Cookie: `__Host-lc_oauth_nonce=${nonceBody.nonce}` },
+      body: JSON.stringify({ credential: "valid", nonce: nonceBody.nonce })
+    });
+    return cookieValue(response, "__Host-lc_session");
+  };
+
+  const firstCookie = await login();
+  const secondCookie = await login();
+  assert.equal(DB.sessionsByHash.size, 2);
+
+  const response = await authRequest("/api/auth/logout-all", {
+    method: "POST",
+    headers: { Origin: "https://life.example", Cookie: `__Host-lc_session=${firstCookie}` }
+  });
+  assert.equal(response.status, 200);
+  assert.equal([...DB.sessionsByHash.values()].every((session) => Boolean(session.revoked_at)), true);
+
+  const secondSession = await authRequest("/api/me", { headers: { Cookie: `__Host-lc_session=${secondCookie}` } });
+  assert.equal((await json(secondSession)).authenticated, false);
 });
 
 test("Google login rejects cross-origin and mismatched nonce requests", async () => {

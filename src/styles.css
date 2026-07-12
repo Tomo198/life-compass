@@ -2924,6 +2924,32 @@ td select {
   font-size: 0.82rem;
 }
 
+.cloud-password-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.cloud-password-grid label {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.cloud-password-grid small,
+.cloud-backup-footnote {
+  color: var(--muted);
+}
+
+.cloud-backup-list {
+  margin-top: 1rem;
+}
+
+.cloud-backup-footnote {
+  margin: 1rem 0 0;
+  font-size: 0.82rem;
+}
+
 .notice-panel p {
   margin: 0.45rem 0 0;
   color: var(--muted);
@@ -3569,6 +3595,10 @@ td select {
   .section-heading-row {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .cloud-password-grid {
+    grid-template-columns: 1fr;
   }
 
   .account-signed-in {

@@ -61,6 +61,9 @@
 - バックアップは暗号化済みJSONとして保存する
 - サーバー側ではバックアップ内容を読めない前提にする
 - 復元用パスワードや復元キーを忘れた場合、運営者は復元できない可能性があることを明示する
+- 暗号化仕様と脅威モデルは `docs/CLOUD_BACKUP_THREAT_MODEL.md` を基準にする
+- `CLOUD_BACKUP_MODE` は初期値 `disabled`、限定テストは `preview`、Stripe接続後は `enforced` とする
+- `preview` は `CLOUD_BACKUP_TEST_USERS` に登録した利用者だけを許可する
 
 ## 導入順序
 
@@ -80,18 +83,21 @@
 | `GET /api/health` | API骨組みの稼働確認 | 監視、疎通確認 |
 | `GET /api/me` | CookieとD1からログイン状態を確認 | Googleログイン後のユーザー確認 |
 | `GET /api/entitlement` | D1契約状態を確認、初期値はfree / preview | Pro契約状態の判定 |
-| `GET /api/backups` | クラウド未提供・空一覧 | 暗号化バックアップ一覧 |
-| `POST /api/backups` | 未設定として拒否 | 暗号化バックアップ保存 |
+| `GET /api/backups` | R2未設定時は利用不可、設定後は本人分だけ一覧 | 暗号化バックアップ一覧 |
+| `POST /api/backups` | ログイン・利用権・形式・件数・サイズを検証 | 暗号化バックアップ保存 |
+| `GET /api/backups/:id` | 所有者照合とチェックサム検証 | 暗号化バックアップ取得 |
+| `DELETE /api/backups/:id` | R2削除後にD1メタ情報を削除 | 暗号化バックアップ削除 |
 | `POST /api/auth/google` | Google・D1設定後にIDトークン検証 | Google IDトークン検証 |
 | `GET /api/auth/config` | Google・D1設定状態 | Google公式ボタンの初期化 |
 | `GET /api/auth/nonce` | 10分有効のnonce発行 | CSRF・リプレイ対策 |
 | `POST /api/auth/logout` | セッション失効 | ログアウト |
+| `POST /api/auth/logout-all` | 本人の全セッションを失効 | 全端末ログアウト |
 | `DELETE /api/account` | D1上の利用者情報と関連セッションを削除 | アカウント削除 |
 | `POST /api/stripe/webhook` | 未設定として拒否 | Stripe webhook受信 |
 
 ## D1スキーマ
 
-初期スキーマは `migrations/0001_auth_billing_backup.sql`、セッションは `migrations/0002_auth_sessions.sql` に置きます。WranglerにD1バインディングを設定するまでは、デプロイ時にD1は使われません。
+初期スキーマは `migrations/0001_auth_billing_backup.sql`、セッションは `migrations/0002_auth_sessions.sql`、暗号化形式バージョンは `migrations/0003_cloud_backup_encryption_version.sql` に置きます。
 
 主なテーブル:
 

@@ -8,9 +8,11 @@ import {
   issueGoogleNonce,
   loginWithGoogle,
   logout,
+  logoutAll,
   publicUser,
   verifyGoogleIdToken
 } from "./auth.js";
+import { handleBackupsRequest } from "./backups.js";
 
 const securityHeaders = {
   "Cache-Control": "no-store",
@@ -153,17 +155,6 @@ async function entitlementResponse(request, env) {
   });
 }
 
-function backupsResponse() {
-  return jsonResponse({
-    ok: true,
-    available: false,
-    backups: [],
-    reason: "cloud_backup_not_configured",
-    message: "Cloud backup is planned as an optional encrypted Pro feature. It is not enabled yet.",
-    privacy: privacyBaseline
-  });
-}
-
 function notFoundResponse() {
   return jsonResponse(
     {
@@ -187,6 +178,19 @@ const authErrorResponse = (error) => jsonResponse(
   },
   error.status
 );
+
+const rateLimitResponse = () => jsonResponse(
+  { ok: false, error: { code: "rate_limited", message: "Too many requests. Try again later." } },
+  429,
+  { "Retry-After": "60" }
+);
+
+const authRateLimited = async (request, env, action) => {
+  if (!env?.AUTH_RATE_LIMITER) return false;
+  const actor = request.headers.get("CF-Connecting-IP") || "local";
+  const result = await env.AUTH_RATE_LIMITER.limit({ key: `${action}:${actor}` });
+  return !result.success;
+};
 
 async function handleApiRequest(request, env, services) {
   const url = new URL(request.url);
@@ -214,10 +218,12 @@ async function handleApiRequest(request, env, services) {
     return request.method === "GET" ? entitlementResponse(request, env) : methodNotAllowed("GET, OPTIONS");
   }
 
-  if (pathname === "/api/backups") {
-    if (request.method === "GET") return backupsResponse();
-    if (request.method === "POST") return notConfigured("encrypted_cloud_backup");
-    return methodNotAllowed("GET, POST, OPTIONS");
+  if (pathname === "/api/backups" || pathname.startsWith("/api/backups/")) {
+    try {
+      return await handleBackupsRequest(request, env, jsonResponse, privacyBaseline);
+    } catch (error) {
+      return error instanceof AuthError ? authErrorResponse(error) : jsonResponse({ ok: false, error: { code: "internal_error", message: "Encrypted backup is temporarily unavailable." } }, 500);
+    }
   }
 
   if (pathname === "/api/auth/config") {
@@ -228,6 +234,7 @@ async function handleApiRequest(request, env, services) {
 
   if (pathname === "/api/auth/nonce") {
     if (request.method !== "GET") return methodNotAllowed("GET, OPTIONS");
+    if (await authRateLimited(request, env, "nonce")) return rateLimitResponse();
     try {
       return issueGoogleNonce(request, env, jsonResponse);
     } catch (error) {
@@ -237,6 +244,7 @@ async function handleApiRequest(request, env, services) {
 
   if (pathname === "/api/auth/google") {
     if (request.method !== "POST") return methodNotAllowed("POST, OPTIONS");
+    if (await authRateLimited(request, env, "google")) return rateLimitResponse();
     try {
       return await loginWithGoogle(request, env, services.verifyGoogleToken, jsonResponse);
     } catch (error) {
@@ -250,6 +258,15 @@ async function handleApiRequest(request, env, services) {
       return await logout(request, env, jsonResponse);
     } catch (error) {
       return error instanceof AuthError ? authErrorResponse(error) : jsonResponse({ ok: false, error: { code: "internal_error", message: "Authentication is temporarily unavailable." } }, 500);
+    }
+  }
+
+  if (pathname === "/api/auth/logout-all") {
+    if (request.method !== "POST") return methodNotAllowed("POST, OPTIONS");
+    try {
+      return await logoutAll(request, env, jsonResponse);
+    } catch (error) {
+      return error instanceof AuthError ? authErrorResponse(error) : jsonResponse({ ok: false, error: { code: "internal_error", message: "Session revocation is temporarily unavailable." } }, 500);
     }
   }
 

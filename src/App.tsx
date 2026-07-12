@@ -1173,6 +1173,7 @@ function App() {
             setImportMessage={setImportMessage}
             resetPlan={resetPlan}
             startEmptyPlan={startEmptyPlan}
+            accessState={accessState}
           />
         );
       case "pricing":

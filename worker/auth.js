@@ -5,6 +5,7 @@ const OAUTH_NONCE_COOKIE = "lc_oauth_nonce";
 const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
 const NONCE_MAX_AGE_SECONDS = 60 * 10;
 const MAX_AUTH_BODY_BYTES = 24 * 1024;
+const SENSITIVE_ACTION_MAX_SESSION_AGE_SECONDS = 60 * 10;
 const googleJwks = createRemoteJWKSet(new URL("https://www.googleapis.com/oauth2/v3/certs"));
 
 const base64Url = (bytes) => {
@@ -115,7 +116,8 @@ export const getCurrentUser = async (request, env) => {
 
   const tokenHash = await sha256(token);
   const row = await env.DB.prepare(
-    `SELECT users.id, users.email, users.email_verified
+    `SELECT users.id, users.email, users.email_verified,
+            unixepoch(sessions.created_at) AS session_created_at
        FROM sessions
        JOIN users ON users.id = sessions.user_id
       WHERE sessions.token_hash = ?
@@ -129,7 +131,8 @@ export const getCurrentUser = async (request, env) => {
   return {
     id: row.id,
     email: row.email || null,
-    emailVerified: row.email_verified === 1
+    emailVerified: row.email_verified === 1,
+    sessionCreatedAt: Number(row.session_created_at || 0)
   };
 };
 
@@ -231,6 +234,20 @@ export const logout = async (request, env, jsonResponse) => {
   return response;
 };
 
+export const logoutAll = async (request, env, jsonResponse) => {
+  if (!sameOrigin(request)) {
+    throw new AuthError(403, "invalid_origin", "Session revocation origin is invalid.");
+  }
+  const user = await getCurrentUser(request, env);
+  if (!user) throw new AuthError(401, "authentication_required", "Google sign-in is required.");
+  await env.DB.prepare(
+    "UPDATE sessions SET revoked_at = CURRENT_TIMESTAMP WHERE user_id = ? AND revoked_at IS NULL"
+  ).bind(user.id).run();
+  const response = jsonResponse({ ok: true, authenticated: false, user: null, allSessionsRevoked: true });
+  response.headers.append("Set-Cookie", clearCookie(request, cookieName(request, SESSION_COOKIE)));
+  return response;
+};
+
 export const deleteAccount = async (request, env, jsonResponse) => {
   if (!authConfigured(env)) {
     throw new AuthError(501, "account_management_not_configured", "Account management is not configured.");
@@ -242,6 +259,10 @@ export const deleteAccount = async (request, env, jsonResponse) => {
   const user = await getCurrentUser(request, env);
   if (!user) {
     throw new AuthError(401, "authentication_required", "Sign in again before deleting the account.");
+  }
+  const now = Math.floor(Date.now() / 1000);
+  if (!user.sessionCreatedAt || now - user.sessionCreatedAt > SENSITIVE_ACTION_MAX_SESSION_AGE_SECONDS) {
+    throw new AuthError(401, "fresh_authentication_required", "Sign out and sign in again before deleting the account.");
   }
 
   const body = await parseJsonBody(request);
@@ -259,6 +280,15 @@ export const deleteAccount = async (request, env, jsonResponse) => {
   if (activeSubscription) {
     throw new AuthError(409, "active_subscription", "Cancel the active subscription before deleting the account.");
   }
+
+  const backupResult = await env.DB.prepare(
+    "SELECT r2_object_key FROM cloud_backups WHERE user_id = ?"
+  ).bind(user.id).all();
+  const objectKeys = (backupResult.results || []).map((row) => row.r2_object_key).filter(Boolean);
+  if (objectKeys.length > 0 && !env?.BACKUPS) {
+    throw new AuthError(503, "backup_storage_unavailable", "Account deletion is temporarily unavailable.");
+  }
+  if (objectKeys.length > 0) await env.BACKUPS.delete(objectKeys);
 
   await env.DB.prepare("DELETE FROM users WHERE id = ?").bind(user.id).run();
   const response = jsonResponse({ ok: true, authenticated: false, user: null, accountDeleted: true });

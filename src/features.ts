@@ -101,6 +101,7 @@ export const featureComparison: Array<{
   { key: "budgetPlanning", label: "予算・実績", free: "月次の予算と実績", pro: "履歴・前年差・レビュー連携" },
   { key: "basicSimulation", label: "見通し", free: "基本資産推移・積立・基本取り崩し", pro: "詳細条件・ばらつき・老後設計" },
   { key: "jsonBackup", label: "データ保存", free: "ブラウザ内保存・JSONバックアップ", pro: "無料版と同じ" },
+  { key: "encryptedCloudBackup", label: "暗号化クラウドバックアップ", free: "JSONで手動保管", pro: "暗号化した手動保存・復元（準備中）" },
   { key: "scenarioComparison", label: "シナリオ比較", free: "プレビュー", pro: "保存・比較・差分確認" },
   { key: "reviewHistory", label: "見直し履歴", free: "現在のメモ", pro: "月次・四半期履歴とTODO" },
   { key: "fixedCostImpact", label: "固定費見直し", free: "固定費の入力", pro: "年間・10年後・30年後への影響比較" },
