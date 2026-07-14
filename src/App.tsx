@@ -40,6 +40,7 @@ import type {
   ScenarioSnapshot,
   ScenarioTag,
   SimulationSettings,
+  TimelineMemo,
   WithdrawalPlanSettings,
   ViewKey
 } from "./types";
@@ -83,6 +84,7 @@ const navItems: { key: ViewKey; label: string; tier?: "pro" }[] = [
   { key: "budget", label: "予算・実績" },
   { key: "goals", label: "目標管理" },
   { key: "simulation", label: "シミュレーション" },
+  { key: "events", label: "イベント設定" },
   { key: "timeline", label: "年表" },
   { key: "notes", label: "メモ" },
   { key: "retirement", label: "老後プラン", tier: "pro" },
@@ -107,7 +109,7 @@ const mobilePrimaryNavItems: Array<{ key: MobileNavKey; label: string; view?: Vi
 const mobileViewGroups: Record<Exclude<MobileNavKey, "menu">, ViewKey[]> = {
   home: ["dashboard"],
   household: ["profile", "assets", "household", "budget"],
-  goals: ["goals", "timeline", "notes"],
+  goals: ["goals", "events", "timeline", "notes"],
   forecast: ["simulation", "retirement"]
 };
 
@@ -396,6 +398,7 @@ const createEmptyPlan = (): LifePlan => ({
   },
   goals: [],
   events: [],
+  timelineMemos: [],
   simulation: {
     monthlyContribution: 0,
     bonusContribution: 0,
@@ -536,7 +539,7 @@ const scenarioTemplates: ScenarioTemplate[] = [
   }
 ];
 
-type GoalTemplate = Omit<Goal, "id" | "dueYear" | "progress"> & {
+type GoalTemplate = Omit<Goal, "id" | "dueYear" | "dueMonth" | "progress"> & {
   yearsFromNow: number;
 };
 
@@ -817,6 +820,31 @@ function App() {
     commitPlan({ ...plan, notes: { ...(plan.notes || { general: "", spendingReview: "" }), [key]: value } });
   };
 
+  const addTimelineMemo = () => {
+    const now = new Date();
+    const nextMemo: TimelineMemo = {
+      id: createId(),
+      title: "新しい予定メモ",
+      year: now.getFullYear(),
+      month: now.getMonth() + 1,
+      owner: "self",
+      memo: "",
+      showOnTimeline: true
+    };
+    commitPlan({ ...plan, timelineMemos: [...(plan.timelineMemos || []), nextMemo] });
+  };
+
+  const updateTimelineMemo = <K extends keyof TimelineMemo>(id: string, key: K, value: TimelineMemo[K]) => {
+    commitPlan({
+      ...plan,
+      timelineMemos: (plan.timelineMemos || []).map((memo) => (memo.id === id ? { ...memo, [key]: value } : memo))
+    });
+  };
+
+  const removeTimelineMemo = (id: string) => {
+    commitPlan({ ...plan, timelineMemos: (plan.timelineMemos || []).filter((memo) => memo.id !== id) });
+  };
+
   const addReview = () => {
     const assets = getAssetSummary(plan.assets);
     const cashflow = getCashflowSummary(plan.household);
@@ -939,6 +967,7 @@ function App() {
       title: "新しい目標",
       goalType: "oneTime",
       dueYear: new Date().getFullYear() + 3,
+      dueMonth: 12,
       requiredAmount: 1000000,
       savedAmount: 0,
       monthlyAllocation: 30000,
@@ -956,6 +985,7 @@ function App() {
       title: template.title,
       goalType: template.goalType,
       dueYear: new Date().getFullYear() + template.yearsFromNow,
+      dueMonth: 12,
       requiredAmount: template.requiredAmount,
       savedAmount: template.savedAmount,
       monthlyAllocation: template.monthlyAllocation,
@@ -1098,9 +1128,9 @@ function App() {
             removeGoal={removeGoal}
           />
         );
-      case "timeline":
+      case "events":
         return (
-          <TimelineView
+          <EventSettingsView
             plan={plan}
             setActiveView={setActiveView}
             addEvent={addEvent}
@@ -1121,6 +1151,8 @@ function App() {
             accessState={accessState}
           />
         );
+      case "timeline":
+        return <TimelineView plan={plan} setActiveView={setActiveView} />;
       case "retirement":
         return (
           <RetirementPlanView
@@ -1147,6 +1179,9 @@ function App() {
             plan={plan}
             setActiveView={setActiveView}
             updateNotes={updateNotes}
+            addTimelineMemo={addTimelineMemo}
+            updateTimelineMemo={updateTimelineMemo}
+            removeTimelineMemo={removeTimelineMemo}
             addReview={addReview}
             updateReview={updateReview}
             removeReview={removeReview}
@@ -1159,6 +1194,9 @@ function App() {
             plan={plan}
             setActiveView={setActiveView}
             updateNotes={updateNotes}
+            addTimelineMemo={addTimelineMemo}
+            updateTimelineMemo={updateTimelineMemo}
+            removeTimelineMemo={removeTimelineMemo}
             addReview={addReview}
             updateReview={updateReview}
             removeReview={removeReview}
@@ -1426,7 +1464,7 @@ function Dashboard({ plan, reminders, setActiveView, startEmptyPlan }: Dashboard
               <p>
                 {samplePlan
                   ? "現在の数値は使い方を確認するためのサンプルです。自分用に作る場合は、空のプランに切り替えて基本情報から入力すると迷いにくくなります。"
-                  : "すべてを一度に埋めなくても大丈夫です。基本情報、資産、家計、予算・実績、目標、シミュレーション、年表の順に進められます。"}
+                  : "すべてを一度に埋めなくても大丈夫です。基本情報、資産、家計、予算・実績、目標、シミュレーション、イベント設定、年表の順に進められます。"}
               </p>
             </div>
             <div className="button-row">
@@ -1471,10 +1509,15 @@ function Dashboard({ plan, reminders, setActiveView, startEmptyPlan }: Dashboard
               <strong>シミュレーション</strong>
               <small>資産推移と生活防衛資金</small>
             </button>
-            <button type="button" onClick={() => setActiveView("timeline")}>
+            <button type="button" onClick={() => setActiveView("events")}>
               <span>7</span>
+              <strong>イベント設定</strong>
+              <small>時期、対象者、家計への影響</small>
+            </button>
+            <button type="button" onClick={() => setActiveView("timeline")}>
+              <span>8</span>
               <strong>年表</strong>
-              <small>将来イベントを時系列で確認</small>
+              <small>目標と予定を月ごとに確認</small>
             </button>
           </div>
         </section>
@@ -1865,9 +1908,44 @@ function BudgetView({
   const currentDate = new Date();
   const defaultMonthKey = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, "0")}`;
   const [monthKey, setMonthKey] = useState(defaultMonthKey);
+  const [budgetMode, setBudgetMode] = useState<"input" | "compare" | "history">("input");
+  const [budgetSearch, setBudgetSearch] = useState("");
+  const [budgetCategoryFilter, setBudgetCategoryFilter] = useState<BudgetCategory | "all">("all");
   const budgetItems = plan.budgetItems || [];
   const summary = getBudgetSummary(budgetItems, monthKey);
+  const visibleBudgetItems = useMemo(() => {
+    const search = budgetSearch.trim().toLowerCase();
+    return budgetItems.filter((item) =>
+      (budgetCategoryFilter === "all" || item.category === budgetCategoryFilter) &&
+      (!search || `${item.name} ${item.memo} ${budgetCategoryLabels[item.category]}`.toLowerCase().includes(search))
+    );
+  }, [budgetCategoryFilter, budgetItems, budgetSearch]);
+  const compositionRows = useMemo(
+    () => [...summary.categoryRows]
+      .filter((row) => row.plannedMonthlyAverage > 0)
+      .sort((a, b) => b.plannedMonthlyAverage - a.plannedMonthlyAverage),
+    [summary.categoryRows]
+  );
   const actualEntryCount = budgetItems.filter((item) => Object.prototype.hasOwnProperty.call(item.actuals || {}, monthKey)).length;
+  const selectedYear = Number(monthKey.slice(0, 4));
+  const annualRows = useMemo(
+    () => monthLabels.map((label, index) => {
+      const rowMonthKey = `${selectedYear}-${String(index + 1).padStart(2, "0")}`;
+      const rowSummary = getBudgetSummary(budgetItems, rowMonthKey);
+      return {
+        label,
+        monthKey: rowMonthKey,
+        planned: rowSummary.plannedMonthlyAverage,
+        actual: rowSummary.actual,
+        variance: rowSummary.variance,
+        actualEntryCount: rowSummary.actualEntryCount
+      };
+    }),
+    [budgetItems, selectedYear]
+  );
+  const annualActual = annualRows.reduce((total, row) => total + row.actual, 0);
+  const annualRecordedMonths = annualRows.filter((row) => row.actualEntryCount > 0).length;
+  const annualChartMax = Math.max(1, ...annualRows.flatMap((row) => [row.planned, row.actual]));
   const moveMonth = (offset: number) => {
     const [year, month] = monthKey.split("-").map(Number);
     const next = new Date(year, month - 1 + offset, 1);
@@ -1902,6 +1980,11 @@ function BudgetView({
           <strong>家計簿ではなく、ライフプランの前提を整えるための月次管理です</strong>
           <span>細かい日別入力は扱わず、カテゴリごとの月額予算・実績・差額をレビューとシミュレーションに使います。</span>
         </div>
+        <div className="segmented-control budget-view-tabs" aria-label="予算と実績の表示切替">
+          <button type="button" className={budgetMode === "input" ? "active" : ""} onClick={() => setBudgetMode("input")}>入力</button>
+          <button type="button" className={budgetMode === "compare" ? "active" : ""} onClick={() => setBudgetMode("compare")}>月別比較</button>
+          <button type="button" className={budgetMode === "history" ? "active" : ""} onClick={() => setBudgetMode("history")}>年間推移</button>
+        </div>
         <div className="budget-toolbar">
           <label>
             実績を入力する月
@@ -1920,8 +2003,39 @@ function BudgetView({
           <Metric label="予算との差" value={summary.actualEntryCount > 0 ? manYen(summary.variance) : "-"} helper="実績 - 月平均予算" />
           <Metric label="年間予算" value={manYen(summary.annualPlan)} helper="月次/年次を合算" />
         </div>
+        {compositionRows.length > 0 && (
+          <div className="budget-overview-panel" aria-label="カテゴリ別の月平均予算構成">
+            <div className="budget-overview-head">
+              <div>
+                <strong>月平均予算の全体像</strong>
+                <span>{compositionRows.length}カテゴリ / {budgetItems.length}項目</span>
+              </div>
+              <small>カテゴリを増やしても構成比と金額を自動集計します。</small>
+            </div>
+            <div className="budget-composition-bar" aria-hidden="true">
+              {compositionRows.map((row) => (
+                <span
+                  key={row.category}
+                  className={`budget-category-segment ${row.category}`}
+                  style={{ width: `${(row.plannedMonthlyAverage / Math.max(1, summary.plannedMonthlyAverage)) * 100}%` }}
+                />
+              ))}
+            </div>
+            <div className="budget-composition-legend">
+              {compositionRows.map((row) => (
+                <div key={row.category}>
+                  <span className={`budget-category-label ${row.category}`}><i />{budgetCategoryLabels[row.category]}</span>
+                  <strong>{manYen(row.plannedMonthlyAverage)}</strong>
+                  <small>{Math.round((row.plannedMonthlyAverage / Math.max(1, summary.plannedMonthlyAverage)) * 100)}%</small>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </section>
 
+      {budgetMode === "input" && (
+      <>
       <section className="panel">
         <div className="section-heading">
           <div>
@@ -1930,18 +2044,34 @@ function BudgetView({
           </div>
           <span className="status-pill recurring">{monthKey}</span>
         </div>
+        <div className="list-toolbar budget-item-toolbar" aria-label="予算項目の検索と絞り込み">
+          <label>
+            項目を検索
+            <input value={budgetSearch} onChange={(event) => setBudgetSearch(event.target.value)} placeholder="項目名、カテゴリ、メモ" />
+          </label>
+          <label>
+            カテゴリ
+            <select value={budgetCategoryFilter} onChange={(event) => setBudgetCategoryFilter(event.target.value as BudgetCategory | "all")}>
+              <option value="all">すべて</option>
+              {Object.entries(budgetCategoryLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </select>
+          </label>
+          <span>{visibleBudgetItems.length}件表示 / 全{budgetItems.length}件</span>
+        </div>
         {budgetItems.length === 0 ? (
           <EmptyState title="先に予算項目を追加してください" detail="食費、住居費、通信費など、毎月振り返りたい単位だけで構いません。" />
+        ) : visibleBudgetItems.length === 0 ? (
+          <EmptyState title="条件に合う項目がありません" detail="検索文字やカテゴリを変えて確認してください。" />
         ) : (
-          <div className="monthly-actual-list">
-            {budgetItems.map((item) => {
+          <div className="monthly-actual-list budget-scalable-list" tabIndex={0} aria-label="月末実績の入力項目一覧">
+            {visibleBudgetItems.map((item) => {
               const monthlyBudget = getBudgetMonthlyAverage(item);
               const hasActual = Object.prototype.hasOwnProperty.call(item.actuals || {}, monthKey);
               const actual = item.actuals?.[monthKey] ?? 0;
               return (
                 <div className="monthly-actual-row" key={item.id}>
                   <div>
-                    <strong>{item.name}</strong>
+                    <strong><span className={`budget-category-marker ${item.category}`} />{item.name}</strong>
                     <small>{budgetCategoryLabels[item.category]} / 月平均予算 {manYen(monthlyBudget)}</small>
                   </div>
                   <MoneyInput
@@ -1961,42 +2091,17 @@ function BudgetView({
       </section>
 
       <section className="panel">
-        <h2>カテゴリ別の差額</h2>
-        {summary.categoryRows.length === 0 ? (
-          <EmptyState title="まだ予算項目がありません" detail="項目を追加すると、カテゴリ別の月平均予算と実績差額を確認できます。" />
-        ) : (
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>カテゴリ</th>
-                  <th>月平均予算</th>
-                  <th>選択月実績</th>
-                  <th>差額</th>
-                </tr>
-              </thead>
-              <tbody>
-                {summary.categoryRows.map((row) => (
-                  <tr key={row.category}>
-                    <td>{budgetCategoryLabels[row.category]}</td>
-                    <td>{manYen(row.plannedMonthlyAverage)}</td>
-                    <td>{row.actualEntryCount > 0 ? manYen(row.actual) : "未入力"}</td>
-                    <td>{row.actualEntryCount > 0 ? manYen(row.variance) : "-"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
-
-      <section className="panel">
-        <h2>予算項目</h2>
+        <div className="section-heading">
+          <div><h2>予算項目</h2><p>上の検索・カテゴリ絞り込みは、この編集一覧にも反映されます。</p></div>
+          <span className="status-chip">{visibleBudgetItems.length}/{budgetItems.length}件</span>
+        </div>
         {budgetItems.length === 0 ? (
           <EmptyState title="予算項目はまだありません" detail="食費、住居費、通信費、旅行など、月次レビューで見たい単位で追加します。" />
+        ) : visibleBudgetItems.length === 0 ? (
+          <EmptyState title="条件に合う項目がありません" detail="上の検索文字やカテゴリを変えてください。" />
         ) : (
-          <div className="budget-list">
-            {budgetItems.map((item) => (
+          <div className="budget-list budget-scalable-list" tabIndex={0} aria-label="予算項目の編集一覧">
+            {visibleBudgetItems.map((item) => (
               <div className="budget-row" key={item.id}>
                 <label>
                   項目名
@@ -2039,6 +2144,100 @@ function BudgetView({
           </div>
         )}
       </section>
+      </>
+      )}
+
+      {budgetMode === "compare" && (
+      <section className="panel">
+        <div className="section-heading">
+          <div>
+            <h2>{monthKey}のカテゴリ別比較</h2>
+            <p>カテゴリごとに月平均予算と実績を比べます。色と名称を併記し、超過状況を確認できます。</p>
+          </div>
+          <span className="status-pill recurring">{summary.actualEntryCount}/{budgetItems.length}項目入力済み</span>
+        </div>
+        {summary.categoryRows.length === 0 ? (
+          <EmptyState title="まだ予算項目がありません" detail="項目を追加すると、カテゴリ別の月平均予算と実績差額を確認できます。" />
+        ) : (
+          <div className="table-wrap budget-scalable-table" tabIndex={0} aria-label="カテゴリ別予算実績比較表">
+            <table>
+              <thead>
+                <tr>
+                  <th>カテゴリ</th>
+                  <th>月平均予算</th>
+                  <th>選択月実績</th>
+                  <th>差額</th>
+                </tr>
+              </thead>
+              <tbody>
+                {summary.categoryRows.map((row) => (
+                  <tr key={row.category}>
+                    <td><span className={`budget-category-label ${row.category}`}><i />{budgetCategoryLabels[row.category]}</span></td>
+                    <td>{manYen(row.plannedMonthlyAverage)}</td>
+                    <td>{row.actualEntryCount > 0 ? manYen(row.actual) : "未入力"}</td>
+                    <td className={row.actualEntryCount > 0 && row.variance > 0 ? "budget-over-cell" : "budget-within-cell"}>
+                      {row.actualEntryCount > 0 ? `${manYen(row.variance)} / ${row.variance > 0 ? "超過" : "予算内"}` : "-"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+      )}
+
+      {budgetMode === "history" && (
+      <section className="panel">
+        <div className="section-heading">
+          <div>
+            <h2>{selectedYear}年の予算・実績推移</h2>
+            <p>月ごとの予算と実績を並べ、後から年間の傾向を振り返ります。</p>
+          </div>
+          <span className="status-pill recurring">{annualRecordedMonths}/12ヶ月入力済み</span>
+        </div>
+        {budgetItems.length === 0 ? (
+          <EmptyState title="予算項目はまだありません" detail="入力タブで予算項目を追加すると、年間推移を確認できます。" />
+        ) : (
+          <>
+            <div className="budget-annual-summary">
+              <Metric label="年間予算" value={manYen(summary.annualPlan)} helper="現在の予算設定" />
+              <Metric label="入力済み実績" value={manYen(annualActual)} helper={`${annualRecordedMonths}ヶ月分`} />
+              <Metric label="入力済み月の平均" value={annualRecordedMonths > 0 ? manYen(annualActual / annualRecordedMonths) : "未入力"} helper="実績入力済み月で計算" />
+            </div>
+            <div className="budget-year-chart" aria-label={`${selectedYear}年の予算と実績の棒グラフ`}>
+              <div className="budget-chart-legend"><span><i className="planned" />予算</span><span><i className="actual" />実績</span></div>
+              {annualRows.map((row) => (
+                <div className="budget-year-bar-row" key={row.monthKey}>
+                  <strong>{row.label}</strong>
+                  <div className="budget-bar-pair">
+                    <span className="budget-bar planned" style={{ width: `${Math.max(1, (row.planned / annualChartMax) * 100)}%` }} />
+                    <span className="budget-bar actual" style={{ width: `${row.actualEntryCount > 0 ? Math.max(1, (row.actual / annualChartMax) * 100) : 0}%` }} />
+                  </div>
+                  <small>{row.actualEntryCount > 0 ? manYen(row.actual) : "未入力"}</small>
+                </div>
+              ))}
+            </div>
+            <div className="table-wrap budget-history-table budget-scalable-table" tabIndex={0} aria-label="年間予算実績履歴表">
+              <table>
+                <thead><tr><th>月</th><th>月平均予算</th><th>実績</th><th>差額</th><th>入力状況</th></tr></thead>
+                <tbody>
+                  {annualRows.map((row) => (
+                    <tr key={row.monthKey}>
+                      <td>{row.label}</td>
+                      <td>{manYen(row.planned)}</td>
+                      <td>{row.actualEntryCount > 0 ? manYen(row.actual) : "未入力"}</td>
+                      <td className={row.actualEntryCount > 0 && row.variance > 0 ? "budget-over-cell" : "budget-within-cell"}>{row.actualEntryCount > 0 ? manYen(row.variance) : "-"}</td>
+                      <td>{row.actualEntryCount}/{budgetItems.length}項目</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+      </section>
+      )}
 
       <section className="helper-grid">
         <div>
@@ -2161,7 +2360,7 @@ function GoalsView({
                     </label>
                     <div className="compact-summary">
                       <span>{goal.goalType === "recurring" ? "繰り返し" : "1回限り"}</span>
-                      <strong>{goal.dueYear}年 / {getTargetAgeForYear(plan.profile.age, goal.dueYear)}歳頃</strong>
+                      <strong>{goal.dueYear}年{goal.dueMonth}月 / {getTargetAgeForYear(plan.profile.age, goal.dueYear)}歳頃</strong>
                       <small>{achievement.status === "recurring" ? `年間必要額 ${manYen(achievement.annualRequiredAmount)}` : `残り ${manYen(achievement.shortfall)}`}</small>
                     </div>
                     <label>
@@ -2237,8 +2436,10 @@ function GoalsView({
                   <td>
                     <GoalDeadlineInput
                       dueYear={goal.dueYear}
+                      dueMonth={goal.dueMonth}
                       currentAge={plan.profile.age}
-                      onChange={(value) => updateGoal(goal.id, "dueYear", value)}
+                      onYearChange={(value) => updateGoal(goal.id, "dueYear", value)}
+                      onMonthChange={(value) => updateGoal(goal.id, "dueMonth", value)}
                     />
                   </td>
                   <td>
@@ -2310,8 +2511,10 @@ function GoalsView({
                   <span>期限</span>
                   <GoalDeadlineInput
                     dueYear={goal.dueYear}
+                    dueMonth={goal.dueMonth}
                     currentAge={plan.profile.age}
-                    onChange={(value) => updateGoal(goal.id, "dueYear", value)}
+                    onYearChange={(value) => updateGoal(goal.id, "dueYear", value)}
+                    onMonthChange={(value) => updateGoal(goal.id, "dueMonth", value)}
                   />
                 </div>
                 <div className="mobile-field-wide">
@@ -2347,14 +2550,28 @@ function GoalsView({
 
 function GoalDeadlineInput({
   dueYear,
+  dueMonth,
   currentAge,
-  onChange
+  onYearChange,
+  onMonthChange
 }: {
   dueYear: number;
+  dueMonth: number;
   currentAge: number;
-  onChange: (value: number) => void;
+  onYearChange: (value: number) => void;
+  onMonthChange: (value: number) => void;
 }) {
-  return <YearAgeInput year={dueYear} currentAge={currentAge} ageLabel="達成したい年齢" onChange={onChange} />;
+  return (
+    <div className="goal-deadline-control">
+      <YearAgeInput year={dueYear} currentAge={currentAge} ageLabel="達成したい年齢" onChange={onYearChange} />
+      <label>
+        達成したい月
+        <select value={dueMonth} onChange={(event) => onMonthChange(Number(event.target.value))}>
+          {monthLabels.map((label, index) => <option key={label} value={index + 1}>{label}</option>)}
+        </select>
+      </label>
+    </div>
+  );
 }
 
 function YearAgeInput({
@@ -2503,29 +2720,28 @@ type CalendarEntry = {
   month: number;
   title: string;
   owner: EventOwner | "goal";
-  kind: "goal" | "event";
+  kind: "goal" | "event" | "memo";
   detail: string;
   amount?: number;
-  tone: "goal" | "expense" | "income" | "neutral";
+  tone: "goal" | "expense" | "income" | "neutral" | "memo";
   progress?: number;
 };
 
 function LifeCalendar({ plan }: { plan: LifePlan }) {
-  const [rangeYears, setRangeYears] = useState<5 | 10 | 30>(10);
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+  const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
   const [entrySearch, setEntrySearch] = useState("");
-  const [entryKind, setEntryKind] = useState<"all" | "goal" | "event">("all");
+  const [entryKind, setEntryKind] = useState<"all" | "goal" | "event" | "memo">("all");
   const [entryOwner, setEntryOwner] = useState<EventOwner | "all">("all");
   const [entrySort, setEntrySort] = useState<"yearAsc" | "yearDesc" | "title">("yearAsc");
   const currentYear = new Date().getFullYear();
-  const years = Array.from({ length: rangeYears + 1 }, (_, index) => currentYear + index);
   const entries = useMemo<CalendarEntry[]>(() => {
     const goalEntries = plan.goals.map((goal) => {
       const preparedPercent = getGoalPreparedPercent(goal);
       return {
         id: `goal-${goal.id}`,
         year: goal.dueYear,
-        month: 12,
+        month: goal.dueMonth,
         title: goal.title,
         owner: "goal" as const,
         kind: "goal" as const,
@@ -2551,12 +2767,24 @@ function LifeCalendar({ plan }: { plan: LifePlan }) {
       tone: event.cashflowType
     }));
 
-    return [...goalEntries, ...eventEntries].sort((a, b) => a.year - b.year || a.month - b.month || a.title.localeCompare(b.title, "ja"));
-  }, [plan.events, plan.goals]);
+    const memoEntries = (plan.timelineMemos || [])
+      .filter((memo) => memo.showOnTimeline)
+      .map((memo) => ({
+        id: `memo-${memo.id}`,
+        year: memo.year,
+        month: memo.month,
+        title: memo.title,
+        owner: memo.owner,
+        kind: "memo" as const,
+        detail: `${eventOwnerLabels[memo.owner]} / ${memo.memo || "予定メモ"}`,
+        tone: "memo" as const
+      }));
+
+    return [...goalEntries, ...eventEntries, ...memoEntries].sort((a, b) => a.year - b.year || a.month - b.month || a.title.localeCompare(b.title, "ja"));
+  }, [plan.events, plan.goals, plan.timelineMemos]);
   const visibleEntries = useMemo(() => {
     const normalizedSearch = entrySearch.trim().toLowerCase();
     return entries
-      .filter((entry) => entry.year >= currentYear && entry.year <= currentYear + rangeYears)
       .filter((entry) => (entryKind === "all" ? true : entry.kind === entryKind))
       .filter((entry) => (entryOwner === "all" || entry.kind === "goal" ? true : entry.owner === entryOwner))
       .filter((entry) => (normalizedSearch ? `${entry.title} ${entry.detail}`.toLowerCase().includes(normalizedSearch) : true))
@@ -2565,172 +2793,149 @@ function LifeCalendar({ plan }: { plan: LifePlan }) {
         if (entrySort === "title") return a.title.localeCompare(b.title, "ja") || a.year - b.year || a.month - b.month;
         return a.year - b.year || a.month - b.month || a.title.localeCompare(b.title, "ja");
       });
-  }, [currentYear, entries, entryKind, entryOwner, entrySearch, entrySort, rangeYears]);
-  const upcomingEntries = [...visibleEntries].sort((a, b) => a.year - b.year || a.month - b.month || a.title.localeCompare(b.title, "ja")).slice(0, 4);
+  }, [entries, entryKind, entryOwner, entrySearch, entrySort]);
+  const selectableYears = useMemo(() => {
+    const entryYears = entries.map((entry) => entry.year);
+    const firstYear = Math.min(currentYear - 2, ...entryYears);
+    const lastYear = Math.max(currentYear + 30, ...entryYears);
+    return Array.from({ length: lastYear - firstYear + 1 }, (_, index) => firstYear + index);
+  }, [currentYear, entries]);
   const selectedYearEntries = visibleEntries.filter((entry) => entry.year === selectedYear);
+  const selectedMonthEntries = selectedYearEntries.filter((entry) => entry.month === selectedMonth);
+  const getEntryKindLabel = (entry: CalendarEntry) => entry.kind === "goal" ? "目標" : entry.kind === "event" ? "イベント" : "メモ";
+  const moveToYear = (year: number) => {
+    setSelectedYear(year);
+    setSelectedMonth(year === currentYear ? new Date().getMonth() + 1 : 1);
+  };
 
   return (
     <section className="life-calendar" aria-label="ライフカレンダー">
       <div className="section-heading">
         <div>
           <p className="eyebrow">ライフカレンダー</p>
-          <h3>目標とイベントを年単位で確認</h3>
-          <p>目標の期限とライフイベントをまとめて並べ、短期から長期までの残り期間を確認できます。</p>
+          <h3>目標・イベント・予定メモを月単位で確認</h3>
+          <p>年を選んで12か月の予定を確認できます。月を選ぶと、その月の全件を下に表示します。</p>
         </div>
-        <div className="segmented-control" aria-label="表示期間">
-          <button type="button" className={rangeYears === 5 ? "active" : ""} onClick={() => setRangeYears(5)}>
-            5年
-          </button>
-          <button type="button" className={rangeYears === 10 ? "active" : ""} onClick={() => setRangeYears(10)}>
-            10年
-          </button>
-          <button type="button" className={rangeYears === 30 ? "active" : ""} onClick={() => setRangeYears(30)}>
-            30年
-          </button>
+        <div className="calendar-year-navigation" aria-label="表示する年を変更">
+          <button type="button" className="secondary" aria-label="前年を表示" onClick={() => moveToYear(selectedYear - 1)}>‹</button>
+          <label>
+            表示年
+            <select aria-label="表示する年" value={selectedYear} onChange={(event) => moveToYear(Number(event.target.value))}>
+              {selectableYears.map((year) => <option key={year} value={year}>{year}年</option>)}
+            </select>
+          </label>
+          <button type="button" className="secondary" aria-label="翌年を表示" onClick={() => moveToYear(selectedYear + 1)}>›</button>
+          <button type="button" className="secondary calendar-today-button" onClick={() => moveToYear(currentYear)}>今年</button>
         </div>
-      </div>
-
-      {upcomingEntries.length > 0 && (
-        <div className="calendar-next-list" aria-label="近い予定">
-          {upcomingEntries.map((entry) => (
-            <div key={entry.id}>
-              <span>{getYearsUntilLabel(entry.year)}</span>
-              <strong>{entry.title}</strong>
-              <small>{entry.year}年{entry.month}月 / {getTargetAgeForYear(plan.profile.age, entry.year)}歳頃</small>
-            </div>
-          ))}
-        </div>
-      )}
-
-      <div className="list-toolbar" aria-label="カレンダーの検索と整理">
-        <label>
-          検索
-          <input value={entrySearch} onChange={(event) => setEntrySearch(event.target.value)} placeholder="目標名・イベント名で検索" />
-        </label>
-        <label>
-          種類
-          <select value={entryKind} onChange={(event) => setEntryKind(event.target.value as "all" | "goal" | "event")}>
-            <option value="all">すべて</option>
-            <option value="goal">目標のみ</option>
-            <option value="event">イベントのみ</option>
-          </select>
-        </label>
-        <label>
-          並び替え
-          <select value={entrySort} onChange={(event) => setEntrySort(event.target.value as "yearAsc" | "yearDesc" | "title")}>
-            <option value="yearAsc">時期が近い順</option>
-            <option value="yearDesc">時期が遠い順</option>
-            <option value="title">名前順</option>
-          </select>
-        </label>
-        <label>
-          対象者
-          <select value={entryOwner} onChange={(event) => setEntryOwner(event.target.value as EventOwner | "all")}>
-            <option value="all">すべて</option>
-            {Object.entries(eventOwnerLabels).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <span>{visibleEntries.length}件表示 / 全{entries.length}件</span>
-      </div>
-
-      <div className="calendar-grid">
-        {years.map((year) => {
-          const yearEntries = visibleEntries.filter((entry) => entry.year === year);
-          const shownYearEntries = yearEntries.slice(0, 3);
-          const hiddenCount = Math.max(0, yearEntries.length - shownYearEntries.length);
-          return (
-            <div
-              className={[
-                "calendar-year-card",
-                year === currentYear ? "current" : "",
-                year === selectedYear ? "selected" : ""
-              ].filter(Boolean).join(" ")}
-              key={year}
-              role="button"
-              tabIndex={0}
-              onClick={() => setSelectedYear(year)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  setSelectedYear(year);
-                }
-              }}
-            >
-              <div className="calendar-year-head">
-                <strong>{year}</strong>
-                <span>{getTargetAgeForYear(plan.profile.age, year)}歳頃</span>
-              </div>
-              {yearEntries.length === 0 ? (
-                <p>予定なし</p>
-              ) : (
-                <div className="calendar-entry-list">
-                  {shownYearEntries.map((entry) => (
-                    <div className={`calendar-entry ${entry.tone}`} key={entry.id}>
-                      <div>
-                        <span>{entry.kind === "goal" ? "目標" : `${entry.month}月のイベント`}</span>
-                        <strong>{entry.title}</strong>
-                      </div>
-                      <small>{entry.detail}</small>
-                      {entry.amount ? <small>{manYen(entry.amount)}</small> : null}
-                      {typeof entry.progress === "number" && (
-                        <div className="calendar-progress" aria-label={`達成率 ${entry.progress}%`}>
-                          <span style={{ width: `${entry.progress}%` }} />
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                  {hiddenCount > 0 && <span className="calendar-more">他{hiddenCount}件は下の一覧で確認</span>}
-                </div>
-              )}
-            </div>
-          );
-        })}
       </div>
 
       <div className="calendar-year-detail" aria-label={`${selectedYear}年の月別予定`}>
         <div className="calendar-detail-head">
           <div>
-            <strong>{selectedYear}年の予定</strong>
+            <strong>{selectedYear}年 年間カレンダー</strong>
             <span>{getTargetAgeForYear(plan.profile.age, selectedYear)}歳頃 / {selectedYearEntries.length}件</span>
           </div>
-          <small>年カードをタップすると、その年の月別予定を確認できます。</small>
+          <small>月を選ぶと、その月の予定を下に詳しく表示します。</small>
         </div>
         <div className="calendar-month-grid">
           {monthLabels.map((label, index) => {
             const month = index + 1;
             const monthEntries = selectedYearEntries.filter((entry) => entry.month === month);
+            const shownMonthEntries = monthEntries.slice(0, 3);
+            const hiddenMonthCount = Math.max(0, monthEntries.length - shownMonthEntries.length);
             return (
-              <div className="calendar-month-card" key={label}>
-                <strong>{label}</strong>
+              <button
+                type="button"
+                className={`calendar-month-card${selectedMonth === month ? " selected" : ""}`}
+                key={label}
+                onClick={() => setSelectedMonth(month)}
+                aria-pressed={selectedMonth === month}
+              >
+                <div className="calendar-month-head">
+                  <strong>{label}</strong>
+                  {monthEntries.length > 0 && <span>{monthEntries.length}件</span>}
+                </div>
                 {monthEntries.length === 0 ? (
                   <span>予定なし</span>
                 ) : (
-                  monthEntries.map((entry) => (
+                  shownMonthEntries.map((entry) => (
                     <div className={`calendar-month-entry ${entry.tone}`} key={entry.id}>
-                      <span>{entry.kind === "goal" ? "目標" : "イベント"}</span>
+                      <span>{getEntryKindLabel(entry)}</span>
                       <strong>{entry.title}</strong>
-                      <small>{entry.detail}</small>
                     </div>
                   ))
                 )}
-              </div>
+                {hiddenMonthCount > 0 && <span className="calendar-more">ほか{hiddenMonthCount}件</span>}
+              </button>
             );
           })}
         </div>
       </div>
 
-      <div className="calendar-list-panel" aria-label="目標とイベントの一覧">
+      <div className="calendar-month-agenda" aria-label={`${selectedYear}年${selectedMonth}月の予定`}>
+        <div className="calendar-month-agenda-head">
+          <strong>{selectedYear}年{selectedMonth}月</strong>
+          <span>{selectedMonthEntries.length}件</span>
+        </div>
+        {selectedMonthEntries.length === 0 ? (
+          <p>この月の予定はありません。</p>
+        ) : (
+          selectedMonthEntries.map((entry) => (
+            <div className={`calendar-month-agenda-row ${entry.tone}`} key={entry.id}>
+              <span>{getEntryKindLabel(entry)}</span>
+              <strong>{entry.title}</strong>
+              <small>{entry.detail}</small>
+              {entry.amount ? <small>{manYen(entry.amount)}</small> : null}
+            </div>
+          ))
+        )}
+      </div>
+
+      <details className="calendar-organize-panel">
+        <summary>予定を検索・絞り込み</summary>
+        <div className="list-toolbar" aria-label="カレンダーの検索と整理">
+          <label>
+            検索
+            <input value={entrySearch} onChange={(event) => setEntrySearch(event.target.value)} placeholder="目標名・イベント名で検索" />
+          </label>
+          <label>
+            種類
+            <select value={entryKind} onChange={(event) => setEntryKind(event.target.value as "all" | "goal" | "event" | "memo")}>
+              <option value="all">すべて</option>
+              <option value="goal">目標のみ</option>
+              <option value="event">イベントのみ</option>
+              <option value="memo">予定メモのみ</option>
+            </select>
+          </label>
+          <label>
+            並び替え
+            <select value={entrySort} onChange={(event) => setEntrySort(event.target.value as "yearAsc" | "yearDesc" | "title")}>
+              <option value="yearAsc">時期が近い順</option>
+              <option value="yearDesc">時期が遠い順</option>
+              <option value="title">名前順</option>
+            </select>
+          </label>
+          <label>
+            対象者
+            <select value={entryOwner} onChange={(event) => setEntryOwner(event.target.value as EventOwner | "all")}>
+              <option value="all">すべて</option>
+              {Object.entries(eventOwnerLabels).map(([value, label]) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
+            </select>
+          </label>
+          <span>{visibleEntries.length}件表示 / 全{entries.length}件</span>
+        </div>
+      </details>
+
+      <div className="calendar-list-panel" aria-label="目標、イベント、予定メモの一覧">
         {visibleEntries.length === 0 ? (
-          <EmptyState title="条件に合う予定がありません" detail="検索条件や表示期間を変えて確認してください。" />
+          <EmptyState title="条件に合う予定がありません" detail="検索条件や表示年を変えて確認してください。" />
         ) : (
           visibleEntries.map((entry) => (
             <div className={`calendar-list-row ${entry.tone}`} key={entry.id}>
               <div>
-                <span>{entry.kind === "goal" ? "目標" : "イベント"}</span>
+                <span>{getEntryKindLabel(entry)}</span>
                 <strong>{entry.title}</strong>
               </div>
               <div>
@@ -2749,7 +2954,7 @@ function LifeCalendar({ plan }: { plan: LifePlan }) {
   );
 }
 
-function TimelineView({
+function EventSettingsView({
   plan,
   setActiveView,
   addEvent,
@@ -2790,12 +2995,11 @@ function TimelineView({
     <div className="view-stack">
       <section className="panel">
         <div className="section-heading">
-          <StepTitle step="7" title="ライフイベント年表" description="予定年、金額、家計への影響を整理し、資産見通しに反映できます。" />
+          <StepTitle step="7" title="イベント設定" description="予定の時期、対象者、金額、家計への影響を整理します。" />
           <button type="button" onClick={addEvent}>
             イベントを追加
           </button>
         </div>
-        <LifeCalendar plan={plan} />
         <div className="template-panel" aria-label="ライフイベントテンプレート">
           <div>
             <strong>テンプレートから追加</strong>
@@ -3031,6 +3235,22 @@ function TimelineView({
       <StepFlowNav
         setActiveView={setActiveView}
         previous={{ view: "simulation", label: "シミュレーション" }}
+        next={{ view: "timeline", label: "年表" }}
+      />
+    </div>
+  );
+}
+
+function TimelineView({ plan, setActiveView }: { plan: LifePlan; setActiveView: (view: ViewKey) => void }) {
+  return (
+    <div className="view-stack">
+      <section className="panel">
+        <StepTitle step="8" title="年表" description="目標、イベント、予定メモを月ごとにまとめて確認します。" />
+        <LifeCalendar plan={plan} />
+      </section>
+      <StepFlowNav
+        setActiveView={setActiveView}
+        previous={{ view: "events", label: "イベント設定" }}
         next={{ view: "notes", label: "メモ" }}
       />
     </div>
@@ -3846,6 +4066,9 @@ function NotesView({
   plan,
   setActiveView,
   updateNotes,
+  addTimelineMemo,
+  updateTimelineMemo,
+  removeTimelineMemo,
   addReview,
   updateReview,
   removeReview
@@ -3854,6 +4077,9 @@ function NotesView({
   plan: LifePlan;
   setActiveView: (view: ViewKey) => void;
   updateNotes: <K extends keyof PlanNotes>(key: K, value: PlanNotes[K]) => void;
+  addTimelineMemo: () => void;
+  updateTimelineMemo: <K extends keyof TimelineMemo>(id: string, key: K, value: TimelineMemo[K]) => void;
+  removeTimelineMemo: (id: string) => void;
   addReview: () => void;
   updateReview: <K extends keyof ReviewNote>(id: string, key: K, value: ReviewNote[K]) => void;
   removeReview: (id: string) => void;
@@ -3876,7 +4102,7 @@ function NotesView({
     <div className="view-stack">
       {mode === "notes" && (
       <section className="panel form-panel">
-        <StepTitle step="8" title="メモ" description="無料版では、今の前提や次の見直しを1つのプラン内に保存できます。" />
+        <StepTitle step="9" title="メモ" description="今の前提や次の見直しを1つのプラン内に保存できます。" />
         <div className="notes-grid">
           <label>
             現在の考え・見直しメモ
@@ -3895,6 +4121,52 @@ function NotesView({
             />
           </label>
         </div>
+        <div className="section-heading timeline-memo-heading">
+          <div>
+            <h3>年表に表示する予定メモ</h3>
+            <p>検討時期や確認したいことを月単位で登録できます。資産試算には影響しません。</p>
+          </div>
+          <button type="button" className="secondary" onClick={addTimelineMemo}>予定メモを追加</button>
+        </div>
+        {(plan.timelineMemos || []).length === 0 ? (
+          <EmptyState title="年表用の予定メモはありません" detail="必要なときだけ追加できます。通常のメモはこのまま保存されます。" />
+        ) : (
+          <div className="timeline-memo-list">
+            {(plan.timelineMemos || []).map((memo) => (
+              <div className="timeline-memo-row" key={memo.id}>
+                <label>
+                  タイトル
+                  <input value={memo.title} onChange={(event) => updateTimelineMemo(memo.id, "title", event.target.value)} />
+                </label>
+                <label>
+                  年
+                  <NumericInput value={memo.year} min={new Date().getFullYear()} onChange={(value) => updateTimelineMemo(memo.id, "year", value)} />
+                </label>
+                <label>
+                  月
+                  <select value={memo.month} onChange={(event) => updateTimelineMemo(memo.id, "month", Number(event.target.value))}>
+                    {monthLabels.map((label, index) => <option key={label} value={index + 1}>{label}</option>)}
+                  </select>
+                </label>
+                <label>
+                  対象者
+                  <select value={memo.owner} onChange={(event) => updateTimelineMemo(memo.id, "owner", event.target.value as EventOwner)}>
+                    {Object.entries(eventOwnerLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                  </select>
+                </label>
+                <label className="timeline-memo-text">
+                  内容
+                  <input value={memo.memo} onChange={(event) => updateTimelineMemo(memo.id, "memo", event.target.value)} />
+                </label>
+                <label className="timeline-memo-toggle">
+                  <input type="checkbox" checked={memo.showOnTimeline} onChange={(event) => updateTimelineMemo(memo.id, "showOnTimeline", event.target.checked)} />
+                  年表に表示
+                </label>
+                <button type="button" className="text-button" onClick={() => removeTimelineMemo(memo.id)}>削除</button>
+              </div>
+            ))}
+          </div>
+        )}
       </section>
       )}
 

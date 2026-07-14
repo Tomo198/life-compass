@@ -1920,6 +1920,35 @@ td select {
   font-size: 1.15rem;
 }
 
+.calendar-year-navigation {
+  display: grid;
+  grid-template-columns: 2.8rem minmax(8.5rem, 1fr) 2.8rem auto;
+  gap: 0.45rem;
+  align-items: end;
+}
+
+.calendar-year-navigation > button {
+  min-width: 2.8rem;
+  padding-inline: 0.65rem;
+  font-size: 1.2rem;
+}
+
+.calendar-year-navigation > label {
+  display: grid;
+  gap: 0.25rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.calendar-year-navigation select {
+  min-width: 8.5rem;
+  font-weight: 700;
+}
+
+.calendar-today-button {
+  font-size: 0.86rem !important;
+}
+
 .calendar-next-list {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -2077,6 +2106,13 @@ td select {
   border-left-color: var(--muted);
 }
 
+.calendar-entry.memo,
+.calendar-month-entry.memo,
+.calendar-list-row.memo,
+.calendar-month-agenda-row.memo {
+  border-left-color: #8a6f9e;
+}
+
 .calendar-entry div:first-child {
   display: grid;
   gap: 0.15rem;
@@ -2113,7 +2149,7 @@ td select {
   padding: 0.95rem;
   border: 1px solid color-mix(in srgb, var(--line) 84%, transparent);
   border-radius: 8px;
-  background: color-mix(in srgb, var(--surface) 97%, var(--surface-soft));
+  background: var(--surface);
   box-shadow: 0 12px 28px rgba(36, 48, 47, 0.045);
 }
 
@@ -2137,7 +2173,7 @@ td select {
 
 .calendar-month-grid {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0.55rem;
 }
 
@@ -2145,12 +2181,49 @@ td select {
   display: grid;
   align-content: start;
   gap: 0.45rem;
-  min-height: 5.5rem;
+  min-height: 8rem;
   padding: 0.65rem;
   border: 1px solid color-mix(in srgb, var(--line) 84%, transparent);
   border-radius: 8px;
   background: color-mix(in srgb, var(--surface-soft) 78%, var(--surface));
   min-width: 0;
+  width: 100%;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: none;
+}
+
+.calendar-month-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 75%, transparent);
+}
+
+.calendar-month-head > strong {
+  color: var(--primary-dark);
+  font-size: 1rem;
+}
+
+.calendar-month-head > span {
+  min-width: 2.2rem;
+  padding: 0.12rem 0.35rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--primary) 12%, var(--surface));
+  color: var(--primary-dark);
+  font-size: 0.7rem;
+  text-align: center;
+}
+
+.calendar-month-card:hover,
+.calendar-month-card.selected {
+  border-color: color-mix(in srgb, var(--primary) 58%, var(--line));
+  background: var(--surface);
+  transform: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 10%, transparent);
 }
 
 .calendar-month-card > span {
@@ -2193,6 +2266,111 @@ td select {
 .calendar-more {
   color: var(--muted);
   font-size: 0.78rem;
+}
+
+.calendar-organize-panel {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.calendar-organize-panel summary {
+  padding: 0.8rem 0.9rem;
+  color: var(--primary-dark);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.calendar-organize-panel .list-toolbar {
+  margin: 0;
+  padding: 0 0.9rem 0.9rem;
+}
+
+.calendar-month-agenda {
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.calendar-month-agenda > p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.calendar-month-agenda-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.calendar-month-agenda-head span {
+  color: var(--muted);
+}
+
+.calendar-month-agenda-row {
+  display: grid;
+  grid-template-columns: 5rem minmax(8rem, 0.7fr) minmax(12rem, 1fr) auto;
+  gap: 0.65rem;
+  align-items: center;
+  padding: 0.65rem;
+  border-left: 0.22rem solid var(--line);
+  background: var(--surface-soft);
+}
+
+.calendar-month-agenda-row.goal { border-left-color: var(--primary); }
+.calendar-month-agenda-row.expense { border-left-color: #c76f4a; }
+.calendar-month-agenda-row.income { border-left-color: #4f8a6d; }
+.calendar-month-agenda-row small,
+.calendar-month-agenda-row span { color: var(--muted); }
+
+.goal-deadline-control {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.goal-deadline-control > label {
+  display: grid;
+  gap: 0.25rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.timeline-memo-heading {
+  margin-top: 1.25rem;
+}
+
+.timeline-memo-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.timeline-memo-row {
+  display: grid;
+  grid-template-columns: minmax(10rem, 1.2fr) 7rem 6rem 8rem minmax(12rem, 1.4fr) auto auto;
+  gap: 0.65rem;
+  align-items: end;
+  padding: 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+
+.timeline-memo-row label {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.timeline-memo-toggle {
+  grid-template-columns: auto 1fr !important;
+  align-items: center;
+  min-height: 2.7rem;
+}
+
+.timeline-memo-toggle input {
+  width: auto;
 }
 
 .calendar-list-panel {
@@ -2667,6 +2845,55 @@ td select {
   color: #fff;
 }
 
+.storage-capacity-panel {
+  display: grid;
+  gap: 0.65rem;
+  margin-top: 0.8rem;
+  padding: 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+
+.storage-capacity-panel.warning {
+  border-color: color-mix(in srgb, var(--warn) 55%, var(--line));
+}
+
+.storage-capacity-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.storage-capacity-head > div {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.storage-capacity-head span,
+.storage-capacity-panel small {
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.storage-capacity-track {
+  height: 0.55rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--surface);
+}
+
+.storage-capacity-track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--primary);
+}
+
+.storage-capacity-panel.warning .storage-capacity-track span {
+  background: var(--warn);
+}
+
 .compact-select {
   min-width: min(18rem, 100%);
 }
@@ -2706,10 +2933,255 @@ td select {
   line-height: 1.5;
 }
 
-.budget-list {
+.budget-view-tabs {
+  margin-top: 1rem;
+}
+
+.budget-view-tabs button {
+  min-width: 7rem;
+}
+
+.budget-category-marker,
+.budget-category-label i {
+  display: inline-block;
+  width: 0.7rem;
+  height: 0.7rem;
+  margin-right: 0.45rem;
+  border-radius: 50%;
+  background: var(--budget-category-color, #7a8583);
+  vertical-align: 0.02rem;
+}
+
+.budget-category-label {
+  display: inline-flex;
+  align-items: center;
+  font-weight: 700;
+}
+
+.budget-category-label i {
+  flex: 0 0 auto;
+  margin-right: 0.5rem;
+}
+
+.budget-category-marker.food,
+.budget-category-label.food { --budget-category-color: #d3654f; }
+.budget-category-marker.daily,
+.budget-category-label.daily { --budget-category-color: #3b8c83; }
+.budget-category-marker.housing,
+.budget-category-label.housing { --budget-category-color: #477eb5; }
+.budget-category-marker.utilities,
+.budget-category-label.utilities { --budget-category-color: #c58c2b; }
+.budget-category-marker.communication,
+.budget-category-label.communication { --budget-category-color: #338fa6; }
+.budget-category-marker.insurance,
+.budget-category-label.insurance { --budget-category-color: #806ca8; }
+.budget-category-marker.car,
+.budget-category-label.car { --budget-category-color: #687a86; }
+.budget-category-marker.education,
+.budget-category-label.education { --budget-category-color: #5d8e45; }
+.budget-category-marker.medical,
+.budget-category-label.medical { --budget-category-color: #bd4d64; }
+.budget-category-marker.travel,
+.budget-category-label.travel { --budget-category-color: #c47538; }
+.budget-category-marker.subscription,
+.budget-category-label.subscription { --budget-category-color: #a45f87; }
+.budget-category-marker.other,
+.budget-category-label.other { --budget-category-color: #77817f; }
+
+.budget-category-segment {
+  display: block;
+  min-width: 0.2rem;
+  height: 100%;
+  background: var(--budget-category-color, #77817f);
+}
+
+.budget-category-segment.food { --budget-category-color: #d3654f; }
+.budget-category-segment.daily { --budget-category-color: #3b8c83; }
+.budget-category-segment.housing { --budget-category-color: #477eb5; }
+.budget-category-segment.utilities { --budget-category-color: #c58c2b; }
+.budget-category-segment.communication { --budget-category-color: #338fa6; }
+.budget-category-segment.insurance { --budget-category-color: #806ca8; }
+.budget-category-segment.car { --budget-category-color: #687a86; }
+.budget-category-segment.education { --budget-category-color: #5d8e45; }
+.budget-category-segment.medical { --budget-category-color: #bd4d64; }
+.budget-category-segment.travel { --budget-category-color: #c47538; }
+.budget-category-segment.subscription { --budget-category-color: #a45f87; }
+.budget-category-segment.other { --budget-category-color: #77817f; }
+
+.budget-overview-panel {
   display: grid;
   gap: 0.75rem;
+  margin-top: 0.9rem;
+  padding: 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+
+.budget-overview-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.budget-overview-head > div {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.budget-overview-head span,
+.budget-overview-head small {
+  color: var(--muted);
+}
+
+.budget-composition-bar {
+  display: flex;
+  height: 0.85rem;
+  overflow: hidden;
+  border-radius: 4px;
+  background: var(--surface);
+}
+
+.budget-composition-legend {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 0.45rem;
+}
+
+.budget-composition-legend > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 2.5rem;
+  gap: 0.5rem;
+  align-items: center;
+  padding: 0.4rem 0.5rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 75%, transparent);
+}
+
+.budget-composition-legend strong,
+.budget-composition-legend small {
+  font-size: 0.8rem;
+  text-align: right;
+}
+
+.budget-composition-legend small {
+  color: var(--muted);
+}
+
+.budget-item-toolbar {
+  margin-bottom: 0.9rem;
+}
+
+.budget-scalable-list,
+.budget-scalable-table {
+  max-height: 38rem;
+  overflow: auto;
+  scrollbar-width: thin;
+}
+
+.budget-scalable-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--surface);
+}
+
+.budget-over-cell {
+  color: var(--danger);
+  font-weight: 700;
+}
+
+.budget-within-cell {
+  color: var(--primary-dark);
+  font-weight: 700;
+}
+
+.budget-annual-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.8rem;
+  margin-bottom: 1rem;
+}
+
+.budget-year-chart {
+  display: grid;
+  gap: 0.55rem;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+
+.budget-chart-legend {
+  display: flex;
+  justify-content: flex-end;
+  gap: 1rem;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.budget-chart-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.budget-chart-legend i {
+  width: 1rem;
+  height: 0.35rem;
+  border-radius: 2px;
+}
+
+.budget-chart-legend .planned,
+.budget-bar.planned {
+  background: #6686a3;
+}
+
+.budget-chart-legend .actual,
+.budget-bar.actual {
+  background: #3f897b;
+}
+
+.budget-year-bar-row {
+  display: grid;
+  grid-template-columns: 2.8rem minmax(0, 1fr) minmax(5.8rem, auto);
+  gap: 0.7rem;
+  align-items: center;
+}
+
+.budget-year-bar-row > strong,
+.budget-year-bar-row > small {
+  font-size: 0.82rem;
+}
+
+.budget-year-bar-row > small {
+  color: var(--muted);
+  text-align: right;
+}
+
+.budget-bar-pair {
+  display: grid;
+  gap: 0.18rem;
+  min-width: 0;
+}
+
+.budget-bar {
+  display: block;
+  min-height: 0.35rem;
+  max-width: 100%;
+  border-radius: 2px;
+}
+
+.budget-history-table {
   margin-top: 1rem;
+}
+
+.budget-list {
+  display: grid;
+  gap: 0;
+  margin-top: 1rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
 }
 
 .budget-row {
@@ -2726,9 +3198,14 @@ td select {
   gap: 0.75rem;
   align-items: end;
   padding: 0.9rem;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--surface-soft);
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: var(--surface);
+}
+
+.budget-row:last-child {
+  border-bottom: 0;
 }
 
 .scenario-row,
@@ -2934,6 +3411,26 @@ td select {
 .cloud-password-grid label {
   display: grid;
   gap: 0.45rem;
+}
+
+.password-input-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.5rem;
+}
+
+.password-visibility-button {
+  min-width: 4.5rem;
+}
+
+.cloud-password-warning {
+  display: grid;
+  gap: 0.25rem;
+  margin-bottom: 1rem;
+  padding: 0.75rem 0.85rem;
+  border-left: 4px solid var(--danger);
+  background: color-mix(in srgb, var(--danger) 8%, var(--surface));
+  color: var(--danger);
 }
 
 .cloud-password-grid small,
@@ -3639,6 +4136,15 @@ td select {
     grid-template-columns: 1fr;
   }
 
+  .budget-annual-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .budget-year-bar-row {
+    grid-template-columns: 2.6rem minmax(0, 1fr) 5.4rem;
+    gap: 0.45rem;
+  }
+
   .account-signed-in {
     align-items: stretch;
     flex-direction: column;
@@ -3878,15 +4384,20 @@ td select {
   }
 
   .calendar-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: none;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(10rem, 76%);
     max-height: none;
-    overflow: visible;
-    padding-right: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 0 0 0.45rem;
+    scroll-snap-type: x proximity;
   }
 
   .calendar-year-card {
     min-height: 7.8rem;
     padding: 0.72rem;
+    scroll-snap-align: start;
   }
 
   .calendar-detail-head {
@@ -3894,7 +4405,7 @@ td select {
   }
 
   .calendar-month-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .list-toolbar > span {
@@ -4058,6 +4569,48 @@ td select {
   .calendar-list-row:hover {
     transform: none;
     box-shadow: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .calendar-year-navigation {
+    grid-template-columns: 2.7rem minmax(0, 1fr) 2.7rem;
+    width: 100%;
+  }
+
+  .calendar-today-button {
+    grid-column: 1 / -1;
+  }
+
+  .calendar-month-agenda-row {
+    grid-template-columns: 4.5rem minmax(0, 1fr);
+  }
+
+  .calendar-month-agenda-row small {
+    grid-column: 1 / -1;
+  }
+
+  .timeline-memo-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .timeline-memo-row > label:first-child,
+  .timeline-memo-text,
+  .timeline-memo-toggle,
+  .timeline-memo-row > button {
+    grid-column: 1 / -1;
+  }
+
+  .storage-capacity-head {
+    display: grid;
+  }
+
+  .budget-overview-head {
+    display: grid;
+  }
+
+  .budget-composition-legend {
+    grid-template-columns: 1fr;
   }
 }
 

@@ -103,6 +103,41 @@ test("ブラウザ保存に失敗した場合は画面上へ通知する", async
   await expect(page.getByRole("button", { name: "データ管理を開く" })).toBeVisible();
 });
 
+test("予算実績、イベント設定、月別年表、保存容量を整理して確認できる", async ({ page }) => {
+  await openView(page, "budget");
+  await expect(page.getByText("月平均予算の全体像", { exact: true })).toBeVisible();
+  await page.getByLabel("項目を検索").fill("食費");
+  await expect(page.locator(".monthly-actual-row")).toHaveCount(1);
+  await page.getByLabel("項目を検索").fill("");
+  await page.getByRole("button", { name: "月別比較", exact: true }).click();
+  await expect(page.getByRole("heading", { name: /カテゴリ別比較/ })).toBeVisible();
+  await page.getByRole("button", { name: "年間推移", exact: true }).click();
+  await expect(page.getByRole("heading", { name: /予算・実績推移/ })).toBeVisible();
+
+  await openView(page, "events");
+  await expect(page.getByRole("heading", { name: "イベント設定", exact: true, level: 1 })).toBeVisible();
+  await expect(page.locator(".life-calendar")).toHaveCount(0);
+
+  await openView(page, "notes");
+  await page.getByRole("button", { name: "予定メモを追加" }).click();
+  const memoRow = page.locator(".timeline-memo-row").last();
+  await memoRow.getByLabel("タイトル").fill("更新時期を確認");
+  await memoRow.getByLabel("内容").fill("家計の前提を見直す");
+
+  await openView(page, "timeline");
+  await expect(page.getByRole("heading", { name: "年表", exact: true, level: 1 })).toBeVisible();
+  await expect(page.getByText("更新時期を確認", { exact: true }).first()).toBeVisible();
+  await expect(page.locator(".calendar-month-card")).toHaveCount(12);
+  const nextYear = new Date().getFullYear() + 1;
+  await page.getByLabel("表示する年", { exact: true }).selectOption(String(nextYear));
+  await expect(page.getByText(`${nextYear}年 年間カレンダー`, { exact: true })).toBeVisible();
+
+  await openView(page, "data");
+  await expect(page.getByText("ブラウザ内データの使用目安", { exact: true })).toBeVisible();
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect(overflow).toBeLessThanOrEqual(1);
+});
+
 test("無料版とPro版の境界が表示され、横方向にはみ出さない", async ({ page }, testInfo) => {
   await expect(page.getByTestId("app-shell")).toHaveAttribute("data-access-mode", "preview");
   await expect(page.getByTestId("app-shell")).toHaveAttribute("data-access-tier", "free");

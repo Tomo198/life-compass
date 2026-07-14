@@ -76,6 +76,7 @@ export type Goal = {
   title: string;
   goalType: GoalType;
   dueYear: number;
+  dueMonth: number;
   requiredAmount: number;
   savedAmount: number;
   monthlyAllocation: number;
@@ -103,6 +104,16 @@ export type SimulationSettings = {
   bonusContribution: number;
   annualReturnRate: number;
   years: number;
+};
+
+export type TimelineMemo = {
+  id: string;
+  title: string;
+  year: number;
+  month: number;
+  owner: EventOwner;
+  memo: string;
+  showOnTimeline: boolean;
 };
 
 export type WithdrawalPeriodSettings = {
@@ -207,6 +218,7 @@ export type LifePlan = {
   assets: Assets;
   goals: Goal[];
   events: LifeEvent[];
+  timelineMemos: TimelineMemo[];
   simulation: SimulationSettings;
   withdrawalPlan: WithdrawalPlanSettings;
   retirementPlan: RetirementPlanSettings;
@@ -224,6 +236,7 @@ export type ViewKey =
   | "household"
   | "assets"
   | "goals"
+  | "events"
   | "timeline"
   | "simulation"
   | "retirement"

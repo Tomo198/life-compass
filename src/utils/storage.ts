@@ -23,6 +23,7 @@ import type {
   ScenarioSnapshot,
   ScenarioTag,
   SimulationSettings,
+  TimelineMemo,
   WorkStyle,
   WithdrawalPeriodSettings,
   WithdrawalPlanSettings
@@ -247,6 +248,7 @@ const normalizePlan = (plan: LifePlan): LifePlan => {
     assets: normalizeAssets(plan.assets),
     goals: Array.isArray(plan.goals) ? plan.goals.map(normalizeGoal) : [],
     events: Array.isArray(plan.events) ? plan.events.map(normalizeEvent) : [],
+    timelineMemos: Array.isArray(plan.timelineMemos) ? plan.timelineMemos.map(normalizeTimelineMemo) : [],
     simulation: normalizeSimulation(plan.simulation),
     withdrawalPlan: normalizeWithdrawalPlan(plan.withdrawalPlan),
     notes: {
@@ -293,6 +295,16 @@ const normalizeEvent = (event: LifeEvent | null | undefined): LifeEvent => ({
   memo: stringValue(event?.memo)
 });
 
+const normalizeTimelineMemo = (memo: TimelineMemo | null | undefined): TimelineMemo => ({
+  id: identifierValue(memo?.id),
+  title: stringValue(memo?.title, "予定メモ"),
+  year: integerInRange(memo?.year, new Date().getFullYear(), 1900, 2300),
+  month: normalizeMonth(memo?.month),
+  owner: enumValue(memo?.owner, eventOwners, "self"),
+  memo: stringValue(memo?.memo),
+  showOnTimeline: memo?.showOnTimeline !== false
+});
+
 const normalizeGoal = (goal: Goal | null | undefined): Goal => {
   const progress = finiteNumber(goal?.progress, 0);
   const requiredAmount = nonNegativeNumber(goal?.requiredAmount);
@@ -302,6 +314,7 @@ const normalizeGoal = (goal: Goal | null | undefined): Goal => {
     title: stringValue(goal?.title, "目標"),
     goalType: enumValue(goal?.goalType, goalTypes, "oneTime"),
     dueYear: integerInRange(goal?.dueYear, new Date().getFullYear(), 1900, 2300),
+    dueMonth: normalizeMonth(goal?.dueMonth ?? 12),
     requiredAmount,
     savedAmount:
       typeof goal?.savedAmount === "number" && Number.isFinite(goal.savedAmount)

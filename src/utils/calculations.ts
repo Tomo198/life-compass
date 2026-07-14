@@ -556,7 +556,7 @@ export const getInputCompletion = (plan: LifePlan) => {
     { label: "生活費", complete: plan.household.fixedCost > 0 || plan.household.variableCost > 0, view: "household" },
     { label: "資産", complete: plan.assets.cash > 0 || plan.assets.investment > 0 || plan.assets.other > 0, view: "assets" },
     { label: "目標", complete: plan.goals.length > 0, view: "goals" },
-    { label: "ライフイベント", complete: plan.events.length > 0, view: "timeline" },
+    { label: "ライフイベント", complete: plan.events.length > 0, view: "events" },
     { label: "メモ", complete: Boolean(plan.notes?.general || plan.notes?.spendingReview), view: "notes" }
   ];
   const completed = items.filter((item) => item.complete).length;

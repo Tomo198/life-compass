@@ -14,6 +14,50 @@ type CloudBackupSummary = {
 
 type CloudState = "loading" | "unavailable" | "login-required" | "restricted" | "available";
 
+function PasswordInput({
+  label,
+  value,
+  onChange,
+  helper,
+  autoComplete,
+  disabled = false
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  helper: string;
+  autoComplete: string;
+  disabled?: boolean;
+}) {
+  const [visible, setVisible] = useState(false);
+
+  return (
+    <label>
+      {label}
+      <div className="password-input-row">
+        <input
+          type={visible ? "text" : "password"}
+          aria-label={label}
+          autoComplete={autoComplete}
+          value={value}
+          minLength={12}
+          maxLength={200}
+          disabled={disabled}
+          onChange={(event) => onChange(event.target.value)}
+        />
+        <button
+          type="button"
+          className="secondary password-visibility-button"
+          disabled={disabled}
+          aria-pressed={visible}
+          onClick={() => setVisible((current) => !current)}
+        >{visible ? "隠す" : "表示"}</button>
+      </div>
+      <small>{helper}</small>
+    </label>
+  );
+}
+
 const apiError = async (response: Response, fallback: string) => {
   try {
     const body = await response.json() as { error?: { code?: string } };
@@ -203,32 +247,24 @@ export function CloudBackupPanel({
             <p>現在のプランを、ここで設定する復旧パスワードで暗号化して保存します。</p>
           </div>
           <div className="cloud-password-grid">
-            <label>
-              保存用の復旧パスワード
-              <input
-                type="password"
-                aria-label="保存用の復旧パスワード"
-                autoComplete="new-password"
-                value={savePassword}
-                minLength={12}
-                maxLength={200}
-                onChange={(event) => setSavePassword(event.target.value)}
-              />
-              <small>12文字以上。保存されず、忘れると運営者でも復元できません。</small>
-            </label>
-            <label>
-              保存用の復旧パスワード（確認）
-              <input
-                type="password"
-                aria-label="保存用の復旧パスワード（確認）"
-                autoComplete="new-password"
-                value={saveConfirmation}
-                minLength={12}
-                maxLength={200}
-                onChange={(event) => setSaveConfirmation(event.target.value)}
-              />
-              <small>上の欄と同じパスワードを入力してください。</small>
-            </label>
+            <PasswordInput
+              label="保存用の復旧パスワード"
+              value={savePassword}
+              onChange={setSavePassword}
+              helper="12文字以上で入力してください。"
+              autoComplete="new-password"
+            />
+            <PasswordInput
+              label="保存用の復旧パスワード（確認）"
+              value={saveConfirmation}
+              onChange={setSaveConfirmation}
+              helper="同じ復旧パスワードを入力してください。"
+              autoComplete="new-password"
+            />
+          </div>
+          <div className="cloud-password-warning" role="note">
+            <strong>復旧パスワードを忘れると、運営者でも復元できません。</strong>
+            <span>パスワード管理アプリや安全なメモへ必ず記録してください。</span>
           </div>
           <div className="button-row">
             <button type="button" disabled={busy || backups.length >= limit} onClick={saveBackup}>内容を確認して保存</button>
@@ -277,20 +313,14 @@ export function CloudBackupPanel({
                     ))}
                   </select>
                 </label>
-                <label>
-                  保存時の復旧パスワード
-                  <input
-                    type="password"
-                    aria-label="保存時の復旧パスワード"
-                    autoComplete="off"
-                    value={restorePassword}
-                    minLength={12}
-                    maxLength={200}
-                    disabled={!restoreTarget}
-                    onChange={(event) => setRestorePassword(event.target.value)}
-                  />
-                  <small>新しいパスワードを設定する欄ではありません。選択したバックアップを保存したときのパスワードを入力してください。</small>
-                </label>
+                <PasswordInput
+                  label="保存時の復旧パスワード"
+                  value={restorePassword}
+                  onChange={setRestorePassword}
+                  helper="新しいパスワードを設定する欄ではありません。選択したバックアップを保存したときのパスワードを入力してください。"
+                  autoComplete="off"
+                  disabled={!restoreTarget}
+                />
                 <div className="button-row">
                   <button type="button" disabled={busy || !restoreTarget} onClick={() => restoreTarget && void restoreBackup(restoreTarget)}>復元内容を確認</button>
                   <button

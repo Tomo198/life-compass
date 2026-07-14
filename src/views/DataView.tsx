@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import { DisclaimerPanel, StepTitle } from "../components/CommonUi";
 import { CloudBackupPanel } from "../components/CloudBackupPanel";
-import { MAX_IMPORT_FILE_BYTES } from "../config";
+import { LOCAL_STORAGE_GUIDE_BYTES, LOCAL_STORAGE_WARNING_BYTES, MAX_IMPORT_FILE_BYTES } from "../config";
 import type { AccessState } from "../features";
 import type { LifePlan } from "../types";
 import {
@@ -40,7 +40,13 @@ export function DataView({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [recoveryBackups, setRecoveryBackups] = useState<RecoveryBackup[]>(() => getRecoveryBackups());
   const updatedAt = new Date(plan.updatedAt).toLocaleString("ja-JP");
-  const backupSizeKb = Math.max(1, Math.ceil(new Blob([JSON.stringify(plan)]).size / 1024));
+  const planSizeBytes = new Blob([JSON.stringify(plan)]).size;
+  const recoverySizeBytes = recoveryBackups.reduce((total, backup) => total + new Blob([JSON.stringify(backup)]).size, 0);
+  const localDataSizeBytes = planSizeBytes + recoverySizeBytes;
+  const backupSizeKb = Math.max(1, Math.ceil(planSizeBytes / 1024));
+  const localDataSizeKb = Math.max(1, Math.ceil(localDataSizeBytes / 1024));
+  const storageGuidePercent = Math.min(100, Math.round((localDataSizeBytes / LOCAL_STORAGE_GUIDE_BYTES) * 100));
+  const storageNeedsAttention = localDataSizeBytes >= LOCAL_STORAGE_WARNING_BYTES;
   const versionLabel = useMemo(() => `データ形式 v${plan.version}`, [plan.version]);
 
   const refreshRecoveryBackups = () => setRecoveryBackups(getRecoveryBackups());
@@ -133,6 +139,22 @@ export function DataView({
           <div><span>通常の保存先</span><strong>このブラウザ内</strong><small>自動同期は行いません。クラウド保存は任意の手動バックアップだけです。</small></div>
           <div><span>最終保存</span><strong>{updatedAt}</strong><small>入力変更時に自動保存されます。</small></div>
           <div><span>バックアップ目安</span><strong>約{backupSizeKb}KB</strong><small>{versionLabel}・JSONとして保存できます。</small></div>
+        </div>
+        <div className={`storage-capacity-panel${storageNeedsAttention ? " warning" : ""}`}>
+          <div className="storage-capacity-head">
+            <div>
+              <strong>ブラウザ内データの使用目安</strong>
+              <span>現在プランと復旧用コピーの概算: 約{localDataSizeKb.toLocaleString("ja-JP")}KB</span>
+            </div>
+            <span>{storageNeedsAttention ? "JSONバックアップを推奨" : "通常の利用範囲です"}</span>
+          </div>
+          <div className="storage-capacity-track" aria-label={`保存容量の目安 ${storageGuidePercent}%`}>
+            <span style={{ width: `${storageGuidePercent}%` }} />
+          </div>
+          <small>
+            5MBを一般的な目安として表示しています。実際の保存可能量はブラウザや端末で異なります。
+            容量が増えた場合はJSONをエクスポートし、不要な復旧用コピーを削除してください。
+          </small>
         </div>
         <div className="data-actions">
           <button type="button" onClick={() => exportPlan(plan)}>JSONエクスポート</button>

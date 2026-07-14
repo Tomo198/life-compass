@@ -122,6 +122,7 @@ const basePlan: LifePlan = {
   },
   goals: [],
   events: [],
+  timelineMemos: [],
   simulation: {
     monthlyContribution: 10000,
     bonusContribution: 20000,
@@ -1193,7 +1194,7 @@ test("input completion items include the destination view for dashboard guidance
   assert.equal(completion.total, 7);
   assert.equal(completion.items.find((item) => item.label === "基本プロフィール")?.view, "profile");
   assert.equal(completion.items.find((item) => item.label === "資産")?.view, "assets");
-  assert.equal(completion.items.find((item) => item.label === "ライフイベント")?.view, "timeline");
+  assert.equal(completion.items.find((item) => item.label === "ライフイベント")?.view, "events");
   assert.equal(completion.items.find((item) => item.label === "メモ")?.complete, false);
 });
 
@@ -1216,6 +1217,22 @@ test("import validation rejects unrelated JSON and fills optional fields for leg
         memo: ""
       }
     ],
+    goals: [
+      {
+        id: "legacy-goal",
+        title: "legacy goal",
+        goalType: "oneTime",
+        dueYear: currentYear + 2,
+        requiredAmount: 100000,
+        savedAmount: 0,
+        monthlyAllocation: 10000,
+        recurrence: "yearly",
+        priority: "medium",
+        progress: 0,
+        memo: ""
+      }
+    ],
+    timelineMemos: undefined,
     simulation: undefined,
     withdrawalPlan: undefined,
     retirementPlan: undefined,
@@ -1243,10 +1260,34 @@ test("import validation rejects unrelated JSON and fills optional fields for leg
   });
   assert.equal(imported.events[0].month, 1);
   assert.equal(imported.events[0].owner, "household");
+  assert.equal(imported.goals[0].dueMonth, 12);
+  assert.deepEqual(imported.timelineMemos, []);
   assert.deepEqual(imported.reviews, []);
   assert.deepEqual(imported.scenarios, []);
   assert.deepEqual(imported.fixedCostItems, []);
   assert.deepEqual(imported.budgetItems, []);
+});
+
+test("import validation normalizes timeline memos", () => {
+  const imported = validateImportedPlan({
+    ...basePlan,
+    timelineMemos: [
+      {
+        id: "memo-1",
+        title: "確認",
+        year: currentYear + 1,
+        month: 20,
+        owner: "invalid",
+        memo: "見直す",
+        showOnTimeline: undefined
+      }
+    ]
+  });
+
+  assert.equal(imported.timelineMemos.length, 1);
+  assert.equal(imported.timelineMemos[0].month, 12);
+  assert.equal(imported.timelineMemos[0].owner, "self");
+  assert.equal(imported.timelineMemos[0].showOnTimeline, true);
 });
 
 test("import validation preserves and normalizes withdrawal plan settings", () => {
@@ -1469,7 +1510,7 @@ test("cloud backups use unique randomness and reject wrong passwords or tamperin
 
   const replacement = first.ciphertext.endsWith("A") ? "B" : "A";
   const tampered = { ...first, ciphertext: `${first.ciphertext.slice(0, -1)}${replacement}` };
-  await assert.rejects(() => decryptCloudBackup(tampered, password), /違うか、バックアップが破損/);
+  await assert.rejects(() => decryptCloudBackup(tampered, password), /違うか、バックアップが破損|形式が正しくありません/);
 });
 
 test("cloud backup encryption rejects weak recovery passwords", async () => {

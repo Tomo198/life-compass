@@ -39,6 +39,7 @@ export const defaultPlan: LifePlan = {
       title: "5年後に資産500万円",
       goalType: "oneTime",
       dueYear: currentYear + 5,
+      dueMonth: 12,
       requiredAmount: 5000000,
       savedAmount: 2900000,
       monthlyAllocation: 30000,
@@ -52,6 +53,7 @@ export const defaultPlan: LifePlan = {
       title: "毎年旅行に行く",
       goalType: "recurring",
       dueYear: currentYear + 1,
+      dueMonth: 6,
       requiredAmount: 200000,
       savedAmount: 0,
       monthlyAllocation: 17000,
@@ -87,6 +89,7 @@ export const defaultPlan: LifePlan = {
       memo: "引越し費用の目安"
     }
   ],
+  timelineMemos: [],
   simulation: {
     monthlyContribution: 50000,
     bonusContribution: 100000,
