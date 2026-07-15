@@ -258,7 +258,7 @@ export function AccountPanel({ onAccountChange }: { onAccountChange: () => Promi
           <div>
             <span>Googleアカウント</span>
             <strong>{user.email || "メールアドレス非表示"}</strong>
-            <small>利用者IDと契約状態だけをサーバー側で管理します。</small>
+            <small>本人確認、契約判定、暗号化バックアップ管理に必要な最小限の情報をサーバー側で管理します。</small>
           </div>
           <div className="account-actions">
             <button type="button" className="secondary" data-testid="account-logout" onClick={handleLogout}>ログアウト</button>

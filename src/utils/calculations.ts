@@ -25,6 +25,19 @@ export type CashflowSummary = {
   annualSavingsRate: number;
 };
 
+export type BasicProjectionAllocation = {
+  monthlySurplus: number;
+  requestedMonthlyInvestment: number;
+  monthlyInvestment: number;
+  monthlyCash: number;
+  monthlyInvestmentExcess: number;
+  annualBonus: number;
+  requestedAnnualBonusInvestment: number;
+  annualBonusInvestment: number;
+  annualBonusCash: number;
+  annualBonusInvestmentExcess: number;
+};
+
 export type EmergencyFundResult = {
   lowerMonths: number;
   upperMonths: number;
@@ -54,7 +67,9 @@ export type MonthlyProjectionRow = ProjectionPoint & {
   monthIndex: number;
   label: string;
   monthlySavings: number;
+  monthlyInvestmentContribution: number;
   bonusSavings: number;
+  bonusInvestmentContribution: number;
   eventImpact: number;
   returnImpact: number;
   eventTitles: string[];
@@ -241,6 +256,30 @@ export const getCashflowSummary = (household: Household): CashflowSummary => {
   };
 };
 
+export const getBasicProjectionAllocation = (plan: LifePlan): BasicProjectionAllocation => {
+  const cashflow = getCashflowSummary(plan.household);
+  const monthlySurplus = cashflow.monthlySavings;
+  const availableMonthlySurplus = Math.max(0, monthlySurplus);
+  const requestedMonthlyInvestment = Math.max(0, plan.simulation.monthlyInvestmentAmount || 0);
+  const monthlyInvestment = Math.min(requestedMonthlyInvestment, availableMonthlySurplus);
+  const annualBonus = Math.max(0, plan.household.annualBonus);
+  const requestedAnnualBonusInvestment = Math.max(0, plan.simulation.annualBonusInvestmentAmount || 0);
+  const annualBonusInvestment = Math.min(requestedAnnualBonusInvestment, annualBonus);
+
+  return {
+    monthlySurplus,
+    requestedMonthlyInvestment,
+    monthlyInvestment,
+    monthlyCash: monthlySurplus - monthlyInvestment,
+    monthlyInvestmentExcess: Math.max(0, requestedMonthlyInvestment - availableMonthlySurplus),
+    annualBonus,
+    requestedAnnualBonusInvestment,
+    annualBonusInvestment,
+    annualBonusCash: annualBonus - annualBonusInvestment,
+    annualBonusInvestmentExcess: Math.max(0, requestedAnnualBonusInvestment - annualBonus)
+  };
+};
+
 export const getAssetSummary = (assets: Assets) => {
   const grossAssets = assets.cash + assets.investment + assets.other;
   const netAssets = grossAssets - assets.debt;
@@ -357,12 +396,13 @@ export const getEmergencyFundMonths = (profile: Profile): { lower: number; upper
 
 export const getEmergencyFundResult = (plan: LifePlan): EmergencyFundResult => {
   const cashflow = getCashflowSummary(plan.household);
+  const allocation = getBasicProjectionAllocation(plan);
   const months = getEmergencyFundMonths(plan.profile);
   const lowerAmount = cashflow.monthlyLivingCost * months.lower;
   const upperAmount = cashflow.monthlyLivingCost * months.upper;
   const shortageToLower = Math.max(0, lowerAmount - plan.assets.cash);
   const monthsToLower =
-    shortageToLower > 0 && cashflow.monthlySavings > 0 ? Math.ceil(shortageToLower / cashflow.monthlySavings) : null;
+    shortageToLower > 0 && allocation.monthlyCash > 0 ? Math.ceil(shortageToLower / allocation.monthlyCash) : null;
   const status = plan.assets.cash < lowerAmount ? "short" : plan.assets.cash > upperAmount ? "above" : "within";
 
   return {
@@ -415,16 +455,17 @@ const getProjectionValue = (balances: ProjectionBalances) =>
 const applyProjectionMonth = (
   balances: ProjectionBalances,
   monthlyReturnRate: number,
-  monthlySavings: number,
-  bonusSavings: number,
+  cashContribution: number,
+  investmentContribution: number,
   eventImpact: number
 ) => {
   balances.investment *= 1 + monthlyReturnRate;
-  balances.cash += monthlySavings + bonusSavings + eventImpact;
+  balances.investment += investmentContribution;
+  balances.cash += cashContribution + eventImpact;
 };
 
 export const projectAssets = (plan: LifePlan, years: number): ProjectionPoint[] => {
-  const cashflow = getCashflowSummary(plan.household);
+  const allocation = getBasicProjectionAllocation(plan);
   const monthlyRate = plan.simulation.annualReturnRate / 100 / 12;
   const startYear = new Date().getFullYear();
   const balances = createProjectionBalances(plan.assets);
@@ -436,8 +477,8 @@ export const projectAssets = (plan: LifePlan, years: number): ProjectionPoint[] 
       applyProjectionMonth(
         balances,
         monthlyRate,
-        cashflow.monthlySavings,
-        month === 12 ? plan.household.annualBonus : 0,
+        allocation.monthlyCash + (month === 12 ? allocation.annualBonusCash : 0),
+        allocation.monthlyInvestment + (month === 12 ? allocation.annualBonusInvestment : 0),
         eventImpactForMonth(plan.events, year, month)
       );
     }
@@ -469,6 +510,7 @@ export const getAnnualProjectionRows = (plan: LifePlan, years: number): AnnualPr
 
 export const getMonthlyProjectionRows = (plan: LifePlan, months: number): MonthlyProjectionRow[] => {
   const cashflow = getCashflowSummary(plan.household);
+  const allocation = getBasicProjectionAllocation(plan);
   const monthlyRate = plan.simulation.annualReturnRate / 100 / 12;
   const startDate = new Date();
   const balances = createProjectionBalances(plan.assets);
@@ -484,10 +526,18 @@ export const getMonthlyProjectionRows = (plan: LifePlan, months: number): Monthl
     const eventImpact = monthOffset === 0 ? 0 : eventImpactForMonth(plan.events, year, month);
     const monthEvents = monthOffset === 0 ? [] : eventsForMonth(plan.events, year, month);
     const monthlySavings = monthOffset === 0 ? 0 : cashflow.monthlySavings;
+    const monthlyInvestmentContribution = monthOffset === 0 ? 0 : allocation.monthlyInvestment;
     const bonusSavings = monthOffset > 0 && monthOffset % 12 === 0 ? plan.household.annualBonus : 0;
+    const bonusInvestmentContribution = bonusSavings ? allocation.annualBonusInvestment : 0;
 
     if (monthOffset > 0) {
-      applyProjectionMonth(balances, monthlyRate, monthlySavings, bonusSavings, eventImpact);
+      applyProjectionMonth(
+        balances,
+        monthlyRate,
+        allocation.monthlyCash + (bonusSavings ? allocation.annualBonusCash : 0),
+        monthlyInvestmentContribution + bonusInvestmentContribution,
+        eventImpact
+      );
     }
 
     const value = getProjectionValue(balances);
@@ -500,7 +550,9 @@ export const getMonthlyProjectionRows = (plan: LifePlan, months: number): Monthl
       age,
       value,
       monthlySavings,
+      monthlyInvestmentContribution,
       bonusSavings,
+      bonusInvestmentContribution,
       eventImpact,
       returnImpact: monthOffset === 0 ? 0 : value - previousValue - monthlySavings - bonusSavings - eventImpact,
       eventTitles: monthEvents.map((event) => event.title)

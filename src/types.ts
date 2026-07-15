@@ -100,6 +100,8 @@ export type LifeEvent = {
 };
 
 export type SimulationSettings = {
+  monthlyInvestmentAmount: number;
+  annualBonusInvestmentAmount: number;
   monthlyContribution: number;
   bonusContribution: number;
   annualReturnRate: number;

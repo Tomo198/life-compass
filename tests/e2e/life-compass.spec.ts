@@ -175,6 +175,33 @@ test("無料版とPro版の境界が表示され、横方向にはみ出さな�
   await expect(page.getByTestId("app-shell")).toHaveAttribute("data-access-tier", "free");
 });
 
+test("基本見通しで家計余剰の振り分けを設定して保存できる", async ({ page }) => {
+  await openView(page, "simulation");
+  const allocation = page.locator(".projection-allocation");
+
+  await expect(allocation).toContainText("家計余剰の振り分け");
+  await expect(page.getByText("6〜6ヶ月分", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("6ヶ月分", { exact: true }).first()).toBeVisible();
+
+  const monthlyInvestment = page.getByLabel("毎月、投資へ回す額");
+  await monthlyInvestment.fill("999999");
+  await expect(allocation).toContainText("入力額を試算可能な範囲に調整しています");
+
+  await monthlyInvestment.fill("40000");
+  await monthlyInvestment.blur();
+  const bonusInvestment = page.getByLabel("ボーナスから投資へ回す年額");
+  await bonusInvestment.fill("200000");
+  await bonusInvestment.blur();
+  await expect(allocation).toContainText("40,000");
+  await expect(allocation).toContainText("35,000");
+  await expect(page.getByText(/税金・手数料・物価上昇は含めません/)).toBeVisible();
+
+  await page.reload();
+  await openView(page, "simulation");
+  await expect(page.getByLabel("毎月、投資へ回す額")).toHaveValue("40,000");
+  await expect(page.getByLabel("ボーナスから投資へ回す年額")).toHaveValue("200,000");
+});
+
 test("詳細シミュレーションのグラフを操作して試算値を確認できる", async ({ page }) => {
   await openView(page, "simulation");
   await page.getByRole("button", { name: "詳細積立 Pro" }).click();

@@ -48,6 +48,7 @@ import {
   buildPlanFromScenario,
   getAssetSummary,
   getAnnualProjectionRows,
+  getBasicProjectionAllocation,
   getBudgetHouseholdInputs,
   getBudgetMonthlyAverage,
   getBudgetSummary,
@@ -73,6 +74,7 @@ import {
   simulateWithdrawalVariability,
   simulateWithdrawal,
   simulateContribution,
+  yen,
   type VariabilityResult
 } from "./utils/calculations";
 import { createRecoveryBackup, exportPlan, loadPlan, savePlan } from "./utils/storage";
@@ -366,6 +368,15 @@ const getYearsUntilLabel = (year: number) => {
   return `あと約${diff}年`;
 };
 
+const emergencyMonthsLabel = (lower: number, upper: number) =>
+  lower === upper ? `${lower}ヶ月分` : `${lower}〜${upper}ヶ月分`;
+
+const emergencyAmountLabel = (lower: number, upper: number) => {
+  const lowerLabel = manYen(lower);
+  const upperLabel = manYen(upper);
+  return lowerLabel === upperLabel ? lowerLabel : `${lowerLabel}〜${upperLabel}`;
+};
+
 const cloneDefaultPlan = () => JSON.parse(JSON.stringify(defaultPlan)) as LifePlan;
 
 const isSamplePlan = (plan: LifePlan) =>
@@ -401,6 +412,8 @@ const createEmptyPlan = (): LifePlan => ({
   events: [],
   timelineMemos: [],
   simulation: {
+    monthlyInvestmentAmount: 0,
+    annualBonusInvestmentAmount: 0,
     monthlyContribution: 0,
     bonusContribution: 0,
     annualReturnRate: 0,
@@ -1553,7 +1566,7 @@ function Dashboard({ plan, reminders, setActiveView, startEmptyPlan }: Dashboard
           <span>入力完了度 {completion.percentage}%</span>
         </div>
         <div className="summary-grid" aria-label="主要指標">
-          <Metric label="毎月の見込み貯蓄" value={manYen(cashflow.monthlySavings)} helper={`通常月の貯蓄率 ${percent(cashflow.savingsRate)}`} />
+          <Metric label="通常月の家計余剰" value={manYen(cashflow.monthlySavings)} helper={`収入 - 生活費 / ${percent(cashflow.savingsRate)}`} />
           <Metric label="現在の純資産" value={manYen(assets.netAssets)} helper={`総資産 ${manYen(assets.grossAssets)}`} />
           <Metric
             label="主要目標の到達目安"
@@ -1562,8 +1575,8 @@ function Dashboard({ plan, reminders, setActiveView, startEmptyPlan }: Dashboard
           />
           <Metric
             label="生活防衛資金"
-            value={emergency.status === "short" ? `あと ${manYen(emergency.shortageToLower)}` : "目安範囲内"}
-            helper={`${emergency.lowerMonths}〜${emergency.upperMonths}ヶ月分`}
+            value={emergency.status === "short" ? `あと ${manYen(emergency.shortageToLower)}` : "目安を確保"}
+            helper={emergencyMonthsLabel(emergency.lowerMonths, emergency.upperMonths)}
           />
           <Metric label="30年後の見通し" value={manYen(thirtyYear)} helper="前提条件に基づく試算" />
         </div>
@@ -1755,7 +1768,7 @@ function HouseholdView({
       </section>
       <section className="calculation-band">
         <Metric label="月間生活費" value={manYen(cashflow.monthlyLivingCost)} helper={`年間 ${manYen(cashflow.annualLivingCost)}`} />
-        <Metric label="毎月貯蓄額" value={manYen(cashflow.monthlySavings)} helper={`通常月の貯蓄率 ${percent(cashflow.savingsRate)}`} />
+        <Metric label="通常月の家計余剰" value={manYen(cashflow.monthlySavings)} helper={`収入 - 生活費 / ${percent(cashflow.savingsRate)}`} />
         <Metric
           label="年間収入"
           value={manYen(cashflow.annualIncome)}
@@ -1769,13 +1782,13 @@ function HouseholdView({
             : cashflow.savingsRate >= 20
               ? "貯蓄率は高めの前提です"
               : cashflow.monthlySavings > 0
-                ? "毎月の貯蓄が見込めます"
+                ? "通常月は家計余剰が見込めます"
                 : "収支がほぼ同じです"}
         </strong>
         <span>
           {cashflow.monthlySavings < 0
             ? "入力ミスがないか確認し、固定費、変動費、年間特別支出のどこが大きいかを見直すと次の判断がしやすくなります。"
-            : "毎月貯蓄額は目標と生活防衛資金の目安に使い、将来資産の見通しにはボーナス年額も反映します。"}
+            : "通常月の家計余剰は、目標への配分と将来資産の見通しに使います。生活防衛資金の到達目安には、現金として残す額を使います。"}
         </span>
       </section>
       <section className="helper-grid">
@@ -3357,6 +3370,7 @@ function SimulationView({
   const projection30 = useMemo(() => projectAssets(plan, 30), [plan]);
   const annualRows = useMemo(() => getAnnualProjectionRows(plan, projectionYears), [plan, projectionYears]);
   const monthlyRows = useMemo(() => getMonthlyProjectionRows(plan, projectionMonths), [plan, projectionMonths]);
+  const basicAllocation = useMemo(() => getBasicProjectionAllocation(plan), [plan]);
   const emergency = getEmergencyFundResult(plan);
   const contribution = simulateContribution(plan.simulation);
   const contributionRows = useMemo(() => getContributionProjectionRows(plan.simulation), [plan.simulation]);
@@ -3390,6 +3404,16 @@ function SimulationView({
     returnLabel: "運用の影響"
   }));
   const chartRows = projectionMode === "annual" ? annualRows : monthlyRows;
+  const allocationWarnings = [
+    basicAllocation.monthlySurplus < 0
+      ? `通常月の家計収支が${yen(Math.abs(basicAllocation.monthlySurplus))}の赤字のため、毎月の投資配分は0円として試算します。`
+      : basicAllocation.monthlyInvestmentExcess > 0
+        ? `毎月の投資額が家計余剰を${yen(basicAllocation.monthlyInvestmentExcess)}上回るため、試算では${yen(basicAllocation.monthlyInvestment)}を上限にしています。`
+        : "",
+    basicAllocation.annualBonusInvestmentExcess > 0
+      ? `ボーナスから投資へ回す額がボーナス年額を${yen(basicAllocation.annualBonusInvestmentExcess)}上回るため、試算では${yen(basicAllocation.annualBonusInvestment)}を上限にしています。`
+      : ""
+  ].filter(Boolean);
 
   return (
     <div className="view-stack">
@@ -3397,7 +3421,7 @@ function SimulationView({
         <div className="section-heading">
           <div>
             <h2>シミュレーション種別</h2>
-            <p>基本見通し、詳細積立、退職後の取り崩しを切り替えて確認します。</p>
+            <p>基本見通し、詳細積立、取り崩しを切り替えて確認します。</p>
           </div>
           <div className="segmented-control" aria-label="シミュレーション種別">
             <button type="button" className={simulationTab === "basic" ? "active" : ""} onClick={() => setSimulationTab("basic")}>
@@ -3456,6 +3480,57 @@ function SimulationView({
             )}
           </div>
         </div>
+        <div className="projection-allocation">
+          <div className="section-heading">
+            <div>
+              <h3>家計余剰の振り分け</h3>
+              <p>家計入力から算出した余剰のうち、投資資産へ回す額を設定します。残りは現金として試算します。</p>
+            </div>
+          </div>
+          <div className="form-grid">
+            <MoneyInput
+              label="毎月、投資へ回す額"
+              value={plan.simulation.monthlyInvestmentAmount}
+              onChange={(value) => updateSimulation("monthlyInvestmentAmount", value)}
+            />
+            <MoneyInput
+              label="ボーナスから投資へ回す年額"
+              value={plan.simulation.annualBonusInvestmentAmount}
+              onChange={(value) => updateSimulation("annualBonusInvestmentAmount", value)}
+            />
+            <label>
+              投資資産の想定利回り %
+              <NumericInput
+                value={plan.simulation.annualReturnRate}
+                min={0}
+                allowDecimal
+                onChange={(value) => updateSimulation("annualReturnRate", value)}
+              />
+            </label>
+          </div>
+          <div className="calculation-band projection-allocation-summary">
+            <Metric
+              label="通常月の振り分け"
+              value={`投資 ${yen(basicAllocation.monthlyInvestment)}`}
+              helper={
+                basicAllocation.monthlyCash >= 0
+                  ? `現金 ${yen(basicAllocation.monthlyCash)}`
+                  : `現金が毎月 ${yen(Math.abs(basicAllocation.monthlyCash))}減少`
+              }
+            />
+            <Metric
+              label="ボーナスの振り分け"
+              value={`投資 ${yen(basicAllocation.annualBonusInvestment)}`}
+              helper={`現金 ${yen(basicAllocation.annualBonusCash)}`}
+            />
+          </div>
+          {allocationWarnings.length > 0 && (
+            <div className="notice-band notice">
+              <strong>入力額を試算可能な範囲に調整しています</strong>
+              <span>{allocationWarnings.join(" ")}</span>
+            </div>
+          )}
+        </div>
         <LineChart points={chartRows} />
         <div className="calculation-band compact">
           <Metric label="10年後" value={manYen(projection10[10]?.value ?? 0)} helper="前提条件に基づく試算" />
@@ -3464,7 +3539,7 @@ function SimulationView({
         <div className="notice-band check">
           <strong>基本見通しの計算前提</strong>
           <span>
-            想定利回りは現在の投資資産だけに適用します。毎月の家計余剰とボーナス年額は現金へ加算し、その他資産と負債は一定として試算します。
+            想定利回りは、現在の投資資産と上記で投資へ回す金額に適用します。余剰とボーナスの残り、ライフイベントの収支は現金へ反映し、その他資産と負債は一定として試算します。ボーナスは年1回として反映し、税金・手数料・物価上昇は含めません。
           </span>
         </div>
         {projectionMode === "monthly" && (
@@ -3485,8 +3560,17 @@ function SimulationView({
                     <td>{row.label}</td>
                     <td>{manYen(row.value)}</td>
                     <td>
-                      {row.monthlySavings ? manYen(row.monthlySavings) : "-"}
-                      {row.bonusSavings ? <small>ボーナス {manYen(row.bonusSavings)}</small> : null}
+                      {row.monthIndex > 0 ? yen(row.monthlySavings) : "-"}
+                      {row.monthIndex > 0 ? (
+                        <small>
+                          投資 {yen(row.monthlyInvestmentContribution)} / 現金 {yen(row.monthlySavings - row.monthlyInvestmentContribution)}
+                        </small>
+                      ) : null}
+                      {row.bonusSavings ? (
+                        <small>
+                          ボーナス: 投資 {yen(row.bonusInvestmentContribution)} / 現金 {yen(row.bonusSavings - row.bonusInvestmentContribution)}
+                        </small>
+                      ) : null}
                     </td>
                     <td>
                       {row.eventImpact ? manYen(row.eventImpact) : "-"}
@@ -3505,20 +3589,30 @@ function SimulationView({
         <StepTitle step="確認" title="生活防衛資金チェック" description={emergency.note} />
         <div className="calculation-band compact">
           <Metric label="月間生活費" value={manYen(getCashflowSummary(plan.household).monthlyLivingCost)} helper="固定費 + 変動費 + 特別支出月割" />
-          <Metric label="推奨生活防衛資金" value={`${manYen(emergency.lowerAmount)}〜${manYen(emergency.upperAmount)}`} helper={`${emergency.lowerMonths}〜${emergency.upperMonths}ヶ月分`} />
+          <Metric
+            label="推奨生活防衛資金"
+            value={emergencyAmountLabel(emergency.lowerAmount, emergency.upperAmount)}
+            helper={emergencyMonthsLabel(emergency.lowerMonths, emergency.upperMonths)}
+          />
           <Metric
             label="現在の現金"
             value={manYen(plan.assets.cash)}
             helper={
               emergency.status === "short"
                 ? `${emergency.lowerMonths}ヶ月分まであと ${manYen(emergency.shortageToLower)}`
-                : "目安範囲を満たしています"
+                : "目安を満たしています"
             }
           />
           <Metric
             label="到達目安"
-            value={emergency.monthsToLower ? `約${emergency.monthsToLower}ヶ月` : "-"}
-            helper="毎月貯蓄額が正の場合"
+            value={emergency.shortageToLower === 0 ? "達成済み" : emergency.monthsToLower ? `約${emergency.monthsToLower}ヶ月` : "未算出"}
+            helper={
+              emergency.shortageToLower === 0
+                ? "現在の現金で目安を確保"
+                : basicAllocation.monthlyCash > 0
+                  ? "通常月に現金へ残す額で計算（ボーナス除く）"
+                  : "通常月に現金へ残す額が0円以下"
+            }
           />
         </div>
         <div className="explanation-grid">
@@ -3532,7 +3626,7 @@ function SimulationView({
           </div>
           <div>
             <strong>見直しの使い方</strong>
-            <span>不足がある場合は、毎月の貯蓄額や目標の優先度と並べて確認します。余裕がある場合も使途を決めておくと見返しやすくなります。</span>
+            <span>不足がある場合は、通常月に現金へ残す額や目標の優先度と並べて確認します。余裕がある場合も使途を決めておくと見返しやすくなります。</span>
           </div>
         </div>
       </section>
@@ -4382,7 +4476,7 @@ function getScenarioComparisonMetrics(plan: LifePlan) {
         ? `${emergency.lowerMonths}ヶ月分まであと${manYen(emergency.shortageToLower)}`
         : emergency.status === "above"
           ? `${emergency.upperMonths}ヶ月分を上回る`
-          : `${emergency.lowerMonths}ヶ月分の目安内`;
+          : `${emergencyMonthsLabel(emergency.lowerMonths, emergency.upperMonths)}の目安内`;
 
     return {
       id: item.id,
@@ -4513,7 +4607,7 @@ function ScenarioComparisonView({ plan, addScenario, updateScenario, removeScena
             </thead>
             <tbody>
               {[
-                { label: "月間貯蓄額", getValue: (item: (typeof comparisonMetrics)[number]) => manYen(item.monthlySavings) },
+                { label: "通常月の家計余剰", getValue: (item: (typeof comparisonMetrics)[number]) => manYen(item.monthlySavings) },
                 { label: "年間収支", getValue: (item: (typeof comparisonMetrics)[number]) => manYen(item.annualBalance) },
                 { label: "現在純資産", getValue: (item: (typeof comparisonMetrics)[number]) => manYen(item.netAssets) },
                 { label: "10年後資産", getValue: (item: (typeof comparisonMetrics)[number]) => manYen(item.tenYear) },
@@ -4581,18 +4675,18 @@ function getLifePlanDiagnosis(plan: LifePlan): DiagnosisItem[] {
     title: emergency.status === "short" ? "生活防衛資金に不足があります" : "生活防衛資金の目安を確認済みです",
     detail:
       emergency.status === "short"
-        ? `${emergency.lowerMonths}ヶ月分まであと${manYen(emergency.shortageToLower)}です。固定費や毎月貯蓄額と合わせて確認します。`
-        : `${emergency.lowerMonths}〜${emergency.upperMonths}ヶ月分の目安と現在の現金を比較しています。`,
+        ? `${emergency.lowerMonths}ヶ月分まであと${manYen(emergency.shortageToLower)}です。固定費や現金へ残す額と合わせて確認します。`
+        : `${emergencyMonthsLabel(emergency.lowerMonths, emergency.upperMonths)}の目安と現在の現金を比較しています。`,
     tone: emergency.status === "short" ? "notice" : "good",
     view: "simulation"
   });
 
   items.push({
-    title: cashflow.monthlySavings < 0 ? "毎月収支がマイナスの前提です" : "毎月貯蓄額が入力されています",
+    title: cashflow.monthlySavings < 0 ? "通常月の収支がマイナスの前提です" : "通常月の家計余剰を確認できます",
     detail:
       cashflow.monthlySavings < 0
         ? `毎月${manYen(Math.abs(cashflow.monthlySavings))}の不足です。固定費、変動費、特別支出の入力を確認します。`
-        : `毎月${manYen(cashflow.monthlySavings)}、貯蓄率${percent(cashflow.savingsRate)}の前提です。`,
+        : `通常月の家計余剰は${manYen(cashflow.monthlySavings)}、貯蓄率は${percent(cashflow.savingsRate)}の前提です。`,
     tone: cashflow.monthlySavings < 0 ? "notice" : "check",
     view: "household"
   });
@@ -4884,7 +4978,7 @@ function ProView({
             </thead>
             <tbody>
               {[
-                { label: "月間貯蓄額", getValue: (item: (typeof comparisonMetrics)[number]) => manYen(item.monthlySavings) },
+                { label: "通常月の家計余剰", getValue: (item: (typeof comparisonMetrics)[number]) => manYen(item.monthlySavings) },
                 { label: "年間収支", getValue: (item: (typeof comparisonMetrics)[number]) => manYen(item.annualBalance) },
                 { label: "現在純資産", getValue: (item: (typeof comparisonMetrics)[number]) => manYen(item.netAssets) },
                 { label: "10年後資産", getValue: (item: (typeof comparisonMetrics)[number]) => manYen(item.tenYear) },

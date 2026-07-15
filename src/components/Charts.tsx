@@ -9,7 +9,9 @@ export type ChartPoint = {
   age?: number;
   annualSavings?: number;
   monthlySavings?: number;
+  monthlyInvestmentContribution?: number;
   bonusSavings?: number;
+  bonusInvestmentContribution?: number;
   eventImpact?: number;
   returnImpact?: number;
   eventTitles?: string[];
@@ -235,8 +237,10 @@ export function LineChart({
               </>
             )}
             {!selectedRange && "annualSavings" in selectedPoint && <div><span>年間貯蓄</span><strong>{selectedPoint.annualSavings ? manYen(selectedPoint.annualSavings) : "-"}</strong></div>}
-            {!selectedRange && "monthlySavings" in selectedPoint && <div><span>毎月貯蓄</span><strong>{selectedPoint.monthlySavings ? manYen(selectedPoint.monthlySavings) : "-"}</strong></div>}
+            {!selectedRange && "monthlySavings" in selectedPoint && <div><span>通常月の家計余剰</span><strong>{selectedPoint.monthlySavings ? manYen(selectedPoint.monthlySavings) : "-"}</strong></div>}
+            {!selectedRange && "monthlyInvestmentContribution" in selectedPoint && <div><span>毎月の投資配分</span><strong>{selectedPoint.monthlyInvestmentContribution ? manYen(selectedPoint.monthlyInvestmentContribution) : "-"}</strong></div>}
             {!selectedRange && "bonusSavings" in selectedPoint && <div><span>ボーナス反映</span><strong>{selectedPoint.bonusSavings ? manYen(selectedPoint.bonusSavings) : "-"}</strong></div>}
+            {!selectedRange && "bonusInvestmentContribution" in selectedPoint && <div><span>ボーナスの投資配分</span><strong>{selectedPoint.bonusInvestmentContribution ? manYen(selectedPoint.bonusInvestmentContribution) : "-"}</strong></div>}
             {"eventImpact" in selectedPoint && <div><span>{selectedPoint.impactLabel ?? "イベント影響"}</span><strong>{selectedPoint.eventImpact ? manYen(selectedPoint.eventImpact) : "-"}</strong></div>}
             {!selectedRange && "returnImpact" in selectedPoint && <div><span>{selectedPoint.returnLabel ?? "利回り等の影響"}</span><strong>{selectedPoint.returnImpact ? manYen(selectedPoint.returnImpact) : "-"}</strong></div>}
             {selectedPoint.eventTitles && selectedPoint.eventTitles.length > 0 && <div className="chart-selection-wide"><span>イベント</span><strong>{selectedPoint.eventTitles.join(" / ")}</strong></div>}

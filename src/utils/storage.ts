@@ -143,6 +143,8 @@ const normalizeAssets = (assets: LifePlan["assets"] | undefined): LifePlan["asse
 });
 
 const normalizeSimulation = (settings: SimulationSettings | undefined): SimulationSettings => ({
+  monthlyInvestmentAmount: nonNegativeNumber(settings?.monthlyInvestmentAmount),
+  annualBonusInvestmentAmount: nonNegativeNumber(settings?.annualBonusInvestmentAmount),
   monthlyContribution: nonNegativeNumber(settings?.monthlyContribution, defaultPlan.simulation.monthlyContribution),
   bonusContribution: nonNegativeNumber(settings?.bonusContribution, defaultPlan.simulation.bonusContribution),
   annualReturnRate: finiteNumber(settings?.annualReturnRate, defaultPlan.simulation.annualReturnRate),

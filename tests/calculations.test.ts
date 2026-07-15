@@ -15,6 +15,7 @@ import {
   buildPlanFromScenario,
   getAssetSummary,
   getAnnualProjectionRows,
+  getBasicProjectionAllocation,
   getBudgetHouseholdInputs,
   getBudgetSummary,
   getCashflowSummary,
@@ -125,6 +126,8 @@ const basePlan: LifePlan = {
   events: [],
   timelineMemos: [],
   simulation: {
+    monthlyInvestmentAmount: 0,
+    annualBonusInvestmentAmount: 0,
     monthlyContribution: 10000,
     bonusContribution: 20000,
     annualReturnRate: 0,
@@ -356,6 +359,28 @@ test("emergency fund shortage and time to target are based on lower bound", () =
   assert.equal(result.shortageToLower, 300000);
   assert.equal(result.monthsToLower, 10);
   assert.equal(result.status, "short");
+});
+
+test("emergency fund arrival uses the amount kept as cash after investment allocation", () => {
+  const plan: LifePlan = {
+    ...basePlan,
+    household: {
+      monthlyIncome: 280000,
+      annualBonus: 0,
+      sideIncome: 0,
+      fixedCost: 150000,
+      variableCost: 70000,
+      annualSpecialCost: 360000
+    },
+    assets: { ...basePlan.assets, cash: 1200000 },
+    simulation: { ...basePlan.simulation, monthlyInvestmentAmount: 20000 }
+  };
+
+  const result = getEmergencyFundResult(plan);
+
+  assert.equal(getBasicProjectionAllocation(plan).monthlyCash, 10000);
+  assert.equal(result.shortageToLower, 300000);
+  assert.equal(result.monthsToLower, 30);
 });
 
 test("asset projection applies monthly savings and life event impact by year", () => {
@@ -591,6 +616,85 @@ test("annual bonus is reflected once per projection year", () => {
   assert.equal(monthlyRows[11].bonusSavings, 0);
   assert.equal(monthlyRows[12].bonusSavings, 120000);
   assert.equal(monthlyRows[12].value, 1120000);
+});
+
+test("basic projection splits household surplus and bonus between cash and investments", () => {
+  const plan: LifePlan = {
+    ...basePlan,
+    household: {
+      monthlyIncome: 100000,
+      annualBonus: 120000,
+      sideIncome: 0,
+      fixedCost: 0,
+      variableCost: 0,
+      annualSpecialCost: 0
+    },
+    assets: { cash: 0, investment: 0, other: 0, debt: 0 },
+    events: [],
+    simulation: {
+      ...basePlan.simulation,
+      monthlyInvestmentAmount: 60000,
+      annualBonusInvestmentAmount: 80000,
+      annualReturnRate: 12
+    }
+  };
+  const monthlyRate = 0.12 / 12;
+  const expectedInvestment = 60000 * (((1 + monthlyRate) ** 12 - 1) / monthlyRate) + 80000;
+  const expectedCash = 40000 * 12 + 40000;
+
+  const allocation = getBasicProjectionAllocation(plan);
+  const annualRows = getAnnualProjectionRows(plan, 1);
+  const monthlyRows = getMonthlyProjectionRows(plan, 12);
+
+  assert.deepEqual(allocation, {
+    monthlySurplus: 100000,
+    requestedMonthlyInvestment: 60000,
+    monthlyInvestment: 60000,
+    monthlyCash: 40000,
+    monthlyInvestmentExcess: 0,
+    annualBonus: 120000,
+    requestedAnnualBonusInvestment: 80000,
+    annualBonusInvestment: 80000,
+    annualBonusCash: 40000,
+    annualBonusInvestmentExcess: 0
+  });
+  assertAlmostEqual(annualRows[1].value, expectedInvestment + expectedCash);
+  assert.equal(monthlyRows[1].monthlyInvestmentContribution, 60000);
+  assert.equal(monthlyRows[12].bonusInvestmentContribution, 80000);
+  assertAlmostEqual(monthlyRows[12].value, expectedInvestment + expectedCash);
+});
+
+test("basic projection caps investment allocation at available surplus and bonus", () => {
+  const plan: LifePlan = {
+    ...basePlan,
+    household: {
+      monthlyIncome: 100000,
+      annualBonus: 100000,
+      sideIncome: 0,
+      fixedCost: 50000,
+      variableCost: 0,
+      annualSpecialCost: 0
+    },
+    assets: { cash: 0, investment: 0, other: 0, debt: 0 },
+    events: [],
+    simulation: {
+      ...basePlan.simulation,
+      monthlyInvestmentAmount: 80000,
+      annualBonusInvestmentAmount: 150000,
+      annualReturnRate: 0
+    }
+  };
+
+  const allocation = getBasicProjectionAllocation(plan);
+  const projection = projectAssets(plan, 1);
+
+  assert.equal(allocation.monthlyInvestment, 50000);
+  assert.equal(allocation.monthlyCash, 0);
+  assert.equal(allocation.monthlyInvestmentExcess, 30000);
+  assert.equal(allocation.annualBonusInvestment, 100000);
+  assert.equal(allocation.annualBonusCash, 0);
+  assert.equal(allocation.annualBonusInvestmentExcess, 50000);
+  assert.equal(projection[1].value, 700000);
 });
 
 test("monthly projection rows expose short-term savings changes", () => {
@@ -1374,6 +1478,8 @@ test("import validation rejects unrelated JSON and fills optional fields for leg
 
   assert.equal(imported.version, CURRENT_PLAN_VERSION);
   assert.deepEqual(imported.simulation, {
+    monthlyInvestmentAmount: 0,
+    annualBonusInvestmentAmount: 0,
     monthlyContribution: 50000,
     bonusContribution: 100000,
     annualReturnRate: 3,
@@ -1560,6 +1666,8 @@ test("import validation normalizes malformed core fields and rejects future back
   assert.equal(imported.household.annualBonus, 0);
   assert.equal(imported.assets.cash, 0);
   assert.equal(imported.assets.other, 0);
+  assert.equal(imported.simulation.monthlyInvestmentAmount, 0);
+  assert.equal(imported.simulation.annualBonusInvestmentAmount, 0);
   assert.equal(imported.simulation.monthlyContribution, 0);
   assert.equal(imported.simulation.annualReturnRate, 3);
   assert.equal(imported.simulation.years, 80);

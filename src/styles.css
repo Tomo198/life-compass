@@ -2625,6 +2625,22 @@ td select {
   gap: 0.5rem;
 }
 
+.projection-allocation {
+  margin-bottom: 1.25rem;
+  padding: 1rem 0 1.25rem;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.projection-allocation .section-heading {
+  margin-bottom: 0;
+}
+
+.projection-allocation-summary {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 1rem;
+}
+
 .projection-detail-table {
   margin-top: 1rem;
   max-height: 24rem;

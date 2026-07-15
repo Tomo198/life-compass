@@ -91,6 +91,8 @@ export const defaultPlan: LifePlan = {
   ],
   timelineMemos: [],
   simulation: {
+    monthlyInvestmentAmount: 50000,
+    annualBonusInvestmentAmount: 100000,
     monthlyContribution: 50000,
     bonusContribution: 100000,
     annualReturnRate: 3,
