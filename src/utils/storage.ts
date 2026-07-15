@@ -1,5 +1,15 @@
 import { defaultPlan } from "../data/defaultPlan";
-import { CURRENT_PLAN_VERSION, MAX_RECOVERY_BACKUPS, RECOVERY_STORAGE_KEY, STORAGE_KEY } from "../config";
+import {
+  CURRENT_PLAN_VERSION,
+  MAX_MONEY_AMOUNT,
+  MAX_PLAN_AGE,
+  MAX_PLAN_YEAR,
+  MAX_PROJECTION_YEARS,
+  MAX_RATE_PERCENT,
+  MAX_RECOVERY_BACKUPS,
+  RECOVERY_STORAGE_KEY,
+  STORAGE_KEY
+} from "../config";
 import type {
   BudgetCategory,
   BudgetFrequency,
@@ -105,7 +115,11 @@ const identifierValue = (value: unknown) =>
 const finiteNumber = (value: unknown, fallback: number) =>
   typeof value === "number" && Number.isFinite(value) ? value : fallback;
 
-const nonNegativeNumber = (value: unknown, fallback = 0) => Math.max(0, finiteNumber(value, fallback));
+const nonNegativeNumber = (value: unknown, fallback = 0) =>
+  Math.min(MAX_MONEY_AMOUNT, Math.max(0, finiteNumber(value, fallback)));
+
+const rateInRange = (value: unknown, fallback: number, min = -MAX_RATE_PERCENT) =>
+  Math.min(MAX_RATE_PERCENT, Math.max(min, finiteNumber(value, fallback)));
 
 const integerInRange = (value: unknown, fallback: number, min: number, max: number) =>
   Math.min(max, Math.max(min, Math.round(finiteNumber(value, fallback))));
@@ -120,7 +134,7 @@ const normalizeTimestamp = (value: unknown) => {
 
 const normalizeProfile = (profile: LifePlan["profile"] | undefined): LifePlan["profile"] => ({
   name: stringValue(profile?.name, defaultPlan.profile.name),
-  age: integerInRange(profile?.age, defaultPlan.profile.age, 0, 120),
+  age: integerInRange(profile?.age, defaultPlan.profile.age, 0, MAX_PLAN_AGE),
   familyType: enumValue(profile?.familyType, familyTypes, defaultPlan.profile.familyType),
   workStyle: enumValue(profile?.workStyle, workStyles, defaultPlan.profile.workStyle),
   housing: enumValue(profile?.housing, housingTypes, defaultPlan.profile.housing)
@@ -147,8 +161,8 @@ const normalizeSimulation = (settings: SimulationSettings | undefined): Simulati
   annualBonusInvestmentAmount: nonNegativeNumber(settings?.annualBonusInvestmentAmount),
   monthlyContribution: nonNegativeNumber(settings?.monthlyContribution, defaultPlan.simulation.monthlyContribution),
   bonusContribution: nonNegativeNumber(settings?.bonusContribution, defaultPlan.simulation.bonusContribution),
-  annualReturnRate: finiteNumber(settings?.annualReturnRate, defaultPlan.simulation.annualReturnRate),
-  years: integerInRange(settings?.years, defaultPlan.simulation.years, 1, 80)
+  annualReturnRate: rateInRange(settings?.annualReturnRate, defaultPlan.simulation.annualReturnRate),
+  years: integerInRange(settings?.years, defaultPlan.simulation.years, 1, MAX_PROJECTION_YEARS)
 });
 
 export const loadPlan = (): LifePlan => {
@@ -289,9 +303,9 @@ const normalizeEvent = (event: LifeEvent | null | undefined): LifeEvent => ({
   title: stringValue(event?.title, "ライフイベント"),
   owner: enumValue(event?.owner, eventOwners, "household"),
   category: enumValue(event?.category, eventCategories, "other"),
-  year: integerInRange(event?.year, new Date().getFullYear(), 1900, 2300),
+  year: integerInRange(event?.year, new Date().getFullYear(), 1900, MAX_PLAN_YEAR),
   month: normalizeMonth(event?.month),
-  age: integerInRange(event?.age, 0, 0, 120),
+  age: integerInRange(event?.age, 0, 0, MAX_PLAN_AGE),
   amount: nonNegativeNumber(event?.amount),
   cashflowType: enumValue(event?.cashflowType, cashflowTypes, "neutral"),
   memo: stringValue(event?.memo)
@@ -300,7 +314,7 @@ const normalizeEvent = (event: LifeEvent | null | undefined): LifeEvent => ({
 const normalizeTimelineMemo = (memo: TimelineMemo | null | undefined): TimelineMemo => ({
   id: identifierValue(memo?.id),
   title: stringValue(memo?.title, "予定メモ"),
-  year: integerInRange(memo?.year, new Date().getFullYear(), 1900, 2300),
+  year: integerInRange(memo?.year, new Date().getFullYear(), 1900, MAX_PLAN_YEAR),
   month: normalizeMonth(memo?.month),
   owner: enumValue(memo?.owner, eventOwners, "self"),
   memo: stringValue(memo?.memo),
@@ -315,16 +329,16 @@ const normalizeGoal = (goal: Goal | null | undefined): Goal => {
     id: identifierValue(goal?.id),
     title: stringValue(goal?.title, "目標"),
     goalType: enumValue(goal?.goalType, goalTypes, "oneTime"),
-    dueYear: integerInRange(goal?.dueYear, new Date().getFullYear(), 1900, 2300),
+    dueYear: integerInRange(goal?.dueYear, new Date().getFullYear(), 1900, MAX_PLAN_YEAR),
     dueMonth: normalizeMonth(goal?.dueMonth ?? 12),
     requiredAmount,
     savedAmount:
       typeof goal?.savedAmount === "number" && Number.isFinite(goal.savedAmount)
-        ? Math.max(0, goal.savedAmount)
+        ? nonNegativeNumber(goal.savedAmount)
         : Math.round((requiredAmount * progress) / 100),
     monthlyAllocation:
       typeof goal?.monthlyAllocation === "number" && Number.isFinite(goal.monthlyAllocation)
-        ? Math.max(0, goal.monthlyAllocation)
+        ? nonNegativeNumber(goal.monthlyAllocation)
         : 0,
     recurrence: enumValue(goal?.recurrence, recurrenceIntervals, "yearly"),
     priority: enumValue(goal?.priority, priorities, "medium"),
@@ -337,8 +351,8 @@ const finiteOptionalNumber = (value: unknown) => (typeof value === "number" && N
 
 const normalizeRetirementPlan = (settings: RetirementPlanSettings | undefined): RetirementPlanSettings => {
   const defaults = defaultPlan.retirementPlan;
-  const retirementAge = Math.max(0, Math.round(finiteNumber(settings?.retirementAge, defaults.retirementAge)));
-  const planUntilAge = Math.max(retirementAge, Math.round(finiteNumber(settings?.planUntilAge, defaults.planUntilAge)));
+  const retirementAge = integerInRange(settings?.retirementAge, defaults.retirementAge, 0, MAX_PLAN_AGE);
+  const planUntilAge = integerInRange(settings?.planUntilAge, defaults.planUntilAge, retirementAge, MAX_PLAN_AGE);
 
   return {
     retirementAge,
@@ -358,14 +372,14 @@ const normalizeRetirementPlan = (settings: RetirementPlanSettings | undefined): 
     monthlyTaxes: nonNegativeNumber(settings?.monthlyTaxes, defaults.monthlyTaxes),
     annualExtraExpense: nonNegativeNumber(settings?.annualExtraExpense, defaults.annualExtraExpense),
     retirementLumpSum: nonNegativeNumber(settings?.retirementLumpSum, defaults.retirementLumpSum),
-    annualReturnRate: finiteNumber(settings?.annualReturnRate, defaults.annualReturnRate),
-    inflationRate: finiteNumber(settings?.inflationRate, defaults.inflationRate)
+    annualReturnRate: rateInRange(settings?.annualReturnRate, defaults.annualReturnRate),
+    inflationRate: rateInRange(settings?.inflationRate, defaults.inflationRate, 0)
   };
 };
 
 const normalizeWithdrawalPeriod = (period: WithdrawalPeriodSettings | undefined, fallback: WithdrawalPeriodSettings): WithdrawalPeriodSettings => {
-  const startAge = Math.max(0, Math.round(finiteNumber(period?.startAge, fallback.startAge)));
-  const endAge = Math.max(startAge, Math.round(finiteNumber(period?.endAge, fallback.endAge)));
+  const startAge = integerInRange(period?.startAge, fallback.startAge, 0, MAX_PLAN_AGE);
+  const endAge = integerInRange(period?.endAge, fallback.endAge, startAge, MAX_PLAN_AGE);
 
   return {
     id: identifierValue(period?.id),
@@ -380,8 +394,8 @@ const normalizeWithdrawalPeriod = (period: WithdrawalPeriodSettings | undefined,
 
 const normalizeWithdrawalPlan = (settings: WithdrawalPlanSettings | undefined): WithdrawalPlanSettings => {
   const defaults = defaultPlan.withdrawalPlan;
-  const startAge = Math.max(0, Math.round(finiteNumber(settings?.startAge, defaults.startAge)));
-  const years = Math.max(1, Math.min(80, Math.round(finiteNumber(settings?.years, defaults.years))));
+  const startAge = integerInRange(settings?.startAge, defaults.startAge, 0, MAX_PLAN_AGE);
+  const years = integerInRange(settings?.years, defaults.years, 1, MAX_PROJECTION_YEARS);
   const fallbackPeriod = defaults.periods[0];
   const periods =
     Array.isArray(settings?.periods) && settings.periods.length > 0
@@ -399,9 +413,9 @@ const normalizeWithdrawalPlan = (settings: WithdrawalPlanSettings | undefined): 
         ? Math.max(0, settings.periods[0].monthlyLivingCost - settings.periods[0].monthlyIncome)
         : defaults.monthlyWithdrawalAmount
     ),
-    annualWithdrawalRate: nonNegativeNumber(settings?.annualWithdrawalRate, defaults.annualWithdrawalRate),
-    annualReturnRate: finiteNumber(settings?.annualReturnRate, defaults.annualReturnRate),
-    inflationRate: finiteNumber(settings?.inflationRate, defaults.inflationRate),
+    annualWithdrawalRate: rateInRange(settings?.annualWithdrawalRate, defaults.annualWithdrawalRate, 0),
+    annualReturnRate: rateInRange(settings?.annualReturnRate, defaults.annualReturnRate),
+    inflationRate: rateInRange(settings?.inflationRate, defaults.inflationRate, 0),
     periods
   };
 };
@@ -449,7 +463,7 @@ const normalizeActuals = (actuals: unknown) => {
   if (!actuals || typeof actuals !== "object" || Array.isArray(actuals)) return {};
   return Object.entries(actuals as Record<string, unknown>).reduce<Record<string, number>>((result, [key, value]) => {
     if (/^\d{4}-\d{2}$/.test(key) && typeof value === "number" && Number.isFinite(value)) {
-      result[key] = value;
+      result[key] = Math.min(MAX_MONEY_AMOUNT, Math.max(0, value));
     }
     return result;
   }, {});

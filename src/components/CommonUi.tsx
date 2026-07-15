@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { MAX_MONEY_AMOUNT } from "../config";
 import type { ViewKey } from "../types";
 
 const normalizeNumericText = (value: string, allowDecimal = false) => {
@@ -107,11 +108,21 @@ export function StepTitle({ step, title, description }: { step: string; title: s
   );
 }
 
-export function MoneyInput({ label, value, onChange }: { label: string; value: number; onChange: (value: number) => void }) {
+export function MoneyInput({
+  label,
+  value,
+  onChange,
+  max = MAX_MONEY_AMOUNT
+}: {
+  label: string;
+  value: number;
+  onChange: (value: number) => void;
+  max?: number;
+}) {
   return (
     <label>
       {label}
-      <NumericInput value={value} min={0} onChange={onChange} />
+      <NumericInput value={value} min={0} max={max} onChange={onChange} />
     </label>
   );
 }

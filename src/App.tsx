@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CURRENT_PLAN_VERSION } from "./config";
+import {
+  CURRENT_PLAN_VERSION,
+  MAX_MONEY_AMOUNT,
+  MAX_PLAN_AGE,
+  MAX_PLAN_YEAR,
+  MAX_PROJECTION_YEARS,
+  MAX_RATE_PERCENT
+} from "./config";
 import { AccountPanel } from "./components/AccountPanel";
 import { EmptyState, Metric, MoneyInput, NumericInput, StepFlowNav, StepTitle } from "./components/CommonUi";
 import { LineChart, VariabilityBandChart } from "./components/Charts";
@@ -261,7 +268,10 @@ const getAppReminders = (plan: LifePlan, settings: AppSettings): AppReminder[] =
   }
 
   const dueGoals = plan.goals.filter(
-    (goal) => goal.dueYear <= currentYear && goal.goalType === "oneTime" && getGoalPreparedPercent(goal) < 100
+    (goal) =>
+      (goal.dueYear < currentYear || (goal.dueYear === currentYear && goal.dueMonth <= currentMonth)) &&
+      goal.goalType === "oneTime" &&
+      getGoalPreparedPercent(goal) < 100
   );
   if (dueGoals.length > 0) {
     reminders.push({
@@ -304,8 +314,8 @@ const cashflowLabels: Record<CashflowType, string> = {
 };
 
 const cashflowHelp: Record<CashflowType, string> = {
-  expense: "その年の資産見通しから差し引きます。",
-  income: "その年の資産見通しに加算します。",
+  expense: "予定月の資産見通しから差し引きます。",
+  income: "予定月の資産見通しに加算します。",
   neutral: "年表に残すだけで、試算には反映しません。"
 };
 
@@ -1570,7 +1580,15 @@ function Dashboard({ plan, reminders, setActiveView, startEmptyPlan }: Dashboard
           <Metric label="現在の純資産" value={manYen(assets.netAssets)} helper={`総資産 ${manYen(assets.grossAssets)}`} />
           <Metric
             label="主要目標の到達目安"
-            value={primaryGoalAchievement?.targetAge ? `${primaryGoalAchievement.targetAge}歳頃` : primaryGoal ? "未達見込み" : "未設定"}
+            value={
+              !primaryGoal
+                ? "未設定"
+                : primaryGoalAchievement?.status === "achieved"
+                  ? "達成済み"
+                  : primaryGoalAchievement?.targetAge !== null
+                    ? `${primaryGoalAchievement?.targetAge}歳頃`
+                    : "毎月の配分未設定"
+            }
             helper={primaryGoal?.title ?? "目標を追加すると表示"}
           />
           <Metric
@@ -1628,7 +1646,7 @@ function Dashboard({ plan, reminders, setActiveView, startEmptyPlan }: Dashboard
             </button>
             <button type="button" onClick={() => setActiveView("timeline")}>
               <strong>{nextEvent?.title ?? "ライフイベントを追加"}</strong>
-              <span>{nextEvent ? `${nextEvent.year}年 ${manYen(nextEvent.amount)}` : "年表で将来イベントを確認"}</span>
+              <span>{nextEvent ? `${nextEvent.year}年${nextEvent.month}月 / ${manYen(nextEvent.amount)}` : "年表で将来イベントを確認"}</span>
             </button>
             <button type="button" onClick={() => setActiveView("household")}>
               <strong>家計入力</strong>
@@ -1680,7 +1698,7 @@ function Dashboard({ plan, reminders, setActiveView, startEmptyPlan }: Dashboard
                       ? "達成済み"
                       : achievement.targetAge
                         ? `${achievement.targetAge}歳頃`
-                        : "未達見込み"}
+                        : "毎月の配分未設定"}
                   </b>
                 </div>
               ))
@@ -1963,6 +1981,7 @@ function BudgetView({
   );
   const annualActual = annualRows.reduce((total, row) => total + row.actual, 0);
   const annualRecordedMonths = annualRows.filter((row) => row.actualEntryCount > 0).length;
+  const allActualsEntered = budgetItems.length > 0 && summary.actualEntryCount === budgetItems.length;
   const annualChartMax = Math.max(1, ...annualRows.flatMap((row) => [row.planned, row.actual]));
   const moveMonth = (offset: number) => {
     const [year, month] = monthKey.split("-").map(Number);
@@ -2018,7 +2037,11 @@ function BudgetView({
         <div className="calculation-band compact">
           <Metric label="月平均予算" value={manYen(summary.plannedMonthlyAverage)} helper="頻度を月平均に換算" />
           <Metric label="選択月の実績" value={summary.actualEntryCount > 0 ? manYen(summary.actual) : "未入力"} helper={monthKey} />
-          <Metric label="予算との差" value={summary.actualEntryCount > 0 ? manYen(summary.variance) : "-"} helper="実績 - 月平均予算" />
+          <Metric
+            label="予算との差"
+            value={allActualsEntered ? manYen(summary.variance) : summary.actualEntryCount > 0 ? "入力途中" : "-"}
+            helper={allActualsEntered ? "実績 - 月平均予算" : "全項目の入力後に判定"}
+          />
           <Metric label="年間予算" value={manYen(summary.annualPlan)} helper="月次/年次を合算" />
         </div>
         {compositionRows.length > 0 && (
@@ -2188,16 +2211,19 @@ function BudgetView({
                 </tr>
               </thead>
               <tbody>
-                {summary.categoryRows.map((row) => (
+                {summary.categoryRows.map((row) => {
+                  const categoryComplete = row.actualEntryCount === row.itemCount;
+                  return (
                   <tr key={row.category}>
                     <td><span className={`budget-category-label ${row.category}`}><i />{budgetCategoryLabels[row.category]}</span></td>
                     <td>{manYen(row.plannedMonthlyAverage)}</td>
                     <td>{row.actualEntryCount > 0 ? manYen(row.actual) : "未入力"}</td>
-                    <td className={row.actualEntryCount > 0 && row.variance > 0 ? "budget-over-cell" : "budget-within-cell"}>
-                      {row.actualEntryCount > 0 ? `${manYen(row.variance)} / ${row.variance > 0 ? "超過" : "予算内"}` : "-"}
+                    <td className={categoryComplete && row.variance > 0 ? "budget-over-cell" : categoryComplete ? "budget-within-cell" : ""}>
+                      {categoryComplete ? `${manYen(row.variance)} / ${row.variance > 0 ? "超過" : "予算内"}` : row.actualEntryCount > 0 ? "入力途中" : "-"}
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -2245,7 +2271,9 @@ function BudgetView({
                       <td>{row.label}</td>
                       <td>{manYen(row.planned)}</td>
                       <td>{row.actualEntryCount > 0 ? manYen(row.actual) : "未入力"}</td>
-                      <td className={row.actualEntryCount > 0 && row.variance > 0 ? "budget-over-cell" : "budget-within-cell"}>{row.actualEntryCount > 0 ? manYen(row.variance) : "-"}</td>
+                      <td className={row.actualEntryCount === budgetItems.length && row.variance > 0 ? "budget-over-cell" : row.actualEntryCount === budgetItems.length ? "budget-within-cell" : ""}>
+                        {row.actualEntryCount === budgetItems.length ? manYen(row.variance) : row.actualEntryCount > 0 ? "入力途中" : "-"}
+                      </td>
                       <td>{row.actualEntryCount}/{budgetItems.length}項目</td>
                     </tr>
                   ))}
@@ -2403,7 +2431,7 @@ function GoalsView({
                     </div>
                     <label>
                       目標額
-                      <NumericInput value={goal.requiredAmount} min={0} onChange={(value) => updateGoal(goal.id, "requiredAmount", value)} />
+                      <NumericInput value={goal.requiredAmount} min={0} max={MAX_MONEY_AMOUNT} onChange={(value) => updateGoal(goal.id, "requiredAmount", value)} />
                     </label>
                     <label>
                       優先度
@@ -2633,7 +2661,7 @@ function YearAgeInput({
         <button type="button" className="stepper-button" aria-label="1年早める" onClick={() => updateYear(year - 1)}>
           -
         </button>
-        <NumericInput value={year} min={currentYear} onChange={updateYear} />
+        <NumericInput value={year} min={currentYear} max={MAX_PLAN_YEAR} onChange={updateYear} />
         <button type="button" className="stepper-button" aria-label="1年遅らせる" onClick={() => updateYear(year + 1)}>
           +
         </button>
@@ -2747,7 +2775,7 @@ function GoalAchievementBadge({ achievement }: { achievement: ReturnType<typeof 
       ? "達成済み"
       : achievement.targetAge
         ? `${achievement.targetAge}歳頃`
-        : "未達見込み";
+        : "毎月の配分未設定";
 
   return <span className={`status-pill ${achievement.status}`}>{label}</span>;
 }
@@ -3115,7 +3143,7 @@ function EventSettingsView({
                   <div className="compact-date-fields">
                     <label>
                       年
-                      <NumericInput value={event.year} min={new Date().getFullYear()} onChange={(value) => updateEventSchedule(event.id, value)} />
+                      <NumericInput value={event.year} min={new Date().getFullYear()} max={MAX_PLAN_YEAR} onChange={(value) => updateEventSchedule(event.id, value)} />
                     </label>
                     <label>
                       月
@@ -3150,7 +3178,7 @@ function EventSettingsView({
                   </label>
                   <label>
                     金額
-                    <NumericInput value={event.amount} min={0} onChange={(value) => updateEvent(event.id, "amount", value)} />
+                    <NumericInput value={event.amount} min={0} max={MAX_MONEY_AMOUNT} onChange={(value) => updateEvent(event.id, "amount", value)} />
                   </label>
                   <label>
                     影響
@@ -3238,7 +3266,7 @@ function EventSettingsView({
                 </label>
                 <label className="timeline-field">
                   金額
-                  <NumericInput value={event.amount} min={0} onChange={(value) => updateEvent(event.id, "amount", value)} />
+                  <NumericInput value={event.amount} min={0} max={MAX_MONEY_AMOUNT} onChange={(value) => updateEvent(event.id, "amount", value)} />
                   <small>支出または収入変化として反映する金額です。</small>
                 </label>
                 <label className="timeline-field impact-field">
@@ -3324,7 +3352,7 @@ function SimulationView({
     }
     setSimulationTab(tab);
   };
-  const currentNetAssets = getAssetSummary(plan.assets).netAssets;
+  const currentLiquidAssets = plan.assets.cash + plan.assets.investment;
   const withdrawalPlan = plan.withdrawalPlan || defaultPlan.withdrawalPlan;
   const withdrawalStartAge = withdrawalPlan.startAge;
   const withdrawalStartingAssets = withdrawalPlan.startingAssets;
@@ -3503,6 +3531,7 @@ function SimulationView({
               <NumericInput
                 value={plan.simulation.annualReturnRate}
                 min={0}
+                max={MAX_RATE_PERCENT}
                 allowDecimal
                 onChange={(value) => updateSimulation("annualReturnRate", value)}
               />
@@ -3539,7 +3568,7 @@ function SimulationView({
         <div className="notice-band check">
           <strong>基本見通しの計算前提</strong>
           <span>
-            想定利回りは、現在の投資資産と上記で投資へ回す金額に適用します。余剰とボーナスの残り、ライフイベントの収支は現金へ反映し、その他資産と負債は一定として試算します。ボーナスは年1回として反映し、税金・手数料・物価上昇は含めません。
+            想定利回りは、現在の投資資産と上記で投資へ回す金額に適用します。余剰とボーナスの残り、ライフイベントの収支は現金へ反映し、その他資産と負債は一定として試算します。ボーナスは年1回として反映し、税金・手数料・物価上昇は含めません。年次表示は、現在から12ヶ月ごとの時点を表示します。
           </span>
         </div>
         {projectionMode === "monthly" && (
@@ -3652,19 +3681,20 @@ function SimulationView({
             <NumericInput
               value={plan.simulation.annualReturnRate}
               min={0}
+              max={MAX_RATE_PERCENT}
               allowDecimal
               onChange={(value) => updateSimulation("annualReturnRate", value)}
             />
           </label>
           <label>
             積立期間 年
-            <NumericInput value={plan.simulation.years} min={1} onChange={(value) => updateSimulation("years", value)} />
+            <NumericInput value={plan.simulation.years} min={1} max={MAX_PROJECTION_YEARS} onChange={(value) => updateSimulation("years", value)} />
           </label>
         </div>
         <div className="calculation-band compact">
           <Metric label="積立元本" value={manYen(contribution.totalContribution)} helper="毎月 + ボーナス" />
           <Metric label="試算結果" value={manYen(contribution.finalValue)} helper={`想定利回り ${plan.simulation.annualReturnRate}%`} />
-          <Metric label="積立しない場合との差" value={manYen(contribution.finalValue - contribution.noReturnValue)} helper="利回りありとの差" />
+          <Metric label="利回り0%との差" value={manYen(contribution.finalValue - contribution.noReturnValue)} helper="同じ積立額で比較" />
           <Metric
             label="月1万円増やした場合"
             value={manYen(contribution.increasedByTenThousand - contribution.finalValue)}
@@ -3692,11 +3722,12 @@ function SimulationView({
         <div className="section-heading chart-section-heading">
           <div>
             <h2>積み立て資産の推移</h2>
-            <p>{contributionVariability.trialCount.toLocaleString("ja-JP")}回の試行結果を、上位10%・下位10%・中央値・最頻帯で表示します。</p>
+            <p>{contributionVariability.trialCount.toLocaleString("ja-JP")}回の試行結果を、上位10%・下位10%・中央値・最頻帯で表示します。想定利回りを中心に、設定した標準偏差で毎年独立に変動する単純モデルです。</p>
           </div>
           <label className="compact-number-field">
-            年ごとのばらつき幅 %
-            <NumericInput value={returnVariabilityRate} min={0} allowDecimal onChange={setReturnVariabilityRate} />
+            年ごとの利回りのばらつき目安 %
+            <NumericInput value={returnVariabilityRate} min={0} max={MAX_RATE_PERCENT} allowDecimal onChange={setReturnVariabilityRate} />
+            <small>想定利回りを中心とした年率の標準偏差です。</small>
           </label>
         </div>
         <LineChart points={contributionChartPoints} variabilityRows={contributionVariability.rows} />
@@ -3746,7 +3777,7 @@ function SimulationView({
         <div className="form-grid">
           <label>
             取り崩し開始年齢
-            <NumericInput value={withdrawalStartAge} min={plan.profile.age} onChange={updateWithdrawalStartAge} />
+            <NumericInput value={withdrawalStartAge} min={plan.profile.age} max={MAX_PLAN_AGE} onChange={updateWithdrawalStartAge} />
           </label>
           <MoneyInput label="試算開始時資金" value={withdrawalStartingAssets} onChange={(value) => updateWithdrawalPlan("startingAssets", value)} />
           <label>
@@ -3780,30 +3811,31 @@ function SimulationView({
           )}
           <label>
             想定利回り %
-            <NumericInput value={withdrawalReturnRate} min={0} allowDecimal onChange={(value) => updateWithdrawalPlan("annualReturnRate", value)} />
+            <NumericInput value={withdrawalReturnRate} min={0} max={MAX_RATE_PERCENT} allowDecimal onChange={(value) => updateWithdrawalPlan("annualReturnRate", value)} />
           </label>
           <label>
             インフレ率 %
-            <NumericInput value={withdrawalInflationRate} min={0} allowDecimal onChange={(value) => updateWithdrawalPlan("inflationRate", value)} />
+            <NumericInput value={withdrawalInflationRate} min={0} max={MAX_RATE_PERCENT} allowDecimal onChange={(value) => updateWithdrawalPlan("inflationRate", value)} />
           </label>
           <label>
-            年ごとのばらつき幅 %
-            <NumericInput value={returnVariabilityRate} min={0} allowDecimal onChange={setReturnVariabilityRate} />
+            年ごとの利回りのばらつき目安 %
+            <NumericInput value={returnVariabilityRate} min={0} max={MAX_RATE_PERCENT} allowDecimal onChange={setReturnVariabilityRate} />
+            <small>想定利回りを中心とした年率の標準偏差です。</small>
           </label>
         </div>
         <div className="button-row">
-          <button type="button" className="secondary" onClick={() => updateWithdrawalPlan("startingAssets", currentNetAssets)}>
-            資産入力の純資産を試算開始時資金へ反映
+          <button type="button" className="secondary" onClick={() => updateWithdrawalPlan("startingAssets", currentLiquidAssets)}>
+            資産入力の現金・投資資産を試算開始時資金へ反映
           </button>
         </div>
         <div className="notice-band check">
           <strong>通常の取り崩しを単純に確認する画面です</strong>
-          <span>結果確認のため100歳まで描画しますが、試算期間の入力はありません。年金、社会保険、税金、老後生活費を含める場合は、別枠の老後プランを使います。</span>
+          <span>開始年齢が100歳以下の場合は100歳まで描画し、毎月の取り崩しと利回りを月ごとに反映します。年金、社会保険、税金、老後生活費を含める場合は、別枠の老後プランを使います。</span>
         </div>
         <div className="section-heading chart-section-heading">
           <div>
             <h2>取り崩し後の資産推移</h2>
-            <p>{withdrawalVariability.trialCount.toLocaleString("ja-JP")}回の試行結果を、上位10%・下位10%・中央値・最頻帯で表示します。</p>
+            <p>{withdrawalVariability.trialCount.toLocaleString("ja-JP")}回の試行結果を、上位10%・下位10%・中央値・最頻帯で表示します。想定利回りを中心に、設定した標準偏差で毎年独立に変動する単純モデルです。</p>
           </div>
         </div>
         <LineChart points={withdrawalChartPoints} variabilityRows={withdrawalVariability.rows} />
@@ -3812,10 +3844,10 @@ function SimulationView({
           <Metric label="初年度取り崩し" value={manYen(withdrawalResult.rows[0]?.withdrawalAmount ?? 0)} helper={withdrawalMode === "monthlyAmount" ? "毎月の指定額 × 12" : "開始時資金 × 取り崩し率"} />
           <Metric
             label="資産が尽きる目安"
-            value={withdrawalResult.depletedAge ? `${withdrawalResult.depletedAge}歳` : "100歳まで残る"}
+            value={withdrawalResult.depletedAge ? `${withdrawalResult.depletedAge}歳` : `${withdrawalEndAge}歳まで残る`}
             helper="前提条件に基づく試算"
           />
-          <Metric label="100歳時点の試算額" value={manYen(withdrawalResult.finalAssets)} helper="運用しながら取り崩す前提" />
+          <Metric label={`${withdrawalEndAge}歳時点の試算額`} value={manYen(withdrawalResult.finalAssets)} helper="運用しながら取り崩す前提" />
         </div>
         <div className={`notice-band ${withdrawalVariability.depletionRate > 0 ? "notice" : "check"}`}>
           <strong>{withdrawalVariability.depletionRate > 0 ? "資金が不足するケースがあります" : "現在の前提では期間内に資金が残る見通しです"}</strong>
@@ -3826,10 +3858,10 @@ function SimulationView({
           </span>
         </div>
         <div className="calculation-band compact">
-          <Metric label="100歳時点 下位10%" value={manYen(withdrawalVariability.lowerFinal)} helper="前提条件に基づく下振れ側の試算" />
-          <Metric label="100歳時点 最頻帯" value={manYen(withdrawalVariability.modeFinal)} helper="最も多かった金額帯の代表額" />
-          <Metric label="100歳時点 中央値" value={manYen(withdrawalVariability.medianFinal)} helper="ばらつき試算の中央値" />
-          <Metric label="100歳時点 上位10%" value={manYen(withdrawalVariability.upperFinal)} helper="上振れ側の試算" />
+          <Metric label={`${withdrawalEndAge}歳時点 下位10%`} value={manYen(withdrawalVariability.lowerFinal)} helper="前提条件に基づく下振れ側の試算" />
+          <Metric label={`${withdrawalEndAge}歳時点 最頻帯`} value={manYen(withdrawalVariability.modeFinal)} helper="最も多かった金額帯の代表額" />
+          <Metric label={`${withdrawalEndAge}歳時点 中央値`} value={manYen(withdrawalVariability.medianFinal)} helper="ばらつき試算の中央値" />
+          <Metric label={`${withdrawalEndAge}歳時点 上位10%`} value={manYen(withdrawalVariability.upperFinal)} helper="上振れ側の試算" />
         </div>
         <details className="projection-details">
           <summary>年次の試算表を確認</summary>
@@ -3928,6 +3960,10 @@ function RetirementPlanView({
             国民健康保険、介護保険、税金、年金額は自治体、年齢、所得、世帯状況などで変わります。この画面ではユーザーが置いた前提条件に基づく概算として扱います。
           </span>
         </div>
+        <div className="notice-band">
+          <strong>退職時点の試算資産に含める範囲</strong>
+          <span>資産入力の現金・投資資産と退職金を使用します。自宅や車などのその他資産と負債は取り崩し資金に含めません。ローン返済が続く場合は、住居費などの支出へ入力してください。</span>
+        </div>
         <div className="calculation-band compact">
           <Metric label="退職時点の試算資産" value={manYen(result.retirementStartAssets)} helper={`${result.startAge}歳時点の見通し`} />
           <Metric label="初年度支出" value={manYen(result.firstYearTotalCost)} helper="生活費 + 社会保険・税金" />
@@ -3946,14 +3982,15 @@ function RetirementPlanView({
         <div className="section-heading">
           <div>
             <h2>老後資産の推移グラフ</h2>
-            <p>{retirementVariability.trialCount.toLocaleString("ja-JP")}回のモンテカルロ試行で、年金・社会保険・税金を含む老後資産の幅を確認します。</p>
+            <p>{retirementVariability.trialCount.toLocaleString("ja-JP")}回のモンテカルロ試行で、年金・社会保険・税金を含む老後資産の幅を確認します。利回りは設定した標準偏差で毎年独立に変動する単純モデルです。</p>
           </div>
           <span className="status-pill recurring">{result.startAge}歳〜{settings.planUntilAge}歳</span>
         </div>
         <div className="chart-toolbar">
           <label className="compact-number-field">
-            年ごとのばらつき幅 %
-            <NumericInput value={retirementVariabilityRate} min={0} allowDecimal onChange={setRetirementVariabilityRate} />
+            年ごとの利回りのばらつき目安 %
+            <NumericInput value={retirementVariabilityRate} min={0} max={MAX_RATE_PERCENT} allowDecimal onChange={setRetirementVariabilityRate} />
+            <small>想定利回りを中心とした年率の標準偏差です。</small>
           </label>
         </div>
         <LineChart points={retirementChartPoints} variabilityRows={retirementVariability.rows} />
@@ -3974,20 +4011,20 @@ function RetirementPlanView({
         <div className="form-grid">
           <label>
             退職年齢
-            <NumericInput value={settings.retirementAge} min={plan.profile.age} onChange={(value) => updateRetirementPlan("retirementAge", value)} />
+            <NumericInput value={settings.retirementAge} min={plan.profile.age} max={MAX_PLAN_AGE} onChange={(value) => updateRetirementPlan("retirementAge", value)} />
           </label>
           <label>
             何歳まで見るか
-            <NumericInput value={settings.planUntilAge} min={settings.retirementAge} onChange={(value) => updateRetirementPlan("planUntilAge", value)} />
+            <NumericInput value={settings.planUntilAge} min={settings.retirementAge} max={MAX_PLAN_AGE} onChange={(value) => updateRetirementPlan("planUntilAge", value)} />
           </label>
           <MoneyInput label="退職金・一時金" value={settings.retirementLumpSum} onChange={(value) => updateRetirementPlan("retirementLumpSum", value)} />
           <label>
             退職後の想定利回り %
-            <NumericInput value={settings.annualReturnRate} min={0} allowDecimal onChange={(value) => updateRetirementPlan("annualReturnRate", value)} />
+            <NumericInput value={settings.annualReturnRate} min={0} max={MAX_RATE_PERCENT} allowDecimal onChange={(value) => updateRetirementPlan("annualReturnRate", value)} />
           </label>
           <label>
             物価上昇率 %
-            <NumericInput value={settings.inflationRate} min={0} allowDecimal onChange={(value) => updateRetirementPlan("inflationRate", value)} />
+            <NumericInput value={settings.inflationRate} min={0} max={MAX_RATE_PERCENT} allowDecimal onChange={(value) => updateRetirementPlan("inflationRate", value)} />
           </label>
         </div>
       </section>
@@ -4146,8 +4183,9 @@ function VariabilityPanel({
           <p>{description}</p>
         </div>
         <label className="compact-number-field">
-          年ごとのばらつき幅 %
-          <NumericInput value={volatilityRate} min={0} allowDecimal onChange={onVolatilityRateChange} />
+          年ごとの利回りのばらつき目安 %
+          <NumericInput value={volatilityRate} min={0} max={MAX_RATE_PERCENT} allowDecimal onChange={onVolatilityRateChange} />
+          <small>想定利回りを中心とした年率の標準偏差です。</small>
         </label>
       </div>
       <div className="notice-band">
@@ -4268,7 +4306,7 @@ function NotesView({
                 </label>
                 <label>
                   年
-                  <NumericInput value={memo.year} min={new Date().getFullYear()} onChange={(value) => updateTimelineMemo(memo.id, "year", value)} />
+                  <NumericInput value={memo.year} min={new Date().getFullYear()} max={MAX_PLAN_YEAR} onChange={(value) => updateTimelineMemo(memo.id, "year", value)} />
                 </label>
                 <label>
                   月
@@ -4327,8 +4365,14 @@ function NotesView({
             <Metric label="最新の前回比" value={latestNetAssetDiff === null ? "-" : manYen(latestNetAssetDiff)} helper="実際の純資産" />
             <Metric
               label="予算との差"
-              value={reviewBudgetSummary.actualEntryCount > 0 ? manYen(reviewBudgetSummary.variance) : "未入力"}
-              helper={`${reviewMonthKey} 実績 - 予算`}
+              value={
+                plan.budgetItems.length > 0 && reviewBudgetSummary.actualEntryCount === plan.budgetItems.length
+                  ? manYen(reviewBudgetSummary.variance)
+                  : reviewBudgetSummary.actualEntryCount > 0
+                    ? "入力途中"
+                    : "未入力"
+              }
+              helper={`${reviewMonthKey} / 全項目入力後に判定`}
             />
           </div>
           <div className="review-list">
@@ -4668,7 +4712,9 @@ function getLifePlanDiagnosis(plan: LifePlan): DiagnosisItem[] {
   const currentDate = new Date();
   const currentMonthKey = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, "0")}`;
   const budgetSummary = getBudgetSummary(plan.budgetItems || [], currentMonthKey);
-  const overBudgetCategories = budgetSummary.categoryRows.filter((row) => row.variance > 0);
+  const overBudgetCategories = budgetSummary.categoryRows.filter(
+    (row) => row.actualEntryCount === row.itemCount && row.variance > 0
+  );
   const items: DiagnosisItem[] = [];
 
   items.push({
@@ -5139,7 +5185,7 @@ function SettingsView({
         </div>
         <div className="notice-band check">
           <strong>現在の確認項目: {reminders.length}件</strong>
-          <span>入力データと設定はブラウザ内だけに保存されます。</span>
+          <span>通常の入力データと設定はブラウザ内に保存されます。暗号化クラウドバックアップは、データ管理で利用者が明示的に操作した場合だけ作成されます。</span>
         </div>
         <div className="button-row">
           <button type="button" className="secondary" onClick={requestBrowserNotifications}>
@@ -5168,7 +5214,7 @@ function SettingsView({
       <section className="settings-grid">
         <div className="panel">
           <h2>データとプライバシー</h2>
-          <p>入力データはこのブラウザ内に保存されます。サーバー保存やクラウド同期は行わず、JSONでバックアップ・復元します。</p>
+          <p>入力データは通常このブラウザ内に保存されます。JSONでバックアップ・復元でき、ログイン後に利用者自身が操作した場合だけ暗号化クラウドバックアップを作成できます。自動同期は行いません。</p>
           <button type="button" className="secondary" onClick={() => setActiveView("data")}>
             データ管理を開く
           </button>
@@ -5184,7 +5230,7 @@ function SettingsView({
 
       <section className="panel">
         <h2>グラフの詳細表示</h2>
-        <p>シミュレーション画面の年次見通しは、グラフ上の点をタップすると年末資産、前年差、年間貯蓄、イベント影響を確認できます。</p>
+        <p>シミュレーション画面の年次見通しは、グラフ上の点をタップすると12ヶ月ごとの試算額、前回時点との差、貯蓄反映、イベント影響を確認できます。</p>
       </section>
     </div>
   );

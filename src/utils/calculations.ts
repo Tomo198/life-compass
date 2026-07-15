@@ -66,6 +66,8 @@ export type MonthlyProjectionRow = ProjectionPoint & {
   month: number;
   monthIndex: number;
   label: string;
+  cashBalance: number;
+  investmentBalance: number;
   monthlySavings: number;
   monthlyInvestmentContribution: number;
   bonusSavings: number;
@@ -178,6 +180,7 @@ export type BudgetCategorySummary = {
   plannedMonthlyAverage: number;
   actual: number;
   variance: number;
+  itemCount: number;
   actualEntryCount: number;
 };
 
@@ -347,10 +350,12 @@ export const getBudgetSummary = (items: BudgetItem[], monthKey: string): BudgetS
       plannedMonthlyAverage: 0,
       actual: 0,
       variance: 0,
+      itemCount: 0,
       actualEntryCount: 0
     };
     current.plannedMonthlyAverage += plannedMonthlyAverage;
     current.actual += actual;
+    current.itemCount += 1;
     current.actualEntryCount += hasActual ? 1 : 0;
     current.variance = current.actual - current.plannedMonthlyAverage;
     categoryMap.set(item.category, current);
@@ -417,17 +422,6 @@ export const getEmergencyFundResult = (plan: LifePlan): EmergencyFundResult => {
   };
 };
 
-const eventImpactForYear = (events: LifeEvent[], year: number) =>
-  events
-    .filter((event) => event.year === year)
-    .reduce((total, event) => {
-      if (event.cashflowType === "income") return total + event.amount;
-      if (event.cashflowType === "expense") return total - event.amount;
-      return total;
-    }, 0);
-
-const eventsForYear = (events: LifeEvent[], year: number) => events.filter((event) => event.year === year);
-
 const eventImpactForMonth = (events: LifeEvent[], year: number, month: number) =>
   events
     .filter((event) => event.year === year && event.month === month)
@@ -465,45 +459,31 @@ const applyProjectionMonth = (
 };
 
 export const projectAssets = (plan: LifePlan, years: number): ProjectionPoint[] => {
-  const allocation = getBasicProjectionAllocation(plan);
-  const monthlyRate = plan.simulation.annualReturnRate / 100 / 12;
-  const startYear = new Date().getFullYear();
-  const balances = createProjectionBalances(plan.assets);
-  const points: ProjectionPoint[] = [{ year: startYear, age: plan.profile.age, value: getProjectionValue(balances) }];
-
-  for (let yearOffset = 1; yearOffset <= years; yearOffset += 1) {
-    const year = startYear + yearOffset;
-    for (let month = 1; month <= 12; month += 1) {
-      applyProjectionMonth(
-        balances,
-        monthlyRate,
-        allocation.monthlyCash + (month === 12 ? allocation.annualBonusCash : 0),
-        allocation.monthlyInvestment + (month === 12 ? allocation.annualBonusInvestment : 0),
-        eventImpactForMonth(plan.events, year, month)
-      );
-    }
-    points.push({ year, age: plan.profile.age + yearOffset, value: getProjectionValue(balances) });
-  }
-
-  return points;
+  const monthlyRows = getMonthlyProjectionRows(plan, Math.max(0, years) * 12);
+  return Array.from({ length: Math.max(0, years) + 1 }, (_, yearOffset) => {
+    const row = monthlyRows[yearOffset * 12];
+    return { year: row.year, age: row.age, value: row.value };
+  });
 };
 
 export const getAnnualProjectionRows = (plan: LifePlan, years: number): AnnualProjectionRow[] => {
-  const cashflow = getCashflowSummary(plan.household);
-  const projection = projectAssets(plan, years);
+  const normalizedYears = Math.max(0, years);
+  const monthlyRows = getMonthlyProjectionRows(plan, normalizedYears * 12);
 
-  return projection.map((point, index) => {
-    const yearEvents = eventsForYear(plan.events, point.year);
-    const annualSavings = index === 0 ? 0 : cashflow.annualSavings;
-    const eventImpact = index === 0 ? 0 : eventImpactForYear(plan.events, point.year);
-    const previousValue = projection[index - 1]?.value ?? point.value;
-    const returnImpact = index === 0 ? 0 : point.value - previousValue - annualSavings - eventImpact;
+  return Array.from({ length: normalizedYears + 1 }, (_, index) => {
+    const point = monthlyRows[index * 12];
+    const periodRows = index === 0 ? [] : monthlyRows.slice((index - 1) * 12 + 1, index * 12 + 1);
+    const annualSavings = periodRows.reduce((total, row) => total + row.monthlySavings + row.bonusSavings, 0);
+    const eventImpact = periodRows.reduce((total, row) => total + row.eventImpact, 0);
+    const returnImpact = periodRows.reduce((total, row) => total + row.returnImpact, 0);
     return {
-      ...point,
+      year: point.year,
+      age: point.age,
+      value: point.value,
       annualSavings,
       eventImpact,
       returnImpact,
-      eventTitles: yearEvents.map((event) => event.title)
+      eventTitles: periodRows.flatMap((row) => row.eventTitles)
     };
   });
 };
@@ -549,6 +529,8 @@ export const getMonthlyProjectionRows = (plan: LifePlan, months: number): Monthl
       label: `${year}/${String(month).padStart(2, "0")}`,
       age,
       value,
+      cashBalance: balances.cash,
+      investmentBalance: balances.investment,
       monthlySavings,
       monthlyInvestmentContribution,
       bonusSavings,
@@ -576,13 +558,17 @@ export const getGoalPreparedPercent = (goal: Goal) => {
 };
 
 export const getGoalAchievement = (plan: LifePlan, goal: Goal): GoalAchievement => {
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth() + 1;
+
   if (goal.goalType === "recurring") {
     const occurrences = getRecurrenceCountPerYear(goal.recurrence);
     const annualRequiredAmount = goal.requiredAmount * occurrences;
     return {
       goalId: goal.id,
       status: "recurring",
-      targetAge: plan.profile.age + Math.max(0, goal.dueYear - new Date().getFullYear()),
+      targetAge: plan.profile.age + Math.max(0, goal.dueYear - currentYear),
       targetYear: goal.dueYear,
       shortfall: Math.max(0, goal.requiredAmount - goal.savedAmount),
       annualRequiredAmount,
@@ -599,7 +585,7 @@ export const getGoalAchievement = (plan: LifePlan, goal: Goal): GoalAchievement 
       goalId: goal.id,
       status: "achieved",
       targetAge: plan.profile.age,
-      targetYear: new Date().getFullYear(),
+      targetYear: currentYear,
       shortfall: 0,
       annualRequiredAmount: 0,
       monthlyRequiredAmount: 0,
@@ -623,9 +609,14 @@ export const getGoalAchievement = (plan: LifePlan, goal: Goal): GoalAchievement 
   }
 
   const monthsToTarget = Math.ceil(shortfall / goal.monthlyAllocation);
-  const yearsToTarget = Math.ceil(monthsToTarget / 12);
-  const targetAge = plan.profile.age + yearsToTarget;
-  const targetYear = new Date().getFullYear() + yearsToTarget;
+  const targetDate = new Date(currentYear, now.getMonth() + monthsToTarget, 1);
+  const targetAge = plan.profile.age + Math.floor(monthsToTarget / 12);
+  const targetYear = targetDate.getFullYear();
+  const dueMonth = Number.isFinite(goal.dueMonth) ? goal.dueMonth : 12;
+  const monthsUntilDue = Math.max(1, (goal.dueYear - currentYear) * 12 + dueMonth - currentMonth);
+  const monthlyRequiredAmount = Math.ceil(shortfall / monthsUntilDue);
+  const reachesByDue =
+    targetYear < goal.dueYear || (targetYear === goal.dueYear && targetDate.getMonth() + 1 <= dueMonth);
 
   return {
     goalId: goal.id,
@@ -634,9 +625,9 @@ export const getGoalAchievement = (plan: LifePlan, goal: Goal): GoalAchievement 
     targetYear,
     shortfall,
     annualRequiredAmount: 0,
-    monthlyRequiredAmount: goal.monthlyAllocation,
+    monthlyRequiredAmount,
     monthsToTarget,
-    note: `達成済み額と毎月${manYen(goal.monthlyAllocation)}をこの目標に回す前提の目安です。`
+    note: `達成済み額と毎月${manYen(goal.monthlyAllocation)}を回すと${targetYear}年${targetDate.getMonth() + 1}月頃の目安です。期限までに必要な毎月額は${manYen(monthlyRequiredAmount)}で、現在の配分では${reachesByDue ? "期限内" : "期限後"}の見通しです。`
   };
 };
 
@@ -892,6 +883,22 @@ const getWithdrawalPhaseForAge = (settings: WithdrawalSettings, age: number) => 
   return previousPhases[previousPhases.length - 1] ?? phases[0];
 };
 
+const applyMonthlyWithdrawalYear = (startingAssets: number, annualWithdrawal: number, annualReturnRate: number) => {
+  const monthlyWithdrawal = annualWithdrawal / 12;
+  const monthlyReturnRate = annualReturnRate / 12;
+  let assets = startingAssets;
+  let returnImpact = 0;
+
+  for (let month = 0; month < 12; month += 1) {
+    const beforeReturn = Math.max(0, assets - monthlyWithdrawal);
+    const monthlyReturnImpact = beforeReturn * monthlyReturnRate;
+    assets = Math.max(0, beforeReturn + monthlyReturnImpact);
+    returnImpact += monthlyReturnImpact;
+  }
+
+  return { assets: Math.round(assets), returnImpact: Math.round(returnImpact) };
+};
+
 export const simulateWithdrawal = (settings: WithdrawalSettings): WithdrawalResult => {
   const rows: WithdrawalProjectionRow[] = [];
   const annualReturnRate = settings.annualReturnRate / 100;
@@ -912,9 +919,8 @@ export const simulateWithdrawal = (settings: WithdrawalSettings): WithdrawalResu
       : ((phase?.monthlyLivingCost ?? 0) * 12 + (phase?.annualExtraExpense ?? 0)) * (1 + inflationRate) ** (yearIndex - 1);
     const annualPension = usesSimpleWithdrawal ? 0 : (phase?.monthlyIncome ?? 0) * 12;
     const withdrawalAmount = Math.max(0, annualLivingCost - annualPension);
-    const beforeReturn = Math.max(0, assets - withdrawalAmount);
-    const returnImpact = beforeReturn * annualReturnRate;
-    assets = Math.max(0, beforeReturn + returnImpact);
+    const yearResult = applyMonthlyWithdrawalYear(assets, withdrawalAmount, annualReturnRate);
+    assets = yearResult.assets;
 
     if (assets <= 0 && depletedAge === null) {
       depletedAge = age;
@@ -928,7 +934,7 @@ export const simulateWithdrawal = (settings: WithdrawalSettings): WithdrawalResu
       annualLivingCost,
       annualPension,
       withdrawalAmount,
-      returnImpact
+      returnImpact: yearResult.returnImpact
     });
   }
 
@@ -967,7 +973,7 @@ export const simulateWithdrawalVariability = (
       const annualPension = usesSimpleWithdrawal ? 0 : (phase?.monthlyIncome ?? 0) * 12;
       const withdrawalAmount = Math.max(0, annualLivingCost - annualPension);
       const sampledAnnualRate = Math.max(-100, settings.annualReturnRate + sampleNormal(random) * annualVolatilityRate) / 100;
-      assets = Math.max(0, (assets - withdrawalAmount) * (1 + sampledAnnualRate));
+      assets = applyMonthlyWithdrawalYear(assets, withdrawalAmount, sampledAnnualRate).assets;
 
       if (assets <= 0 && depletedAge === null) {
         depletedAge = age;
@@ -999,12 +1005,20 @@ export const simulateWithdrawalVariability = (
   };
 };
 
+const getRetirementStartAssets = (plan: LifePlan, yearsToStart: number) => {
+  const projectedRows = getMonthlyProjectionRows(plan, yearsToStart * 12);
+  const startRow = projectedRows[yearsToStart * 12];
+  const liquidAssets = startRow
+    ? startRow.cashBalance + startRow.investmentBalance
+    : plan.assets.cash + plan.assets.investment;
+  return Math.max(0, liquidAssets + plan.retirementPlan.retirementLumpSum);
+};
+
 export const simulateRetirementPlan = (plan: LifePlan): RetirementPlanResult => {
   const settings = plan.retirementPlan;
   const startAge = Math.max(plan.profile.age, settings.retirementAge);
   const yearsToStart = Math.max(0, startAge - plan.profile.age);
-  const projectedAssets = projectAssets(plan, yearsToStart);
-  const retirementStartAssets = (projectedAssets[yearsToStart]?.value ?? getAssetSummary(plan.assets).netAssets) + settings.retirementLumpSum;
+  const retirementStartAssets = getRetirementStartAssets(plan, yearsToStart);
   const simulationYears = Math.max(1, settings.planUntilAge - startAge + 1);
   const startYear = new Date().getFullYear() + yearsToStart;
   const annualReturnRate = settings.annualReturnRate / 100;
@@ -1027,9 +1041,8 @@ export const simulateRetirementPlan = (plan: LifePlan): RetirementPlanResult => 
     const annualRetirementIncome =
       (settings.monthlyPublicPension + settings.monthlyPrivatePension + settings.monthlyOtherIncome) * 12;
     const withdrawalAmount = Math.max(0, annualLivingCost + annualSocialInsuranceAndTax - annualRetirementIncome);
-    const beforeReturn = Math.max(0, assets - withdrawalAmount);
-    const returnImpact = beforeReturn * annualReturnRate;
-    assets = Math.max(0, beforeReturn + returnImpact);
+    const yearResult = applyMonthlyWithdrawalYear(assets, withdrawalAmount, annualReturnRate);
+    assets = yearResult.assets;
 
     if (assets <= 0 && depletedAge === null) {
       depletedAge = startAge + index;
@@ -1044,7 +1057,7 @@ export const simulateRetirementPlan = (plan: LifePlan): RetirementPlanResult => 
       annualSocialInsuranceAndTax,
       annualRetirementIncome,
       withdrawalAmount,
-      returnImpact
+      returnImpact: yearResult.returnImpact
     });
   }
 
@@ -1068,8 +1081,7 @@ export const simulateRetirementPlanVariability = (
   const settings = plan.retirementPlan;
   const startAge = Math.max(plan.profile.age, settings.retirementAge);
   const yearsToStart = Math.max(0, startAge - plan.profile.age);
-  const projectedAssets = projectAssets(plan, yearsToStart);
-  const retirementStartAssets = (projectedAssets[yearsToStart]?.value ?? getAssetSummary(plan.assets).netAssets) + settings.retirementLumpSum;
+  const retirementStartAssets = getRetirementStartAssets(plan, yearsToStart);
   const simulationYears = Math.max(1, settings.planUntilAge - startAge + 1);
   const yearlyValues: number[][] = Array.from({ length: simulationYears }, () => []);
   const depletedAges: number[] = [];
@@ -1096,7 +1108,7 @@ export const simulateRetirementPlanVariability = (
         (settings.monthlyPublicPension + settings.monthlyPrivatePension + settings.monthlyOtherIncome) * 12;
       const withdrawalAmount = Math.max(0, annualLivingCost + annualSocialInsuranceAndTax - annualRetirementIncome);
       const sampledAnnualRate = Math.max(-100, settings.annualReturnRate + sampleNormal(random) * annualVolatilityRate) / 100;
-      assets = Math.max(0, (assets - withdrawalAmount) * (1 + sampledAnnualRate));
+      assets = applyMonthlyWithdrawalYear(assets, withdrawalAmount, sampledAnnualRate).assets;
 
       if (assets <= 0 && depletedAge === null) {
         depletedAge = age;
@@ -1129,8 +1141,12 @@ export const simulateRetirementPlanVariability = (
 };
 
 export const getNextEvent = (events: LifeEvent[]) => {
-  const currentYear = new Date().getFullYear();
-  return [...events].filter((event) => event.year >= currentYear).sort((a, b) => a.year - b.year)[0];
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth() + 1;
+  return [...events]
+    .filter((event) => event.year > currentYear || (event.year === currentYear && event.month >= currentMonth))
+    .sort((a, b) => a.year - b.year || a.month - b.month)[0];
 };
 
 export const getPrimaryGoal = (plan: LifePlan) =>

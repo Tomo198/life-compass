@@ -1,6 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { CURRENT_PLAN_VERSION, RECOVERY_STORAGE_KEY, STORAGE_KEY } from "../src/config";
+import {
+  CURRENT_PLAN_VERSION,
+  MAX_MONEY_AMOUNT,
+  MAX_PLAN_AGE,
+  MAX_PROJECTION_YEARS,
+  MAX_RATE_PERCENT,
+  RECOVERY_STORAGE_KEY,
+  STORAGE_KEY
+} from "../src/config";
 import {
   canOpenView,
   defaultAccessState,
@@ -28,6 +36,7 @@ import {
   getGoalPreparedPercent,
   getInputCompletion,
   getMonthlyProjectionRows,
+  getNextEvent,
   projectAssets,
   simulateContributionVariability,
   simulateRetirementPlan,
@@ -275,6 +284,37 @@ test("budget summary converts frequency to monthly average and selected actuals"
   assert.equal(summary.actualEntryCount, 2);
   assert.equal(summary.annualPlan, 1200000);
   assert.equal(summary.categoryRows.find((row) => row.category === "travel")?.plannedMonthlyAverage, 20000);
+  assert.equal(summary.categoryRows.find((row) => row.category === "travel")?.itemCount, 1);
+});
+
+test("budget category summary exposes incomplete actual entry counts", () => {
+  const summary = getBudgetSummary(
+    [
+      {
+        id: "food-1",
+        name: "groceries",
+        category: "food",
+        frequency: "monthlyVariable",
+        budgetAmount: 40000,
+        actuals: { "2026-06": 42000 },
+        memo: ""
+      },
+      {
+        id: "food-2",
+        name: "eating out",
+        category: "food",
+        frequency: "monthlyVariable",
+        budgetAmount: 20000,
+        actuals: {},
+        memo: ""
+      }
+    ],
+    "2026-06"
+  );
+  const food = summary.categoryRows.find((row) => row.category === "food");
+
+  assert.equal(food?.itemCount, 2);
+  assert.equal(food?.actualEntryCount, 1);
 });
 
 test("budget household inputs map monthly and recurring non-monthly items to cashflow fields", () => {
@@ -487,6 +527,7 @@ test("asset projection combines expense, income, and neutral events in the same 
 });
 
 test("annual projection rows expose savings and event markers for each year", () => {
+  const eventDate = new Date(currentYear, new Date().getMonth() + 6, 1);
   const plan: LifePlan = {
     ...basePlan,
     household: {
@@ -508,8 +549,8 @@ test("annual projection rows expose savings and event markers for each year", ()
         id: "event-1",
         title: "home repair",
         category: "home",
-        year: currentYear + 1,
-        month: 12,
+        year: eventDate.getFullYear(),
+        month: eventDate.getMonth() + 1,
         age: 36,
         amount: 120000,
         cashflowType: "expense",
@@ -526,6 +567,43 @@ test("annual projection rows expose savings and event markers for each year", ()
   assert.equal(rows[1].eventImpact, -120000);
   assert.equal(rows[1].returnImpact, 0);
   assert.deepEqual(rows[1].eventTitles, ["home repair"]);
+});
+
+test("annual projection includes upcoming current-year events and matches the 12-month snapshot", () => {
+  const eventDate = new Date(currentYear, new Date().getMonth() + 1, 1);
+  const plan: LifePlan = {
+    ...basePlan,
+    household: {
+      monthlyIncome: 100000,
+      annualBonus: 0,
+      sideIncome: 0,
+      fixedCost: 100000,
+      variableCost: 0,
+      annualSpecialCost: 0
+    },
+    assets: { cash: 1000000, investment: 0, other: 0, debt: 0 },
+    events: [
+      {
+        id: "current-year-event",
+        title: "upcoming expense",
+        category: "other",
+        year: eventDate.getFullYear(),
+        month: eventDate.getMonth() + 1,
+        age: 35,
+        amount: 100000,
+        cashflowType: "expense",
+        memo: ""
+      }
+    ],
+    simulation: { ...basePlan.simulation, annualReturnRate: 0 }
+  };
+
+  const annualRows = getAnnualProjectionRows(plan, 1);
+  const monthlyRows = getMonthlyProjectionRows(plan, 12);
+
+  assert.equal(annualRows[1].eventImpact, -100000);
+  assert.deepEqual(annualRows[1].eventTitles, ["upcoming expense"]);
+  assert.equal(annualRows[1].value, monthlyRows[12].value);
 });
 
 test("annual projection rows apply returns only to investment assets", () => {
@@ -903,6 +981,58 @@ test("goal achievement age is based on saved amount and monthly allocation", () 
   assert.equal(achievement.monthsToTarget, 24);
 });
 
+test("goal achievement within one month does not add a full year to the displayed age", () => {
+  const targetDate = new Date(currentYear, new Date().getMonth() + 1, 1);
+  const achievement = getGoalAchievement(
+    { ...basePlan, profile: { ...basePlan.profile, age: 40 } },
+    {
+      id: "goal-short",
+      title: "short target",
+      goalType: "oneTime",
+      dueYear: targetDate.getFullYear(),
+      dueMonth: targetDate.getMonth() + 1,
+      requiredAmount: 100000,
+      savedAmount: 0,
+      monthlyAllocation: 100000,
+      recurrence: "yearly",
+      priority: "high",
+      progress: 0,
+      memo: ""
+    }
+  );
+
+  assert.equal(achievement.monthsToTarget, 1);
+  assert.equal(achievement.targetAge, 40);
+  assert.equal(achievement.targetYear, targetDate.getFullYear());
+  assert.equal(achievement.monthlyRequiredAmount, 100000);
+});
+
+test("next event excludes past months and sorts same-year events by month", () => {
+  const now = new Date();
+  const pastDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const earlierFutureDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  const laterFutureDate = new Date(now.getFullYear(), now.getMonth() + 2, 1);
+  const event = (id: string, date: Date): LifePlan["events"][number] => ({
+    id,
+    title: id,
+    category: "other",
+    year: date.getFullYear(),
+    month: date.getMonth() + 1,
+    age: 35,
+    amount: 0,
+    cashflowType: "neutral",
+    memo: ""
+  });
+
+  const next = getNextEvent([
+    event("past", pastDate),
+    event("later", laterFutureDate),
+    event("earlier", earlierFutureDate)
+  ]);
+
+  assert.equal(next?.id, "earlier");
+});
+
 test("goal achievement reports unreachable when monthly allocation is not positive", () => {
   const plan: LifePlan = {
     ...basePlan,
@@ -1110,6 +1240,27 @@ test("simple withdrawal rate uses starting assets as its fixed annual base", () 
   assert.equal(result.rows[0].withdrawalAmount, 400000);
   assert.equal(result.rows[2].withdrawalAmount, 400000);
   assert.equal(result.finalAssets, 8800000);
+});
+
+test("withdrawal simulation applies monthly withdrawals and monthly return effects", () => {
+  const result = simulateWithdrawal({
+    startAge: 60,
+    currentAssets: 1000000,
+    monthlyLivingCost: 0,
+    monthlyPension: 0,
+    withdrawalMode: "monthlyAmount",
+    monthlyWithdrawalAmount: 10000,
+    annualReturnRate: 12,
+    inflationRate: 0,
+    years: 1
+  });
+  let expected = 1000000;
+  for (let month = 0; month < 12; month += 1) {
+    expected = (expected - 10000) * 1.01;
+  }
+
+  assert.equal(result.finalAssets, Math.round(expected));
+  assert.equal(result.rows[0].withdrawalAmount, 120000);
 });
 
 test("withdrawal simulation supports period-based income and living cost assumptions", () => {
@@ -1333,6 +1484,44 @@ test("retirement plan uses pre-retirement projection and lump sum before withdra
   });
 
   assert.equal(result.startAge, 65);
+  assert.equal(result.retirementStartAssets, 3000000);
+  assert.equal(result.finalAssets, 3000000);
+});
+
+test("retirement withdrawal funds exclude other assets and debt", () => {
+  const result = simulateRetirementPlan({
+    ...basePlan,
+    profile: { ...basePlan.profile, age: 65 },
+    household: {
+      monthlyIncome: 0,
+      annualBonus: 0,
+      sideIncome: 0,
+      fixedCost: 0,
+      variableCost: 0,
+      annualSpecialCost: 0
+    },
+    assets: { cash: 1000000, investment: 2000000, other: 10000000, debt: 5000000 },
+    retirementPlan: {
+      ...basePlan.retirementPlan,
+      retirementAge: 65,
+      planUntilAge: 65,
+      monthlyLivingCost: 0,
+      monthlyHousingCost: 0,
+      monthlyMedicalCost: 0,
+      monthlyCareCost: 0,
+      monthlyPublicPension: 0,
+      monthlyPrivatePension: 0,
+      monthlyOtherIncome: 0,
+      monthlyHealthInsurance: 0,
+      monthlyLongTermCareInsurance: 0,
+      monthlyTaxes: 0,
+      annualExtraExpense: 0,
+      retirementLumpSum: 0,
+      annualReturnRate: 0,
+      inflationRate: 0
+    }
+  });
+
   assert.equal(result.retirementStartAssets, 3000000);
   assert.equal(result.finalAssets, 3000000);
 });
@@ -1677,6 +1866,42 @@ test("import validation normalizes malformed core fields and rejects future back
     /新しいバージョン/
   );
   assert.throws(() => validateImportedPlan({ ...basePlan, version: "2" }), /バージョン情報/);
+});
+
+test("import validation bounds calculation-heavy ages, rates, years and money values", () => {
+  const imported = validateImportedPlan({
+    ...basePlan,
+    profile: { ...basePlan.profile, age: 999 },
+    assets: { ...basePlan.assets, cash: MAX_MONEY_AMOUNT * 2 },
+    simulation: { ...basePlan.simulation, annualReturnRate: 999, years: 999 },
+    withdrawalPlan: {
+      ...basePlan.withdrawalPlan,
+      startAge: 999,
+      years: 999,
+      startingAssets: MAX_MONEY_AMOUNT * 2,
+      annualWithdrawalRate: 999,
+      annualReturnRate: 999,
+      inflationRate: 999
+    },
+    retirementPlan: {
+      ...basePlan.retirementPlan,
+      retirementAge: 999,
+      planUntilAge: 999,
+      annualReturnRate: 999,
+      inflationRate: 999
+    }
+  });
+
+  assert.equal(imported.profile.age, MAX_PLAN_AGE);
+  assert.equal(imported.assets.cash, MAX_MONEY_AMOUNT);
+  assert.equal(imported.simulation.years, MAX_PROJECTION_YEARS);
+  assert.equal(imported.simulation.annualReturnRate, MAX_RATE_PERCENT);
+  assert.equal(imported.withdrawalPlan.startAge, MAX_PLAN_AGE);
+  assert.equal(imported.withdrawalPlan.years, MAX_PROJECTION_YEARS);
+  assert.equal(imported.withdrawalPlan.annualWithdrawalRate, MAX_RATE_PERCENT);
+  assert.equal(imported.retirementPlan.retirementAge, MAX_PLAN_AGE);
+  assert.equal(imported.retirementPlan.planUntilAge, MAX_PLAN_AGE);
+  assert.ok(Number.isFinite(projectAssets(imported, 1)[1].value));
 });
 
 test("recovery backups keep the newest three plans and can be removed", () => {

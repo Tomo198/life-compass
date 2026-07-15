@@ -37,7 +37,7 @@ export function PricingView({
             <li>詳細取り崩しと老後生活の見通し</li>
           </ul>
           <button type="button" onClick={() => setActiveView("scenarios")}>開発中のPro機能を確認する</button>
-          <small className="pricing-preview-note">現在は申込みではなく、課金なしのプレビューです。入力内容はこのブラウザ内に保存されます。</small>
+          <small className="pricing-preview-note">現在は申込みではなく、課金なしのプレビューです。入力内容は通常このブラウザ内に保存され、クラウドバックアップは利用者が明示的に操作した場合だけ作成されます。</small>
         </div>
 
         <div className="pricing-card current">

@@ -1,4 +1,5 @@
 import { NumericInput, StepFlowNav, StepTitle } from "../components/CommonUi";
+import { MAX_PLAN_AGE } from "../config";
 import type { FamilyType, Housing, LifePlan, Profile, ViewKey, WorkStyle } from "../types";
 
 const familyLabels: Record<FamilyType, string> = {
@@ -46,7 +47,7 @@ export function ProfileView({
           </label>
           <label>
             現在の年齢
-            <NumericInput value={plan.profile.age} min={0} onChange={(value) => updateProfile("age", value)} />
+            <NumericInput value={plan.profile.age} min={0} max={MAX_PLAN_AGE} onChange={(value) => updateProfile("age", value)} />
           </label>
           <label>
             家族構成

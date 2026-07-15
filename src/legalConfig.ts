@@ -9,7 +9,7 @@ export const legalConfig = {
   phone: publicValue(import.meta.env.VITE_LEGAL_PHONE),
   websiteUrl: "https://life.raotomo.com",
   proPriceLabel: "月額590円（税込・予定）",
-  lastUpdated: "2026年7月12日"
+  lastUpdated: "2026年7月16日"
 };
 
 export const commercialIdentityReady = Boolean(
