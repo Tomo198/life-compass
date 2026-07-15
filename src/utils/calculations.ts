@@ -20,7 +20,9 @@ export type CashflowSummary = {
   monthlyLivingCost: number;
   annualLivingCost: number;
   monthlySavings: number;
+  annualSavings: number;
   savingsRate: number;
+  annualSavingsRate: number;
 };
 
 export type EmergencyFundResult = {
@@ -52,6 +54,7 @@ export type MonthlyProjectionRow = ProjectionPoint & {
   monthIndex: number;
   label: string;
   monthlySavings: number;
+  bonusSavings: number;
   eventImpact: number;
   returnImpact: number;
   eventTitles: string[];
@@ -194,6 +197,14 @@ export type GoalAchievement = {
   note: string;
 };
 
+export type GoalFundingSummary = {
+  monthlyAvailable: number;
+  monthlyAllocated: number;
+  monthlyRemaining: number;
+  overAllocatedAmount: number;
+  activeGoalCount: number;
+};
+
 export const yen = (value: number) =>
   new Intl.NumberFormat("ja-JP", {
     style: "currency",
@@ -214,7 +225,9 @@ export const getCashflowSummary = (household: Household): CashflowSummary => {
   const monthlyLivingCost = household.fixedCost + household.variableCost + household.annualSpecialCost / 12;
   const annualLivingCost = monthlyLivingCost * 12;
   const monthlySavings = monthlyIncome - monthlyLivingCost;
+  const annualSavings = annualIncome - annualLivingCost;
   const savingsRate = monthlyIncome > 0 ? (monthlySavings / monthlyIncome) * 100 : 0;
+  const annualSavingsRate = annualIncome > 0 ? (annualSavings / annualIncome) * 100 : 0;
 
   return {
     monthlyIncome,
@@ -222,7 +235,9 @@ export const getCashflowSummary = (household: Household): CashflowSummary => {
     monthlyLivingCost,
     annualLivingCost,
     monthlySavings,
-    savingsRate
+    annualSavings,
+    savingsRate,
+    annualSavingsRate
   };
 };
 
@@ -385,21 +400,48 @@ const eventImpactForMonth = (events: LifeEvent[], year: number, month: number) =
 const eventsForMonth = (events: LifeEvent[], year: number, month: number) =>
   events.filter((event) => event.year === year && event.month === month);
 
+type ProjectionBalances = {
+  cash: number;
+  investment: number;
+  other: number;
+  debt: number;
+};
+
+const createProjectionBalances = (assets: Assets): ProjectionBalances => ({ ...assets });
+
+const getProjectionValue = (balances: ProjectionBalances) =>
+  balances.cash + balances.investment + balances.other - balances.debt;
+
+const applyProjectionMonth = (
+  balances: ProjectionBalances,
+  monthlyReturnRate: number,
+  monthlySavings: number,
+  bonusSavings: number,
+  eventImpact: number
+) => {
+  balances.investment *= 1 + monthlyReturnRate;
+  balances.cash += monthlySavings + bonusSavings + eventImpact;
+};
+
 export const projectAssets = (plan: LifePlan, years: number): ProjectionPoint[] => {
   const cashflow = getCashflowSummary(plan.household);
-  const { netAssets } = getAssetSummary(plan.assets);
   const monthlyRate = plan.simulation.annualReturnRate / 100 / 12;
   const startYear = new Date().getFullYear();
-  let value = netAssets;
-  const points: ProjectionPoint[] = [{ year: startYear, age: plan.profile.age, value }];
+  const balances = createProjectionBalances(plan.assets);
+  const points: ProjectionPoint[] = [{ year: startYear, age: plan.profile.age, value: getProjectionValue(balances) }];
 
   for (let yearOffset = 1; yearOffset <= years; yearOffset += 1) {
     const year = startYear + yearOffset;
-    for (let month = 0; month < 12; month += 1) {
-      value = value * (1 + monthlyRate) + cashflow.monthlySavings;
+    for (let month = 1; month <= 12; month += 1) {
+      applyProjectionMonth(
+        balances,
+        monthlyRate,
+        cashflow.monthlySavings,
+        month === 12 ? plan.household.annualBonus : 0,
+        eventImpactForMonth(plan.events, year, month)
+      );
     }
-    value += eventImpactForYear(plan.events, year);
-    points.push({ year, age: plan.profile.age + yearOffset, value });
+    points.push({ year, age: plan.profile.age + yearOffset, value: getProjectionValue(balances) });
   }
 
   return points;
@@ -411,7 +453,7 @@ export const getAnnualProjectionRows = (plan: LifePlan, years: number): AnnualPr
 
   return projection.map((point, index) => {
     const yearEvents = eventsForYear(plan.events, point.year);
-    const annualSavings = index === 0 ? 0 : cashflow.monthlySavings * 12;
+    const annualSavings = index === 0 ? 0 : cashflow.annualSavings;
     const eventImpact = index === 0 ? 0 : eventImpactForYear(plan.events, point.year);
     const previousValue = projection[index - 1]?.value ?? point.value;
     const returnImpact = index === 0 ? 0 : point.value - previousValue - annualSavings - eventImpact;
@@ -427,10 +469,9 @@ export const getAnnualProjectionRows = (plan: LifePlan, years: number): AnnualPr
 
 export const getMonthlyProjectionRows = (plan: LifePlan, months: number): MonthlyProjectionRow[] => {
   const cashflow = getCashflowSummary(plan.household);
-  const { netAssets } = getAssetSummary(plan.assets);
   const monthlyRate = plan.simulation.annualReturnRate / 100 / 12;
   const startDate = new Date();
-  let value = netAssets;
+  const balances = createProjectionBalances(plan.assets);
 
   const rows: MonthlyProjectionRow[] = [];
 
@@ -439,14 +480,17 @@ export const getMonthlyProjectionRows = (plan: LifePlan, months: number): Monthl
     const year = targetDate.getFullYear();
     const month = targetDate.getMonth() + 1;
     const age = plan.profile.age + Math.floor(monthOffset / 12);
-    const previousValue = rows[monthOffset - 1]?.value ?? value;
+    const previousValue = rows[monthOffset - 1]?.value ?? getProjectionValue(balances);
     const eventImpact = monthOffset === 0 ? 0 : eventImpactForMonth(plan.events, year, month);
     const monthEvents = monthOffset === 0 ? [] : eventsForMonth(plan.events, year, month);
     const monthlySavings = monthOffset === 0 ? 0 : cashflow.monthlySavings;
+    const bonusSavings = monthOffset > 0 && monthOffset % 12 === 0 ? plan.household.annualBonus : 0;
 
     if (monthOffset > 0) {
-      value = value * (1 + monthlyRate) + cashflow.monthlySavings + eventImpact;
+      applyProjectionMonth(balances, monthlyRate, monthlySavings, bonusSavings, eventImpact);
     }
+
+    const value = getProjectionValue(balances);
 
     rows.push({
       year,
@@ -456,8 +500,9 @@ export const getMonthlyProjectionRows = (plan: LifePlan, months: number): Monthl
       age,
       value,
       monthlySavings,
+      bonusSavings,
       eventImpact,
-      returnImpact: monthOffset === 0 ? 0 : value - previousValue - monthlySavings - eventImpact,
+      returnImpact: monthOffset === 0 ? 0 : value - previousValue - monthlySavings - bonusSavings - eventImpact,
       eventTitles: monthEvents.map((event) => event.title)
     });
   }
@@ -548,6 +593,26 @@ export const getGoalAchievements = (plan: LifePlan) =>
     goal,
     achievement: getGoalAchievement(plan, goal)
   }));
+
+export const getGoalFundingSummary = (plan: LifePlan): GoalFundingSummary => {
+  const activeGoals = plan.goals.filter(
+    (goal) => goal.goalType === "recurring" || goal.savedAmount < goal.requiredAmount
+  );
+  const monthlyAllocated = activeGoals.reduce(
+    (total, goal) => total + Math.max(0, goal.monthlyAllocation),
+    0
+  );
+  const monthlyAvailable = getCashflowSummary(plan.household).monthlySavings;
+  const monthlyRemaining = monthlyAvailable - monthlyAllocated;
+
+  return {
+    monthlyAvailable,
+    monthlyAllocated,
+    monthlyRemaining,
+    overAllocatedAmount: Math.max(0, -monthlyRemaining),
+    activeGoalCount: activeGoals.length
+  };
+};
 
 export const getInputCompletion = (plan: LifePlan) => {
   const items: { label: string; complete: boolean; view: ViewKey }[] = [

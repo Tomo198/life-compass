@@ -56,6 +56,7 @@ import {
   getFixedCostImpact,
   getGoalAchievement,
   getGoalAchievements,
+  getGoalFundingSummary,
   getGoalPreparedPercent,
   getInputCompletion,
   getMonthlyProjectionRows,
@@ -1552,7 +1553,7 @@ function Dashboard({ plan, reminders, setActiveView, startEmptyPlan }: Dashboard
           <span>入力完了度 {completion.percentage}%</span>
         </div>
         <div className="summary-grid" aria-label="主要指標">
-          <Metric label="毎月の見込み貯蓄" value={manYen(cashflow.monthlySavings)} helper={`貯蓄率 ${percent(cashflow.savingsRate)}`} />
+          <Metric label="毎月の見込み貯蓄" value={manYen(cashflow.monthlySavings)} helper={`通常月の貯蓄率 ${percent(cashflow.savingsRate)}`} />
           <Metric label="現在の純資産" value={manYen(assets.netAssets)} helper={`総資産 ${manYen(assets.grossAssets)}`} />
           <Metric
             label="主要目標の到達目安"
@@ -1754,8 +1755,12 @@ function HouseholdView({
       </section>
       <section className="calculation-band">
         <Metric label="月間生活費" value={manYen(cashflow.monthlyLivingCost)} helper={`年間 ${manYen(cashflow.annualLivingCost)}`} />
-        <Metric label="毎月貯蓄額" value={manYen(cashflow.monthlySavings)} helper={`貯蓄率 ${percent(cashflow.savingsRate)}`} />
-        <Metric label="年間収入" value={manYen(cashflow.annualIncome)} helper="ボーナス込み" />
+        <Metric label="毎月貯蓄額" value={manYen(cashflow.monthlySavings)} helper={`通常月の貯蓄率 ${percent(cashflow.savingsRate)}`} />
+        <Metric
+          label="年間収入"
+          value={manYen(cashflow.annualIncome)}
+          helper={`年間貯蓄見込み ${manYen(cashflow.annualSavings)} / ${percent(cashflow.annualSavingsRate)}`}
+        />
       </section>
       <section className={`notice-band ${monthlySavingsTone}`}>
         <strong>
@@ -1770,7 +1775,7 @@ function HouseholdView({
         <span>
           {cashflow.monthlySavings < 0
             ? "入力ミスがないか確認し、固定費、変動費、年間特別支出のどこが大きいかを見直すと次の判断がしやすくなります。"
-            : "この毎月貯蓄額が、目標達成目安、生活防衛資金の到達目安、将来資産の見通しに使われます。"}
+            : "毎月貯蓄額は目標と生活防衛資金の目安に使い、将来資産の見通しにはボーナス年額も反映します。"}
         </span>
       </section>
       <section className="helper-grid">
@@ -2282,6 +2287,7 @@ function GoalsView({
   const [goalSort, setGoalSort] = useState<"dueYear" | "priority" | "progress" | "title">("dueYear");
   const [goalViewMode, setGoalViewMode] = useState<"detail" | "compact">("detail");
   const priorityRank: Record<Priority, number> = { high: 0, medium: 1, low: 2 };
+  const goalFunding = useMemo(() => getGoalFundingSummary(plan), [plan]);
   const goalAchievements = useMemo(() => {
     const normalizedSearch = goalSearch.trim().toLowerCase();
     return getGoalAchievements(plan)
@@ -2320,6 +2326,25 @@ function GoalsView({
             ))}
           </div>
         </div>
+        {plan.goals.length > 0 && (
+          <div className={`notice-band ${goalFunding.overAllocatedAmount > 0 ? "notice" : "check"}`}>
+            <strong>
+              {goalFunding.monthlyAvailable < 0
+                ? "目標配分の前に家計収支を確認してください"
+                : goalFunding.overAllocatedAmount > 0
+                  ? "目標への配分が毎月の家計余剰を上回っています"
+                  : "目標への毎月配分は家計余剰の範囲内です"}
+            </strong>
+            <span>
+              {goalFunding.monthlyAvailable < 0
+                ? `通常月の家計収支が${manYen(Math.abs(goalFunding.monthlyAvailable))}不足し、目標には毎月${manYen(goalFunding.monthlyAllocated)}を配分中です。`
+                : goalFunding.overAllocatedAmount > 0
+                  ? `目標配分 ${manYen(goalFunding.monthlyAllocated)} / 家計余剰 ${manYen(goalFunding.monthlyAvailable)}。毎月 ${manYen(goalFunding.overAllocatedAmount)} 超過しています。`
+                  : `目標配分 ${manYen(goalFunding.monthlyAllocated)} / 家計余剰 ${manYen(goalFunding.monthlyAvailable)} / 配分後 ${manYen(goalFunding.monthlyRemaining)}。`}
+              ボーナス年額はこの毎月配分の比較に含めていません。
+            </span>
+          </div>
+        )}
         <div className="list-toolbar" aria-label="目標の検索と並び替え">
           <label>
             目標を検索
@@ -3436,6 +3461,12 @@ function SimulationView({
           <Metric label="10年後" value={manYen(projection10[10]?.value ?? 0)} helper="前提条件に基づく試算" />
           <Metric label="30年後" value={manYen(projection30[30]?.value ?? 0)} helper="前提条件に基づく試算" />
         </div>
+        <div className="notice-band check">
+          <strong>基本見通しの計算前提</strong>
+          <span>
+            想定利回りは現在の投資資産だけに適用します。毎月の家計余剰とボーナス年額は現金へ加算し、その他資産と負債は一定として試算します。
+          </span>
+        </div>
         {projectionMode === "monthly" && (
           <div className="table-wrap projection-detail-table">
             <table>
@@ -3443,7 +3474,7 @@ function SimulationView({
                 <tr>
                   <th>月</th>
                   <th>試算額</th>
-                  <th>月間貯蓄</th>
+                  <th>貯蓄反映</th>
                   <th>イベント影響</th>
                   <th>利回り等</th>
                 </tr>
@@ -3453,7 +3484,10 @@ function SimulationView({
                   <tr key={row.label}>
                     <td>{row.label}</td>
                     <td>{manYen(row.value)}</td>
-                    <td>{row.monthlySavings ? manYen(row.monthlySavings) : "-"}</td>
+                    <td>
+                      {row.monthlySavings ? manYen(row.monthlySavings) : "-"}
+                      {row.bonusSavings ? <small>ボーナス {manYen(row.bonusSavings)}</small> : null}
+                    </td>
                     <td>
                       {row.eventImpact ? manYen(row.eventImpact) : "-"}
                       {row.eventTitles.length > 0 ? <small>{row.eventTitles.join(" / ")}</small> : null}
@@ -4514,6 +4548,7 @@ function getLifePlanDiagnosis(plan: LifePlan): DiagnosisItem[] {
   const assets = getAssetSummary(plan.assets);
   const emergency = getEmergencyFundResult(plan);
   const goalAchievements = getGoalAchievements(plan);
+  const goalFunding = getGoalFundingSummary(plan);
   const eventYears = new Map<number, { count: number; impact: number }>();
 
   plan.events.forEach((event) => {
@@ -4572,7 +4607,14 @@ function getLifePlanDiagnosis(plan: LifePlan): DiagnosisItem[] {
   }
 
   const unreachableGoals = goalAchievements.filter(({ achievement }) => achievement.status === "unreachable");
-  if (unreachableGoals.length > 0) {
+  if (goalFunding.overAllocatedAmount > 0) {
+    items.push({
+      title: "目標への毎月配分が家計余剰を超えています",
+      detail: `毎月${manYen(goalFunding.overAllocatedAmount)}の超過です。複数の目標で同じ資金を重ねて見込んでいないか確認します。`,
+      tone: "notice",
+      view: "goals"
+    });
+  } else if (unreachableGoals.length > 0) {
     items.push({
       title: "達成目安が出ない目標があります",
       detail: `${unreachableGoals.length}件の目標で、毎月この目標に回す額が未入力です。`,

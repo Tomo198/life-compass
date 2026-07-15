@@ -23,6 +23,7 @@ import {
   getFixedCostImpact,
   getContributionProjectionRows,
   getGoalAchievement,
+  getGoalFundingSummary,
   getGoalPreparedPercent,
   getInputCompletion,
   getMonthlyProjectionRows,
@@ -170,7 +171,9 @@ test("basic household cashflow is calculated from monthly and annual inputs", ()
   assert.equal(summary.monthlyLivingCost, 245000);
   assert.equal(summary.annualLivingCost, 2940000);
   assert.equal(summary.monthlySavings, 105000);
+  assert.equal(summary.annualSavings, 1860000);
   assert.equal(summary.savingsRate, 30);
+  assertAlmostEqual(summary.annualSavingsRate, 38.75);
 });
 
 test("gross assets and net assets subtract debt once", () => {
@@ -500,7 +503,7 @@ test("annual projection rows expose savings and event markers for each year", ()
   assert.deepEqual(rows[1].eventTitles, ["home repair"]);
 });
 
-test("annual projection rows separate return impact from savings and event impact", () => {
+test("annual projection rows apply returns only to investment assets", () => {
   const plan: LifePlan = {
     ...basePlan,
     household: {
@@ -512,8 +515,8 @@ test("annual projection rows separate return impact from savings and event impac
       annualSpecialCost: 0
     },
     assets: {
-      cash: 1000000,
-      investment: 0,
+      cash: 0,
+      investment: 1000000,
       other: 0,
       debt: 0
     },
@@ -527,7 +530,67 @@ test("annual projection rows separate return impact from savings and event impac
   assert.equal(rows[1].annualSavings, 1200000);
   assert.equal(rows[1].eventImpact, 0);
   assert.equal(rows[1].returnImpact, expectedReturnImpact);
-  assert.ok(rows[1].returnImpact > 0);
+  assertAlmostEqual(rows[1].returnImpact, 1000000 * ((1 + 0.03 / 12) ** 12 - 1));
+});
+
+test("basic projection keeps cash, other assets, and debt outside return calculations", () => {
+  const plan: LifePlan = {
+    ...basePlan,
+    household: {
+      monthlyIncome: 100000,
+      annualBonus: 0,
+      sideIncome: 0,
+      fixedCost: 100000,
+      variableCost: 0,
+      annualSpecialCost: 0
+    },
+    assets: {
+      cash: 1000000,
+      investment: 0,
+      other: 500000,
+      debt: 400000
+    },
+    events: [],
+    simulation: { ...basePlan.simulation, annualReturnRate: 10 }
+  };
+
+  const rows = getAnnualProjectionRows(plan, 1);
+
+  assert.equal(rows[0].value, 1100000);
+  assert.equal(rows[1].value, 1100000);
+  assert.equal(rows[1].returnImpact, 0);
+});
+
+test("annual bonus is reflected once per projection year", () => {
+  const plan: LifePlan = {
+    ...basePlan,
+    household: {
+      monthlyIncome: 100000,
+      annualBonus: 120000,
+      sideIncome: 0,
+      fixedCost: 100000,
+      variableCost: 0,
+      annualSpecialCost: 0
+    },
+    assets: {
+      cash: 1000000,
+      investment: 0,
+      other: 0,
+      debt: 0
+    },
+    events: [],
+    simulation: { ...basePlan.simulation, annualReturnRate: 5 }
+  };
+
+  const annualRows = getAnnualProjectionRows(plan, 1);
+  const monthlyRows = getMonthlyProjectionRows(plan, 12);
+
+  assert.equal(annualRows[1].annualSavings, 120000);
+  assert.equal(annualRows[1].value, 1120000);
+  assert.equal(annualRows[1].returnImpact, 0);
+  assert.equal(monthlyRows[11].bonusSavings, 0);
+  assert.equal(monthlyRows[12].bonusSavings, 120000);
+  assert.equal(monthlyRows[12].value, 1120000);
 });
 
 test("monthly projection rows expose short-term savings changes", () => {
@@ -573,6 +636,72 @@ test("monthly projection rows expose short-term savings changes", () => {
   assert.equal(rows[1].monthlySavings, 100000);
   assert.equal(rows[2].eventImpact, -50000);
   assert.equal(rows[1].returnImpact, 0);
+});
+
+test("goal funding summary detects allocations that reuse the same monthly surplus", () => {
+  const plan: LifePlan = {
+    ...basePlan,
+    household: {
+      monthlyIncome: 200000,
+      annualBonus: 600000,
+      sideIncome: 0,
+      fixedCost: 100000,
+      variableCost: 0,
+      annualSpecialCost: 0
+    },
+    goals: [
+      {
+        id: "goal-active",
+        title: "one-time",
+        goalType: "oneTime",
+        dueYear: currentYear + 2,
+        dueMonth: 12,
+        requiredAmount: 500000,
+        savedAmount: 0,
+        monthlyAllocation: 70000,
+        recurrence: "yearly",
+        priority: "high",
+        progress: 0,
+        memo: ""
+      },
+      {
+        id: "goal-recurring",
+        title: "recurring",
+        goalType: "recurring",
+        dueYear: currentYear + 1,
+        dueMonth: 6,
+        requiredAmount: 120000,
+        savedAmount: 0,
+        monthlyAllocation: 50000,
+        recurrence: "yearly",
+        priority: "medium",
+        progress: 0,
+        memo: ""
+      },
+      {
+        id: "goal-achieved",
+        title: "achieved",
+        goalType: "oneTime",
+        dueYear: currentYear,
+        dueMonth: 12,
+        requiredAmount: 100000,
+        savedAmount: 100000,
+        monthlyAllocation: 40000,
+        recurrence: "yearly",
+        priority: "low",
+        progress: 100,
+        memo: ""
+      }
+    ]
+  };
+
+  const summary = getGoalFundingSummary(plan);
+
+  assert.equal(summary.monthlyAvailable, 100000);
+  assert.equal(summary.monthlyAllocated, 120000);
+  assert.equal(summary.monthlyRemaining, -20000);
+  assert.equal(summary.overAllocatedAmount, 20000);
+  assert.equal(summary.activeGoalCount, 2);
 });
 
 test("goal prepared percent is based on saved amount or recurring annual preparation", () => {
