@@ -21,6 +21,7 @@ import type { LifePlan } from "../src/types";
 import { decryptCloudBackup, encryptCloudBackup } from "../src/utils/cloudBackupCrypto";
 import {
   buildPlanFromScenario,
+  emergencyMonthsLabel,
   getAssetSummary,
   getAnnualProjectionRows,
   getBasicProjectionAllocation,
@@ -37,6 +38,7 @@ import {
   getInputCompletion,
   getMonthlyProjectionRows,
   getNextEvent,
+  getTargetAgeForYear,
   projectAssets,
   simulateContributionVariability,
   simulateRetirementPlan,
@@ -55,6 +57,13 @@ import {
 } from "../src/utils/storage";
 
 const currentYear = new Date().getFullYear();
+
+test("shared age and emergency-fund labels keep existing display rules", () => {
+  assert.equal(getTargetAgeForYear(35, currentYear + 5), 40);
+  assert.equal(getTargetAgeForYear(35, currentYear - 1), 35);
+  assert.equal(emergencyMonthsLabel(6, 6), "6ヶ月分");
+  assert.equal(emergencyMonthsLabel(6, 12), "6〜12ヶ月分");
+});
 
 test("preview access keeps Pro features available before billing is enabled", () => {
   assert.equal(defaultAccessState.tier, "free");
