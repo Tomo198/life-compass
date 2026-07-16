@@ -24,6 +24,7 @@ import {
   getViewTitle,
   isLegalDocumentView
 } from "../src/navigation";
+import { createEmptyPlan } from "../src/hooks/useLifePlanEditor";
 import type { LifePlan } from "../src/types";
 import { decryptCloudBackup, encryptCloudBackup } from "../src/utils/cloudBackupCrypto";
 import {
@@ -115,6 +116,19 @@ test("mobile navigation groups related planning views", () => {
   assert.equal(getMobileNavKey("timeline"), "goals");
   assert.equal(getMobileNavKey("retirement"), "forecast");
   assert.equal(getMobileNavKey("settings"), "menu");
+});
+
+test("empty plan starts without personal data and keeps complete simulation settings", () => {
+  const plan = createEmptyPlan();
+
+  assert.equal(plan.version, CURRENT_PLAN_VERSION);
+  assert.equal(plan.profile.name, "新しいプラン");
+  assert.deepEqual(plan.goals, []);
+  assert.deepEqual(plan.events, []);
+  assert.deepEqual(plan.budgetItems, []);
+  assert.equal(plan.withdrawalPlan.years, 101);
+  assert.equal(plan.withdrawalPlan.periods.length, 1);
+  assert.equal(plan.simulation.years, 30);
 });
 
 class MemoryStorage {
