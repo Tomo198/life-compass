@@ -146,6 +146,9 @@ test("無料版とPro版の境界が表示され、横方向にはみ出さな�
   await openView(page, "simulation");
   await expect(page.getByRole("button", { name: "詳細積立 Pro" })).toBeVisible();
   await expect(page.getByRole("button", { name: "取り崩し Pro" })).toBeVisible();
+  await openView(page, "retirement");
+  await expect(page.getByRole("heading", { name: "老後プラン", exact: true, level: 1 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "年金・社会保険・税金を含めた取り崩し見通し", level: 2 })).toBeVisible();
 
   await openView(page, "pricing");
   await expect(page.getByRole("heading", { name: "無料版とPro版の比較" })).toBeVisible();
