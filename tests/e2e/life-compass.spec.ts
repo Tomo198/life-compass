@@ -263,6 +263,10 @@ test("設定画面でログインが任意でありクラウド保存を開始�
   await expect(accountPanel).toContainText("無料版はログインなしで利用できます");
   await expect(accountPanel).toContainText("ログインしても自動でクラウド保存しません");
   await expect(accountPanel).toContainText("Googleログインは設定中です");
+  await page.getByRole("button", { name: /^ダーク/ }).click();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  await page.reload();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
 });
 
 test("ログアウトとアカウント削除後にGoogleログインボタンを再表示できる", async ({ page }) => {

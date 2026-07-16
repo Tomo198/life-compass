@@ -55,6 +55,7 @@ import {
   savePlan,
   validateImportedPlan
 } from "../src/utils/storage";
+import { defaultSettings, getAppReminders } from "../src/utils/settings";
 
 const currentYear = new Date().getFullYear();
 
@@ -183,6 +184,67 @@ const basePlan: LifePlan = {
 const assertAlmostEqual = (actual: number, expected: number, tolerance = 0.01) => {
   assert.ok(Math.abs(actual - expected) <= tolerance, `expected ${actual} to be within ${tolerance} of ${expected}`);
 };
+
+test("app reminders cover due actuals, reviews, goals, and upcoming events", () => {
+  const now = new Date(2026, 6, 26);
+  const plan: LifePlan = {
+    ...basePlan,
+    budgetItems: [
+      {
+        id: "budget-1",
+        name: "食費",
+        category: "food",
+        frequency: "monthlyVariable",
+        budgetAmount: 50000,
+        actuals: {},
+        memo: ""
+      }
+    ],
+    goals: [
+      {
+        id: "goal-1",
+        title: "期限目標",
+        goalType: "oneTime",
+        dueYear: 2026,
+        dueMonth: 7,
+        requiredAmount: 100000,
+        savedAmount: 50000,
+        monthlyAllocation: 10000,
+        recurrence: "yearly",
+        priority: "medium",
+        progress: 50,
+        memo: ""
+      }
+    ],
+    events: [
+      {
+        id: "event-1",
+        title: "近い予定",
+        category: "other",
+        year: 2026,
+        month: 9,
+        age: 35,
+        amount: 0,
+        cashflowType: "neutral",
+        memo: ""
+      }
+    ]
+  };
+
+  const reminders = getAppReminders(plan, defaultSettings, now);
+
+  assert.deepEqual(reminders.map((reminder) => reminder.view), ["budget", "reviews", "goals", "timeline"]);
+});
+
+test("disabled app reminders return no dashboard guidance", () => {
+  const reminders = getAppReminders(
+    basePlan,
+    { ...defaultSettings, remindersEnabled: false },
+    new Date(2026, 6, 26)
+  );
+
+  assert.deepEqual(reminders, []);
+});
 
 test("basic household cashflow is calculated from monthly and annual inputs", () => {
   const summary = getCashflowSummary(basePlan.household);
