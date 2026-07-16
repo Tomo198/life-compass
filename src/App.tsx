@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   CURRENT_PLAN_VERSION,
-  MAX_MONEY_AMOUNT,
   MAX_PLAN_AGE,
   MAX_PLAN_YEAR,
   MAX_PROJECTION_YEARS,
@@ -10,11 +9,11 @@ import {
 import { AccountPanel } from "./components/AccountPanel";
 import { EmptyState, Metric, MoneyInput, NumericInput, StepFlowNav, StepTitle } from "./components/CommonUi";
 import { FixedCostItemList } from "./components/FixedCostItemList";
-import { YearAgeInput } from "./components/YearAgeInput";
 import { LineChart, VariabilityBandChart } from "./components/Charts";
 import { createId, defaultPlan } from "./data/defaultPlan";
+import type { EventTemplate } from "./data/eventTemplates";
 import type { GoalTemplate } from "./data/goalTemplates";
-import { budgetCategoryLabels, monthLabels } from "./data/labels";
+import { budgetCategoryLabels, eventOwnerLabels, monthLabels } from "./data/labels";
 import {
   canOpenView,
   defaultAccessState,
@@ -25,22 +24,22 @@ import {
 import { AssetsView } from "./views/AssetsView";
 import { BudgetView } from "./views/BudgetView";
 import { DashboardView } from "./views/DashboardView";
+import { EventSettingsView } from "./views/EventSettingsView";
 import { GoalsView } from "./views/GoalsView";
 import { HouseholdView } from "./views/HouseholdView";
 import { LegalDocumentView, LegalIndexView, type LegalDocumentKey } from "./views/LegalView";
 import { ProfileView } from "./views/ProfileView";
 import { PricingView as PricingPage } from "./views/PricingView";
 import { DataView as DataPage } from "./views/DataView";
+import { TimelineView } from "./views/TimelineView";
 import type {
   Assets,
   BudgetItem,
-  CashflowType,
   EventOwner,
   FixedCostItem,
   Goal,
   Household,
   LifeEvent,
-  LifeEventCategory,
   LifePlan,
   PlanNotes,
   PlanScenario,
@@ -71,7 +70,6 @@ import {
   getGoalPreparedPercent,
   getMonthlyProjectionRows,
   getPrimaryGoal,
-  getRecurrenceLabel,
   getTargetAgeForYear,
   getContributionProjectionRows,
   manYen,
@@ -203,22 +201,6 @@ const resolveTheme = (theme: ThemePreference) => {
   return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 };
 
-const eventCategoryLabels: Record<LifeEventCategory, string> = {
-  career: "転職",
-  move: "引越し",
-  marriage: "結婚",
-  birth: "出産",
-  home: "住宅購入",
-  car: "車購入",
-  education: "教育費",
-  care: "親の介護",
-  sideBusiness: "独立/副業",
-  retirement: "退職",
-  travel: "大きな旅行",
-  qualification: "資格取得",
-  other: "その他"
-};
-
 type AppReminder = {
   id: string;
   title: string;
@@ -294,27 +276,6 @@ const getAppReminders = (plan: LifePlan, settings: AppSettings): AppReminder[] =
   return reminders;
 };
 
-const eventOwnerLabels: Record<EventOwner, string> = {
-  self: "本人",
-  spouse: "配偶者",
-  child: "子ども",
-  parent: "親",
-  household: "世帯全体",
-  other: "その他"
-};
-
-const cashflowLabels: Record<CashflowType, string> = {
-  expense: "支出として反映",
-  income: "収入・資産増として反映",
-  neutral: "記録のみ"
-};
-
-const cashflowHelp: Record<CashflowType, string> = {
-  expense: "予定月の資産見通しから差し引きます。",
-  income: "予定月の資産見通しに加算します。",
-  neutral: "年表に残すだけで、試算には反映しません。"
-};
-
 const scenarioTagLabels: Record<ScenarioTag, string> = {
   current: "現状維持",
   spending: "支出見直し",
@@ -323,13 +284,6 @@ const scenarioTagLabels: Record<ScenarioTag, string> = {
   home: "住宅購入",
   retirement: "早期退職",
   custom: "自由入力"
-};
-
-const getYearsUntilLabel = (year: number) => {
-  const diff = year - new Date().getFullYear();
-  if (diff < 0) return `${Math.abs(diff)}年前`;
-  if (diff === 0) return "今年";
-  return `あと約${diff}年`;
 };
 
 const emergencyAmountLabel = (lower: number, upper: number) => {
@@ -505,73 +459,6 @@ const scenarioTemplates: ScenarioTemplate[] = [
         fixedCost: Math.max(0, snapshot.household.fixedCost - 20000)
       }
     })
-  }
-];
-
-type EventTemplate = Omit<LifeEvent, "id" | "year" | "age"> & {
-  yearsFromNow: number;
-};
-
-const eventTemplates: EventTemplate[] = [
-  {
-    title: "転職",
-    owner: "self",
-    category: "career",
-    yearsFromNow: 2,
-    month: 4,
-    amount: 0,
-    cashflowType: "neutral",
-    memo: "年収や働き方の変化は家計入力も合わせて見直す"
-  },
-  {
-    title: "引越し",
-    owner: "household",
-    category: "move",
-    yearsFromNow: 1,
-    month: 3,
-    amount: 500000,
-    cashflowType: "expense",
-    memo: "初期費用、家具家電、移動費など"
-  },
-  {
-    title: "住宅購入",
-    owner: "household",
-    category: "home",
-    yearsFromNow: 5,
-    month: 9,
-    amount: 3000000,
-    cashflowType: "expense",
-    memo: "頭金や諸費用の概算。住宅ローンは資産入力の負債も確認する"
-  },
-  {
-    title: "車購入",
-    owner: "household",
-    category: "car",
-    yearsFromNow: 3,
-    month: 6,
-    amount: 2000000,
-    cashflowType: "expense",
-    memo: "購入費、維持費、保険料など"
-  },
-  {
-    title: "教育費",
-    owner: "child",
-    category: "education",
-    yearsFromNow: 10,
-    month: 4,
-    amount: 1000000,
-    cashflowType: "expense",
-    memo: "入学金、授業料、教材費など"
-  },
-  {
-    title: "親の介護",
-    owner: "parent",
-    category: "care",
-    yearsFromNow: 8,
-    month: 1,
-    amount: 600000,
-    cashflowType: "expense",
-    memo: "支援額や頻度は状況に合わせて見直す"
   }
 ];
 
@@ -1256,549 +1143,6 @@ function App() {
           );
         })}
       </nav>
-    </div>
-  );
-}
-
-type CalendarEntry = {
-  id: string;
-  year: number;
-  month: number;
-  title: string;
-  owner: EventOwner | "goal";
-  kind: "goal" | "event" | "memo";
-  detail: string;
-  amount?: number;
-  tone: "goal" | "expense" | "income" | "neutral" | "memo";
-  progress?: number;
-};
-
-function LifeCalendar({ plan }: { plan: LifePlan }) {
-  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
-  const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
-  const [entrySearch, setEntrySearch] = useState("");
-  const [entryKind, setEntryKind] = useState<"all" | "goal" | "event" | "memo">("all");
-  const [entryOwner, setEntryOwner] = useState<EventOwner | "all">("all");
-  const [entrySort, setEntrySort] = useState<"yearAsc" | "yearDesc" | "title">("yearAsc");
-  const currentYear = new Date().getFullYear();
-  const entries = useMemo<CalendarEntry[]>(() => {
-    const goalEntries = plan.goals.map((goal) => {
-      const preparedPercent = getGoalPreparedPercent(goal);
-      return {
-        id: `goal-${goal.id}`,
-        year: goal.dueYear,
-        month: goal.dueMonth,
-        title: goal.title,
-        owner: "goal" as const,
-        kind: "goal" as const,
-        detail:
-          goal.goalType === "recurring"
-            ? `${getRecurrenceLabel(goal.recurrence)} / 年間準備率 ${preparedPercent}%`
-            : `達成率 ${preparedPercent}% / 残り ${manYen(Math.max(0, goal.requiredAmount - goal.savedAmount))}`,
-        amount: goal.requiredAmount,
-        tone: "goal" as const,
-        progress: preparedPercent
-      };
-    });
-
-    const eventEntries = plan.events.map((event) => ({
-      id: `event-${event.id}`,
-      year: event.year,
-      month: event.month,
-      title: event.title,
-      owner: event.owner || "household",
-      kind: "event" as const,
-      detail: `${eventOwnerLabels[event.owner || "household"]} / ${cashflowLabels[event.cashflowType]}`,
-      amount: event.amount,
-      tone: event.cashflowType
-    }));
-
-    const memoEntries = (plan.timelineMemos || [])
-      .filter((memo) => memo.showOnTimeline)
-      .map((memo) => ({
-        id: `memo-${memo.id}`,
-        year: memo.year,
-        month: memo.month,
-        title: memo.title,
-        owner: memo.owner,
-        kind: "memo" as const,
-        detail: `${eventOwnerLabels[memo.owner]} / ${memo.memo || "予定メモ"}`,
-        tone: "memo" as const
-      }));
-
-    return [...goalEntries, ...eventEntries, ...memoEntries].sort((a, b) => a.year - b.year || a.month - b.month || a.title.localeCompare(b.title, "ja"));
-  }, [plan.events, plan.goals, plan.timelineMemos]);
-  const visibleEntries = useMemo(() => {
-    const normalizedSearch = entrySearch.trim().toLowerCase();
-    return entries
-      .filter((entry) => (entryKind === "all" ? true : entry.kind === entryKind))
-      .filter((entry) => (entryOwner === "all" || entry.kind === "goal" ? true : entry.owner === entryOwner))
-      .filter((entry) => (normalizedSearch ? `${entry.title} ${entry.detail}`.toLowerCase().includes(normalizedSearch) : true))
-      .sort((a, b) => {
-        if (entrySort === "yearDesc") return b.year - a.year || b.month - a.month || a.title.localeCompare(b.title, "ja");
-        if (entrySort === "title") return a.title.localeCompare(b.title, "ja") || a.year - b.year || a.month - b.month;
-        return a.year - b.year || a.month - b.month || a.title.localeCompare(b.title, "ja");
-      });
-  }, [entries, entryKind, entryOwner, entrySearch, entrySort]);
-  const selectableYears = useMemo(() => {
-    const entryYears = entries.map((entry) => entry.year);
-    const firstYear = Math.min(currentYear - 2, ...entryYears);
-    const lastYear = Math.max(currentYear + 30, ...entryYears);
-    return Array.from({ length: lastYear - firstYear + 1 }, (_, index) => firstYear + index);
-  }, [currentYear, entries]);
-  const selectedYearEntries = visibleEntries.filter((entry) => entry.year === selectedYear);
-  const selectedMonthEntries = selectedYearEntries.filter((entry) => entry.month === selectedMonth);
-  const getEntryKindLabel = (entry: CalendarEntry) => entry.kind === "goal" ? "目標" : entry.kind === "event" ? "イベント" : "メモ";
-  const moveToYear = (year: number) => {
-    setSelectedYear(year);
-    setSelectedMonth(year === currentYear ? new Date().getMonth() + 1 : 1);
-  };
-
-  return (
-    <section className="life-calendar" aria-label="ライフカレンダー">
-      <div className="section-heading">
-        <div>
-          <p className="eyebrow">ライフカレンダー</p>
-          <h3>目標・イベント・予定メモを月単位で確認</h3>
-          <p>年を選んで12か月の予定を確認できます。月を選ぶと、その月の全件を下に表示します。</p>
-        </div>
-        <div className="calendar-year-navigation" aria-label="表示する年を変更">
-          <button type="button" className="secondary" aria-label="前年を表示" onClick={() => moveToYear(selectedYear - 1)}>‹</button>
-          <label>
-            表示年
-            <select aria-label="表示する年" value={selectedYear} onChange={(event) => moveToYear(Number(event.target.value))}>
-              {selectableYears.map((year) => <option key={year} value={year}>{year}年</option>)}
-            </select>
-          </label>
-          <button type="button" className="secondary" aria-label="翌年を表示" onClick={() => moveToYear(selectedYear + 1)}>›</button>
-          <button type="button" className="secondary calendar-today-button" onClick={() => moveToYear(currentYear)}>今年</button>
-        </div>
-      </div>
-
-      <div className="calendar-year-detail" aria-label={`${selectedYear}年の月別予定`}>
-        <div className="calendar-detail-head">
-          <div>
-            <strong>{selectedYear}年 年間カレンダー</strong>
-            <span>{getTargetAgeForYear(plan.profile.age, selectedYear)}歳頃 / {selectedYearEntries.length}件</span>
-          </div>
-          <small>月を選ぶと、その月の予定を下に詳しく表示します。</small>
-        </div>
-        <div className="calendar-month-grid">
-          {monthLabels.map((label, index) => {
-            const month = index + 1;
-            const monthEntries = selectedYearEntries.filter((entry) => entry.month === month);
-            const shownMonthEntries = monthEntries.slice(0, 3);
-            const hiddenMonthCount = Math.max(0, monthEntries.length - shownMonthEntries.length);
-            return (
-              <button
-                type="button"
-                className={`calendar-month-card${selectedMonth === month ? " selected" : ""}`}
-                key={label}
-                onClick={() => setSelectedMonth(month)}
-                aria-pressed={selectedMonth === month}
-              >
-                <div className="calendar-month-head">
-                  <strong>{label}</strong>
-                  {monthEntries.length > 0 && <span>{monthEntries.length}件</span>}
-                </div>
-                {monthEntries.length === 0 ? (
-                  <span>予定なし</span>
-                ) : (
-                  shownMonthEntries.map((entry) => (
-                    <div className={`calendar-month-entry ${entry.tone}`} key={entry.id}>
-                      <span>{getEntryKindLabel(entry)}</span>
-                      <strong>{entry.title}</strong>
-                    </div>
-                  ))
-                )}
-                {hiddenMonthCount > 0 && <span className="calendar-more">ほか{hiddenMonthCount}件</span>}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      <div className="calendar-month-agenda" aria-label={`${selectedYear}年${selectedMonth}月の予定`}>
-        <div className="calendar-month-agenda-head">
-          <strong>{selectedYear}年{selectedMonth}月</strong>
-          <span>{selectedMonthEntries.length}件</span>
-        </div>
-        {selectedMonthEntries.length === 0 ? (
-          <p>この月の予定はありません。</p>
-        ) : (
-          selectedMonthEntries.map((entry) => (
-            <div className={`calendar-month-agenda-row ${entry.tone}`} key={entry.id}>
-              <span>{getEntryKindLabel(entry)}</span>
-              <strong>{entry.title}</strong>
-              <small>{entry.detail}</small>
-              {entry.amount ? <small>{manYen(entry.amount)}</small> : null}
-            </div>
-          ))
-        )}
-      </div>
-
-      <details className="calendar-organize-panel">
-        <summary>予定を検索・絞り込み</summary>
-        <div className="list-toolbar" aria-label="カレンダーの検索と整理">
-          <label>
-            検索
-            <input value={entrySearch} onChange={(event) => setEntrySearch(event.target.value)} placeholder="目標名・イベント名で検索" />
-          </label>
-          <label>
-            種類
-            <select value={entryKind} onChange={(event) => setEntryKind(event.target.value as "all" | "goal" | "event" | "memo")}>
-              <option value="all">すべて</option>
-              <option value="goal">目標のみ</option>
-              <option value="event">イベントのみ</option>
-              <option value="memo">予定メモのみ</option>
-            </select>
-          </label>
-          <label>
-            並び替え
-            <select value={entrySort} onChange={(event) => setEntrySort(event.target.value as "yearAsc" | "yearDesc" | "title")}>
-              <option value="yearAsc">時期が近い順</option>
-              <option value="yearDesc">時期が遠い順</option>
-              <option value="title">名前順</option>
-            </select>
-          </label>
-          <label>
-            対象者
-            <select value={entryOwner} onChange={(event) => setEntryOwner(event.target.value as EventOwner | "all")}>
-              <option value="all">すべて</option>
-              {Object.entries(eventOwnerLabels).map(([value, label]) => (
-                <option key={value} value={value}>{label}</option>
-              ))}
-            </select>
-          </label>
-          <span>{visibleEntries.length}件表示 / 全{entries.length}件</span>
-        </div>
-      </details>
-
-      <div className="calendar-list-panel" aria-label="目標、イベント、予定メモの一覧">
-        {visibleEntries.length === 0 ? (
-          <EmptyState title="条件に合う予定がありません" detail="検索条件や表示年を変えて確認してください。" />
-        ) : (
-          visibleEntries.map((entry) => (
-            <div className={`calendar-list-row ${entry.tone}`} key={entry.id}>
-              <div>
-                <span>{getEntryKindLabel(entry)}</span>
-                <strong>{entry.title}</strong>
-              </div>
-              <div>
-                <span>{entry.year}年{entry.month}月 / {getTargetAgeForYear(plan.profile.age, entry.year)}歳頃</span>
-                <small>{getYearsUntilLabel(entry.year)}</small>
-              </div>
-              <div>
-                <span>{entry.detail}</span>
-                {entry.amount ? <small>{manYen(entry.amount)}</small> : null}
-              </div>
-            </div>
-          ))
-        )}
-      </div>
-    </section>
-  );
-}
-
-function EventSettingsView({
-  plan,
-  setActiveView,
-  addEvent,
-  addEventFromTemplate,
-  updateEvent,
-  updateEventSchedule,
-  removeEvent
-}: {
-  plan: LifePlan;
-  setActiveView: (view: ViewKey) => void;
-  addEvent: () => void;
-  addEventFromTemplate: (template: EventTemplate) => void;
-  updateEvent: <K extends keyof LifeEvent>(id: string, key: K, value: LifeEvent[K]) => void;
-  updateEventSchedule: (id: string, year: number) => void;
-  removeEvent: (id: string) => void;
-}) {
-  const [eventSearch, setEventSearch] = useState("");
-  const [eventSort, setEventSort] = useState<"yearAsc" | "yearDesc" | "title" | "type">("yearAsc");
-  const [eventViewMode, setEventViewMode] = useState<"detail" | "compact">("detail");
-  const [eventOwner, setEventOwner] = useState<EventOwner | "all">("all");
-  const sortedEvents = useMemo(() => {
-    const normalizedSearch = eventSearch.trim().toLowerCase();
-    return [...plan.events]
-      .filter((event) => (eventOwner === "all" ? true : (event.owner || "household") === eventOwner))
-      .filter((event) =>
-        normalizedSearch
-          ? `${event.title} ${event.memo} ${event.month}月 ${eventCategoryLabels[event.category]} ${eventOwnerLabels[event.owner || "household"]}`.toLowerCase().includes(normalizedSearch)
-          : true
-      )
-      .sort((a, b) => {
-        if (eventSort === "yearDesc") return b.year - a.year || b.month - a.month || a.title.localeCompare(b.title, "ja");
-        if (eventSort === "title") return a.title.localeCompare(b.title, "ja") || a.year - b.year || a.month - b.month;
-        if (eventSort === "type") return eventCategoryLabels[a.category].localeCompare(eventCategoryLabels[b.category], "ja") || a.year - b.year || a.month - b.month;
-        return a.year - b.year || a.month - b.month || a.title.localeCompare(b.title, "ja");
-      });
-  }, [eventOwner, eventSearch, eventSort, plan.events]);
-  return (
-    <div className="view-stack">
-      <section className="panel">
-        <div className="section-heading">
-          <StepTitle step="7" title="イベント設定" description="予定の時期、対象者、金額、家計への影響を整理します。" />
-          <button type="button" onClick={addEvent}>
-            イベントを追加
-          </button>
-        </div>
-        <div className="template-panel" aria-label="ライフイベントテンプレート">
-          <div>
-            <strong>テンプレートから追加</strong>
-            <span>予定年、金額、家計への影響は追加後に変更できます。</span>
-          </div>
-          <div className="template-actions">
-            {eventTemplates.map((template) => (
-              <button type="button" className="secondary" key={template.title} onClick={() => addEventFromTemplate(template)}>
-                {template.title}
-              </button>
-            ))}
-          </div>
-        </div>
-        <section className="helper-grid compact">
-        <div>
-          <strong>支出として反映</strong>
-          <span>住宅購入、車購入、旅行、教育費など、その年にまとまって出る支出に使います。</span>
-        </div>
-        <div>
-          <strong>収入・資産増として反映</strong>
-          <span>退職金、売却益、補助金など、その年に増える金額を記録するときに使います。</span>
-        </div>
-        <div>
-          <strong>記録のみ</strong>
-          <span>転職や結婚など、金額をまだ決めない予定を年表に残すときに使います。</span>
-        </div>
-        </section>
-        <div className="list-toolbar" aria-label="イベントの検索と並び替え">
-          <label>
-            イベントを検索
-            <input value={eventSearch} onChange={(event) => setEventSearch(event.target.value)} placeholder="イベント名やメモで検索" />
-          </label>
-          <label>
-            並び替え
-            <select value={eventSort} onChange={(event) => setEventSort(event.target.value as "yearAsc" | "yearDesc" | "title" | "type")}>
-              <option value="yearAsc">時期が近い順</option>
-              <option value="yearDesc">時期が遠い順</option>
-              <option value="title">名前順</option>
-              <option value="type">種類順</option>
-            </select>
-          </label>
-          <label>
-            表示
-            <select value={eventViewMode} onChange={(event) => setEventViewMode(event.target.value as "detail" | "compact")}>
-              <option value="detail">詳細編集</option>
-              <option value="compact">短いリスト</option>
-            </select>
-          </label>
-          <label>
-            対象者
-            <select value={eventOwner} onChange={(event) => setEventOwner(event.target.value as EventOwner | "all")}>
-              <option value="all">すべて</option>
-              {Object.entries(eventOwnerLabels).map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <span>{sortedEvents.length}件表示 / 全{plan.events.length}件</span>
-        </div>
-        {eventViewMode === "compact" ? (
-          <div className="compact-list" aria-label="イベントの短いリスト">
-            {plan.events.length === 0 ? (
-              <EmptyState title="まだ年表イベントがありません" detail="転職、引越し、住宅購入などをテンプレートから追加すると、将来見通しに反映できます。" />
-            ) : sortedEvents.length === 0 ? (
-              <EmptyState title="条件に合うイベントがありません" detail="検索文字を変えるか、並び替えを戻して確認してください。" />
-            ) : (
-              sortedEvents.map((event) => (
-                <div className="compact-list-row" key={event.id}>
-                  <label className="compact-title-field">
-                    イベント名
-                    <input value={event.title} onChange={(input) => updateEvent(event.id, "title", input.target.value)} />
-                  </label>
-                  <div className="compact-date-fields">
-                    <label>
-                      年
-                      <NumericInput value={event.year} min={new Date().getFullYear()} max={MAX_PLAN_YEAR} onChange={(value) => updateEventSchedule(event.id, value)} />
-                    </label>
-                    <label>
-                      月
-                      <select value={event.month} onChange={(input) => updateEvent(event.id, "month", Number(input.target.value))}>
-                        {monthLabels.map((label, index) => (
-                          <option value={index + 1} key={label}>
-                            {label}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  </div>
-                  <label>
-                    対象者
-                    <select value={event.owner || "household"} onChange={(input) => updateEvent(event.id, "owner", input.target.value as EventOwner)}>
-                      {Object.entries(eventOwnerLabels).map(([value, label]) => (
-                        <option key={value} value={value}>
-                          {label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>
-                    種類
-                    <select value={event.category} onChange={(input) => updateEvent(event.id, "category", input.target.value as LifeEventCategory)}>
-                      {Object.entries(eventCategoryLabels).map(([value, label]) => (
-                        <option key={value} value={value}>
-                          {label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>
-                    金額
-                    <NumericInput value={event.amount} min={0} max={MAX_MONEY_AMOUNT} onChange={(value) => updateEvent(event.id, "amount", value)} />
-                  </label>
-                  <label>
-                    影響
-                    <select value={event.cashflowType} onChange={(input) => updateEvent(event.id, "cashflowType", input.target.value as CashflowType)}>
-                      {Object.entries(cashflowLabels).map(([value, label]) => (
-                        <option key={value} value={value}>
-                          {label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <button type="button" className="text-button" onClick={() => removeEvent(event.id)}>
-                    削除
-                  </button>
-                </div>
-              ))
-            )}
-          </div>
-        ) : (
-          <div className="timeline">
-        {plan.events.length === 0 ? (
-          <EmptyState title="まだ年表イベントがありません" detail="転職、引越し、住宅購入などをテンプレートから追加すると、将来見通しに反映できます。" />
-        ) : sortedEvents.length === 0 ? (
-          <EmptyState title="条件に合うイベントがありません" detail="検索文字を変えるか、並び替えを戻して確認してください。" />
-        ) : (
-          sortedEvents.map((event) => (
-            <div className="timeline-row" key={event.id}>
-              <div className="timeline-year">
-                <strong>{event.year}</strong>
-                <span>{event.month}月 / {getTargetAgeForYear(plan.profile.age, event.year)}歳</span>
-              </div>
-              <div className="timeline-fields">
-                <label className="timeline-field title-field">
-                  イベント名
-                  <input value={event.title} onChange={(input) => updateEvent(event.id, "title", input.target.value)} />
-                  <small>例: 住宅購入、車購入、転職、旅行など</small>
-                </label>
-                <label className="timeline-field">
-                  対象者
-                  <select
-                    value={event.owner || "household"}
-                    onChange={(input) => updateEvent(event.id, "owner", input.target.value as EventOwner)}
-                  >
-                    {Object.entries(eventOwnerLabels).map(([value, label]) => (
-                      <option key={value} value={value}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
-                  <small>本人、配偶者、子ども、親など、誰に関する予定かを分けます。</small>
-                </label>
-                <label className="timeline-field">
-                  種類
-                  <select
-                    value={event.category}
-                    onChange={(input) => updateEvent(event.id, "category", input.target.value as LifeEventCategory)}
-                  >
-                    {Object.entries(eventCategoryLabels).map(([value, label]) => (
-                      <option key={value} value={value}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
-                  <small>年表で見分けるための分類です。</small>
-                </label>
-                <div className="timeline-field">
-                  <span>予定年</span>
-                  <YearAgeInput
-                    year={event.year}
-                    currentAge={plan.profile.age}
-                    ageLabel="予定年齢"
-                    onChange={(value) => updateEventSchedule(event.id, value)}
-                  />
-                </div>
-                <label className="timeline-field">
-                  予定月
-                  <select value={event.month} onChange={(input) => updateEvent(event.id, "month", Number(input.target.value))}>
-                    {monthLabels.map((label, index) => (
-                      <option value={index + 1} key={label}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
-                  <small>スケジュール帳のように月単位で整理します。</small>
-                </label>
-                <label className="timeline-field">
-                  金額
-                  <NumericInput value={event.amount} min={0} max={MAX_MONEY_AMOUNT} onChange={(value) => updateEvent(event.id, "amount", value)} />
-                  <small>支出または収入変化として反映する金額です。</small>
-                </label>
-                <label className="timeline-field impact-field">
-                  家計への影響
-                  <select
-                    value={event.cashflowType}
-                    onChange={(input) => updateEvent(event.id, "cashflowType", input.target.value as CashflowType)}
-                  >
-                    {Object.entries(cashflowLabels).map(([value, label]) => (
-                      <option key={value} value={value}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
-                  <small>{cashflowHelp[event.cashflowType]}</small>
-                </label>
-                <label className="timeline-field memo-field">
-                  メモ
-                  <input value={event.memo} onChange={(input) => updateEvent(event.id, "memo", input.target.value)} />
-                  <small>前提や検討中のことを残せます。</small>
-                </label>
-                <button type="button" className="text-button" onClick={() => removeEvent(event.id)}>
-                  削除
-                </button>
-              </div>
-            </div>
-          ))
-        )}
-          </div>
-        )}
-      </section>
-      <StepFlowNav
-        setActiveView={setActiveView}
-        previous={{ view: "simulation", label: "シミュレーション" }}
-        next={{ view: "timeline", label: "年表" }}
-      />
-    </div>
-  );
-}
-
-function TimelineView({ plan, setActiveView }: { plan: LifePlan; setActiveView: (view: ViewKey) => void }) {
-  return (
-    <div className="view-stack">
-      <section className="panel">
-        <StepTitle step="8" title="年表" description="目標、イベント、予定メモを月ごとにまとめて確認します。" />
-        <LifeCalendar plan={plan} />
-      </section>
-      <StepFlowNav
-        setActiveView={setActiveView}
-        previous={{ view: "events", label: "イベント設定" }}
-        next={{ view: "notes", label: "メモ" }}
-      />
     </div>
   );
 }
