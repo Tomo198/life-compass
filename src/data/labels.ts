@@ -1,4 +1,10 @@
-import type { BudgetCategory, BudgetFrequency } from "../types";
+import type { BudgetCategory, BudgetFrequency, Priority } from "../types";
+
+export const priorityLabels: Record<Priority, string> = {
+  high: "高",
+  medium: "中",
+  low: "低"
+};
 
 export const budgetCategoryLabels: Record<BudgetCategory, string> = {
   food: "食費",
