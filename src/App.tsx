@@ -1,23 +1,18 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CURRENT_PLAN_VERSION } from "./config";
 import { AccountPanel } from "./components/AccountPanel";
-import { EmptyState, Metric, MoneyInput, NumericInput, StepFlowNav, StepTitle } from "./components/CommonUi";
-import { FixedCostItemList } from "./components/FixedCostItemList";
+import { NumericInput, StepTitle } from "./components/CommonUi";
 import { createId, defaultPlan } from "./data/defaultPlan";
 import type { EventTemplate } from "./data/eventTemplates";
 import type { GoalTemplate } from "./data/goalTemplates";
-import { budgetCategoryLabels } from "./data/labels";
 import {
   createScenarioFromTemplate,
-  scenarioTagLabels,
-  scenarioTemplates,
   type ScenarioTemplate
 } from "./data/scenarios";
 import {
   canOpenView,
   defaultAccessState,
   hasFeatureAccess,
-  proPriceLabel,
   type AccessState
 } from "./features";
 import { AssetsView } from "./views/AssetsView";
@@ -27,6 +22,7 @@ import { EventSettingsView } from "./views/EventSettingsView";
 import { GoalsView } from "./views/GoalsView";
 import { HouseholdView } from "./views/HouseholdView";
 import { LegalDocumentView, LegalIndexView, type LegalDocumentKey } from "./views/LegalView";
+import { LifePlanDiagnosisView } from "./views/LifePlanDiagnosisView";
 import { NotesView } from "./views/NotesView";
 import { ProfileView } from "./views/ProfileView";
 import { PricingView as PricingPage } from "./views/PricingView";
@@ -38,7 +34,6 @@ import { TimelineView } from "./views/TimelineView";
 import type {
   Assets,
   BudgetItem,
-  EventOwner,
   FixedCostItem,
   Goal,
   Household,
@@ -49,28 +44,18 @@ import type {
   Profile,
   RetirementPlanSettings,
   ReviewNote,
-  ScenarioTag,
   SimulationSettings,
   TimelineMemo,
   WithdrawalPlanSettings,
   ViewKey
 } from "./types";
 import {
-  emergencyMonthsLabel,
   getAssetSummary,
   getBudgetHouseholdInputs,
-  getBudgetSummary,
   getCashflowSummary,
-  getEmergencyFundResult,
-  getFixedCostImpact,
-  getGoalAchievements,
-  getGoalFundingSummary,
   getGoalPreparedPercent,
-  getTargetAgeForYear,
-  manYen,
-  percent
+  getTargetAgeForYear
 } from "./utils/calculations";
-import { getScenarioComparisonMetrics } from "./utils/scenarios";
 import { createRecoveryBackup, exportPlan, loadPlan, savePlan } from "./utils/storage";
 
 const navItems: { key: ViewKey; label: string; tier?: "pro" }[] = [
@@ -1015,438 +1000,6 @@ function App() {
           );
         })}
       </nav>
-    </div>
-  );
-}
-
-type DiagnosisItem = {
-  title: string;
-  detail: string;
-  tone: "good" | "check" | "notice";
-  view: ViewKey;
-};
-
-function getLifePlanDiagnosis(plan: LifePlan): DiagnosisItem[] {
-  const cashflow = getCashflowSummary(plan.household);
-  const assets = getAssetSummary(plan.assets);
-  const emergency = getEmergencyFundResult(plan);
-  const goalAchievements = getGoalAchievements(plan);
-  const goalFunding = getGoalFundingSummary(plan);
-  const eventYears = new Map<number, { count: number; impact: number }>();
-
-  plan.events.forEach((event) => {
-    const current = eventYears.get(event.year) || { count: 0, impact: 0 };
-    const impact = event.cashflowType === "expense" ? -event.amount : event.cashflowType === "income" ? event.amount : 0;
-    eventYears.set(event.year, { count: current.count + 1, impact: current.impact + impact });
-  });
-
-  const concentratedYear = [...eventYears.entries()].sort((a, b) => b[1].count - a[1].count || Math.abs(b[1].impact) - Math.abs(a[1].impact))[0];
-  const ownerCounts = plan.events.reduce<Record<EventOwner, number>>(
-    (counts, event) => {
-      counts[event.owner || "household"] += 1;
-      return counts;
-    },
-    { self: 0, spouse: 0, child: 0, parent: 0, household: 0, other: 0 }
-  );
-  const latestReview = [...(plan.reviews || [])].sort((a, b) => b.date.localeCompare(a.date))[0];
-  const daysSinceReview = latestReview
-    ? Math.floor((Date.now() - new Date(latestReview.date).getTime()) / (1000 * 60 * 60 * 24))
-    : null;
-  const openTodos = (plan.reviews || []).filter((review) => review.todo && !review.todoDone).length;
-  const backupDays = plan.updatedAt ? Math.floor((Date.now() - new Date(plan.updatedAt).getTime()) / (1000 * 60 * 60 * 24)) : null;
-  const currentDate = new Date();
-  const currentMonthKey = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, "0")}`;
-  const budgetSummary = getBudgetSummary(plan.budgetItems || [], currentMonthKey);
-  const overBudgetCategories = budgetSummary.categoryRows.filter(
-    (row) => row.actualEntryCount === row.itemCount && row.variance > 0
-  );
-  const items: DiagnosisItem[] = [];
-
-  items.push({
-    title: emergency.status === "short" ? "生活防衛資金に不足があります" : "生活防衛資金の目安を確認済みです",
-    detail:
-      emergency.status === "short"
-        ? `${emergency.lowerMonths}ヶ月分まであと${manYen(emergency.shortageToLower)}です。固定費や現金へ残す額と合わせて確認します。`
-        : `${emergencyMonthsLabel(emergency.lowerMonths, emergency.upperMonths)}の目安と現在の現金を比較しています。`,
-    tone: emergency.status === "short" ? "notice" : "good",
-    view: "simulation"
-  });
-
-  items.push({
-    title: cashflow.monthlySavings < 0 ? "通常月の収支がマイナスの前提です" : "通常月の家計余剰を確認できます",
-    detail:
-      cashflow.monthlySavings < 0
-        ? `毎月${manYen(Math.abs(cashflow.monthlySavings))}の不足です。固定費、変動費、特別支出の入力を確認します。`
-        : `通常月の家計余剰は${manYen(cashflow.monthlySavings)}、貯蓄率は${percent(cashflow.savingsRate)}の前提です。`,
-    tone: cashflow.monthlySavings < 0 ? "notice" : "check",
-    view: "household"
-  });
-
-  if (assets.netAssets < 0) {
-    items.push({
-      title: "純資産がマイナスの前提です",
-      detail: `現在純資産は${manYen(assets.netAssets)}です。資産入力の負債やその他資産を確認します。`,
-      tone: "notice",
-      view: "assets"
-    });
-  }
-
-  const unreachableGoals = goalAchievements.filter(({ achievement }) => achievement.status === "unreachable");
-  if (goalFunding.overAllocatedAmount > 0) {
-    items.push({
-      title: "目標への毎月配分が家計余剰を超えています",
-      detail: `毎月${manYen(goalFunding.overAllocatedAmount)}の超過です。複数の目標で同じ資金を重ねて見込んでいないか確認します。`,
-      tone: "notice",
-      view: "goals"
-    });
-  } else if (unreachableGoals.length > 0) {
-    items.push({
-      title: "達成目安が出ない目標があります",
-      detail: `${unreachableGoals.length}件の目標で、毎月この目標に回す額が未入力です。`,
-      tone: "check",
-      view: "goals"
-    });
-  } else if (plan.goals.length > 0) {
-    items.push({
-      title: "目標の達成目安を確認できます",
-      detail: `${plan.goals.length}件の目標について、期限や準備額をもとに確認できます。`,
-      tone: "good",
-      view: "goals"
-    });
-  }
-
-  if (concentratedYear && concentratedYear[1].count >= 3) {
-    items.push({
-      title: "イベントが集中している年があります",
-      detail: `${concentratedYear[0]}年に${concentratedYear[1].count}件のイベントがあります。支出・収入変化の重なりを確認します。`,
-      tone: "check",
-      view: "timeline"
-    });
-  }
-
-  if (ownerCounts.child > 0 || ownerCounts.parent > 0 || ownerCounts.spouse > 0) {
-    items.push({
-      title: "世帯メンバー別のイベントがあります",
-      detail: `子ども${ownerCounts.child}件、親${ownerCounts.parent}件、配偶者${ownerCounts.spouse}件。対象者フィルターで確認できます。`,
-      tone: "good",
-      view: "timeline"
-    });
-  } else {
-    items.push({
-      title: "対象者別イベントはまだ少なめです",
-      detail: "配偶者、子ども、親に関する予定がある場合は、年表で対象者を分けると見返しやすくなります。",
-      tone: "check",
-      view: "timeline"
-    });
-  }
-
-  items.push({
-    title: latestReview ? "レビュー履歴があります" : "レビュー履歴はまだありません",
-    detail: latestReview
-      ? `最新レビューは${latestReview.date}です。${daysSinceReview !== null ? `${daysSinceReview}日前の記録です。` : ""}`
-      : "月次・四半期レビューを残すと、前回との差分とTODOを確認できます。",
-    tone: latestReview ? "good" : "check",
-    view: "reviews"
-  });
-
-  if (openTodos > 0) {
-    items.push({
-      title: "未完了TODOがあります",
-      detail: `${openTodos}件のTODOが未完了です。次回の見直しで確認できます。`,
-      tone: "check",
-      view: "reviews"
-    });
-  }
-
-  if ((plan.budgetItems || []).length === 0) {
-    items.push({
-      title: "予算・実績プランはまだありません",
-      detail: "月別の予算と実績を入れると、レビューや家計入力の前提確認に使えます。",
-      tone: "check",
-      view: "budget"
-    });
-  } else if (overBudgetCategories.length > 0) {
-    items.push({
-      title: "予算を上回っているカテゴリがあります",
-      detail: `${currentMonthKey} は ${overBudgetCategories.slice(0, 3).map((row) => budgetCategoryLabels[row.category]).join("、")} を確認できます。`,
-      tone: "check",
-      view: "budget"
-    });
-  } else {
-    items.push({
-      title: "予算・実績を確認できます",
-      detail: `${(plan.budgetItems || []).length}件の予算項目があります。月次レビューの前提として使えます。`,
-      tone: "good",
-      view: "budget"
-    });
-  }
-
-  items.push({
-    title: (plan.scenarios || []).length > 0 ? "比較シナリオがあります" : "比較シナリオはまだありません",
-    detail:
-      (plan.scenarios || []).length > 0
-        ? `${plan.scenarios.length}件のシナリオを保存しています。年次グラフと比較表で確認できます。`
-        : "転職、副業、住宅購入などの変更案を保存すると、現状プランと比較できます。",
-    tone: (plan.scenarios || []).length > 0 ? "good" : "check",
-    view: "scenarios"
-  });
-
-  if (backupDays !== null && backupDays >= 30) {
-    items.push({
-      title: "バックアップ確認の時期です",
-      detail: `最終保存から約${backupDays}日です。必要に応じてJSONエクスポートを確認します。`,
-      tone: "check",
-      view: "data"
-    });
-  }
-
-  return items;
-}
-
-function LifePlanDiagnosisView({ plan, setActiveView }: { plan: LifePlan; setActiveView: (view: ViewKey) => void }) {
-  const diagnosisItems = getLifePlanDiagnosis(plan);
-  const counts = {
-    good: diagnosisItems.filter((item) => item.tone === "good").length,
-    check: diagnosisItems.filter((item) => item.tone === "check").length,
-    notice: diagnosisItems.filter((item) => item.tone === "notice").length
-  };
-
-  return (
-    <div className="view-stack">
-      <section className="pro-hero">
-        <div>
-          <p className="eyebrow">Pro予定 / ライフプラン診断</p>
-          <h2>入力条件の確認ポイントを横断整理</h2>
-          <p>家計、資産、目標、イベント、レビュー履歴をまとめて確認します。結果は助言ではなく、入力条件に基づく参考メモです。</p>
-        </div>
-        <span className="lock-badge">Coming soon</span>
-      </section>
-
-      <section className="calculation-band compact">
-        <Metric label="確認済み" value={`${counts.good}件`} helper="整っている項目" />
-        <Metric label="見直し候補" value={`${counts.check}件`} helper="確認するとよい項目" />
-        <Metric label="注意して確認" value={`${counts.notice}件`} helper="入力条件上の不足や赤字" />
-        <Metric label="診断項目" value={`${diagnosisItems.length}件`} helper="前提条件に基づく整理" />
-      </section>
-
-      <section className="panel">
-        <h2>確認ポイント</h2>
-        <div className="diagnosis-list">
-          {diagnosisItems.map((item) => (
-            <button type="button" className={`diagnosis-item ${item.tone}`} key={item.title} onClick={() => setActiveView(item.view)}>
-              <div>
-                <span>{item.tone === "good" ? "確認済み" : item.tone === "notice" ? "注意して確認" : "見直し候補"}</span>
-                <strong>{item.title}</strong>
-                <small>{item.detail}</small>
-              </div>
-              <span>開く</span>
-            </button>
-          ))}
-        </div>
-      </section>
-    </div>
-  );
-}
-
-type ProViewProps = {
-  plan: LifePlan;
-  setActiveView: (view: ViewKey) => void;
-  addScenario: (template: ScenarioTemplate) => void;
-  updateScenario: <K extends keyof PlanScenario>(id: string, key: K, value: PlanScenario[K]) => void;
-  removeScenario: (id: string) => void;
-  addFixedCostItem: () => void;
-  updateFixedCostItem: <K extends keyof FixedCostItem>(id: string, key: K, value: FixedCostItem[K]) => void;
-  removeFixedCostItem: (id: string) => void;
-};
-
-function ProView({
-  plan,
-  setActiveView,
-  addScenario,
-  updateScenario,
-  removeScenario,
-  addFixedCostItem,
-  updateFixedCostItem,
-  removeFixedCostItem
-}: ProViewProps) {
-  const scenarios = plan.scenarios || [];
-  const fixedCostItems = plan.fixedCostItems || [];
-  const fixedCostImpact = getFixedCostImpact(fixedCostItems);
-  const comparisonMetrics = useMemo(() => getScenarioComparisonMetrics(plan), [plan]);
-
-  return (
-    <div className="view-stack">
-      <section className="pro-hero">
-        <div>
-          <p className="eyebrow">Proプレビュー / Coming soon</p>
-          <h2>複数シナリオを比較し、見直しを続けるためのPro基盤</h2>
-          <p>{proPriceLabel}。現在は課金機能を実装せず、将来のサブスク導入に備えて機能境界とデータ構造を先に整えています。</p>
-          <div className="button-row">
-            <button type="button" className="secondary hero-action" onClick={() => setActiveView("scenarios")}>
-              シナリオ比較を開く
-            </button>
-            <button type="button" className="secondary hero-action" onClick={() => setActiveView("reviews")}>
-              レビュー履歴を開く
-            </button>
-            <button type="button" className="secondary hero-action" onClick={() => setActiveView("diagnosis")}>
-              ライフプラン診断を開く
-            </button>
-            <button type="button" className="secondary hero-action" onClick={() => setActiveView("retirement")}>
-              老後プランを開く
-            </button>
-          </div>
-        </div>
-        <span className="lock-badge">課金なし</span>
-      </section>
-
-      <section className="panel">
-        <div className="section-heading">
-          <div>
-            <h2>複数シナリオ保存</h2>
-            <p>現在の入力条件をもとに、比較用の仮シナリオを保存します。正式なPro提供時は、シナリオ数や比較機能をPro範囲として整理します。</p>
-          </div>
-          <span className="status-pill recurring">Pro予定</span>
-        </div>
-        <div className="template-actions">
-          {scenarioTemplates.map((template) => (
-            <button key={template.tag} type="button" className="secondary" onClick={() => addScenario(template)}>
-              {template.name}
-            </button>
-          ))}
-        </div>
-        {scenarios.length === 0 ? (
-          <EmptyState title="シナリオはまだありません" detail="上のテンプレートから、現状維持・支出見直し・転職などの比較用シナリオを追加できます。" />
-        ) : (
-          <div className="scenario-list">
-            {scenarios.map((scenario) => (
-              <div className="scenario-row" key={scenario.id}>
-                <label>
-                  シナリオ名
-                  <input value={scenario.name} onChange={(event) => updateScenario(scenario.id, "name", event.target.value)} />
-                </label>
-                <label>
-                  種類
-                  <select
-                    value={scenario.tag}
-                    onChange={(event) => updateScenario(scenario.id, "tag", event.target.value as ScenarioTag)}
-                  >
-                    {Object.entries(scenarioTagLabels).map(([value, label]) => (
-                      <option key={value} value={value}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="scenario-description-field">
-                  メモ
-                  <input
-                    value={scenario.description}
-                    onChange={(event) => updateScenario(scenario.id, "description", event.target.value)}
-                    placeholder="このシナリオの前提メモ"
-                  />
-                </label>
-                <button type="button" className="text-button" onClick={() => removeScenario(scenario.id)}>
-                  削除
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
-
-      <section className="panel">
-        <h2>シナリオ比較</h2>
-        <p>入力条件に基づく参考試算として、現在プランと保存済みシナリオを横並びで確認します。</p>
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>比較項目</th>
-                {comparisonMetrics.map((item) => (
-                  <th key={item.id}>{item.name}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {[
-                { label: "通常月の家計余剰", getValue: (item: (typeof comparisonMetrics)[number]) => manYen(item.monthlySavings) },
-                { label: "年間収支", getValue: (item: (typeof comparisonMetrics)[number]) => manYen(item.annualBalance) },
-                { label: "現在純資産", getValue: (item: (typeof comparisonMetrics)[number]) => manYen(item.netAssets) },
-                { label: "10年後資産", getValue: (item: (typeof comparisonMetrics)[number]) => manYen(item.tenYear) },
-                { label: "30年後資産", getValue: (item: (typeof comparisonMetrics)[number]) => manYen(item.thirtyYear) },
-                { label: "主要目標の達成目安", getValue: (item: (typeof comparisonMetrics)[number]) => item.goalLabel },
-                { label: "生活防衛資金の状態", getValue: (item: (typeof comparisonMetrics)[number]) => item.emergencyLabel }
-              ].map((row) => (
-                <tr key={row.label}>
-                  <td>{row.label}</td>
-                  {comparisonMetrics.map((item) => (
-                    <td key={`${row.label}-${item.id}`}>{row.getValue(item)}</td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <section className="panel">
-        <div className="section-heading">
-          <div>
-            <h2>固定費見直しインパクト</h2>
-            <p>月額の差分を、年間・10年・30年の単純差額として確認します。利回り、税金、契約条件などは含めません。</p>
-          </div>
-          <button type="button" onClick={addFixedCostItem}>
-            項目を追加
-          </button>
-        </div>
-        <div className="summary-grid compact">
-          <Metric label="月間改善額" value={manYen(fixedCostImpact.monthlyImprovement)} helper="現在額 - 見直し後" />
-          <Metric label="年間改善額" value={manYen(fixedCostImpact.annualImprovement)} helper="月間改善額 × 12" />
-          <Metric label="10年の単純差額" value={manYen(fixedCostImpact.tenYearSimpleImpact)} helper="運用益等は含めない" />
-          <Metric label="30年の単純差額" value={manYen(fixedCostImpact.thirtyYearSimpleImpact)} helper="前提条件に基づく試算" />
-        </div>
-        <FixedCostItemList
-          items={fixedCostItems}
-          updateFixedCostItem={updateFixedCostItem}
-          removeFixedCostItem={removeFixedCostItem}
-        />
-      </section>
-
-      <section className="panel">
-        <h2>レビュー履歴のPro拡張</h2>
-        <div className="boundary-grid">
-          <div>
-            <strong>現在入っている基盤</strong>
-            <p>月次/四半期、予定値と実績値、前回比、次回TODOをブラウザ内に保存できます。</p>
-          </div>
-          <div>
-            <strong>将来のPro制限ポイント</strong>
-            <p>レビュー件数、シナリオ別レビュー、差分の詳細表示、TODO管理の強化をサブスク機能として分けられます。</p>
-          </div>
-        </div>
-      </section>
-
-      <section className="pro-grid">
-        {[
-          "複数シナリオ保存",
-          "シナリオ比較",
-          "ライフプラン診断",
-          "世帯イベント管理",
-          "予算・実績レビュー",
-          "固定費見直しインパクト",
-          "詳細収入変化",
-          "老後生活プラン",
-          "詳細取り崩しシミュレーション",
-          "月次/四半期レビュー",
-          "家族/世帯モード",
-          "課金連携予定"
-        ].map((feature) => (
-          <div className="pro-item" key={feature}>
-            <strong>{feature}</strong>
-            <span>Coming soon</span>
-          </div>
-        ))}
-      </section>
     </div>
   );
 }

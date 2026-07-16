@@ -152,6 +152,9 @@ test("無料版とPro版の境界が表示され、横方向にはみ出さな�
   await openView(page, "reviews");
   await expect(page.getByRole("heading", { name: "レビュー履歴", exact: true, level: 1 })).toBeVisible();
   await expect(page.getByRole("button", { name: "レビューを追加" })).toBeVisible();
+  await openView(page, "diagnosis");
+  await expect(page.getByRole("heading", { name: "ライフプラン診断", exact: true, level: 1 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "確認ポイント", exact: true, level: 2 })).toBeVisible();
 
   await openView(page, "pricing");
   await expect(page.getByRole("heading", { name: "無料版とPro版の比較" })).toBeVisible();
