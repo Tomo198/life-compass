@@ -12,7 +12,8 @@
     "test:logic": "node scripts/run-logic-tests.mjs",
     "test:worker-api": "node scripts/run-worker-api-tests.mjs",
     "test:e2e": "npm run build && node scripts/run-e2e.mjs",
-    "test:e2e:headed": "npm run build && node scripts/run-e2e.mjs --headed"
+    "test:e2e:headed": "npm run build && node scripts/run-e2e.mjs --headed",
+    "verify": "npm run test:logic && npm run test:worker-api && npm run test:e2e"
   },
   "dependencies": {
     "jose": "^6.2.3",
