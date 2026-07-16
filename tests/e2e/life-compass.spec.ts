@@ -177,6 +177,9 @@ test("無料版とPro版の境界が表示され、横方向にはみ出さな�
 
   await page.getByRole("button", { name: "開発中のPro機能を確認する", exact: true }).click();
   await expect(page.getByRole("heading", { name: "シナリオ比較", level: 1 })).toBeVisible();
+  await page.getByRole("button", { name: "現状維持", exact: true }).click();
+  await expect(page.locator(".scenario-row")).toHaveCount(1);
+  await expect(page.getByRole("cell", { name: "10年後資産", exact: true })).toBeVisible();
   await expect(page.getByTestId("app-shell")).toHaveAttribute("data-access-mode", "preview");
   await expect(page.getByTestId("app-shell")).toHaveAttribute("data-access-tier", "free");
 });

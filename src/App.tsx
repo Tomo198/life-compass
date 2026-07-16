@@ -3,11 +3,16 @@ import { CURRENT_PLAN_VERSION } from "./config";
 import { AccountPanel } from "./components/AccountPanel";
 import { EmptyState, Metric, MoneyInput, NumericInput, StepFlowNav, StepTitle } from "./components/CommonUi";
 import { FixedCostItemList } from "./components/FixedCostItemList";
-import { LineChart } from "./components/Charts";
 import { createId, defaultPlan } from "./data/defaultPlan";
 import type { EventTemplate } from "./data/eventTemplates";
 import type { GoalTemplate } from "./data/goalTemplates";
 import { budgetCategoryLabels } from "./data/labels";
+import {
+  createScenarioFromTemplate,
+  scenarioTagLabels,
+  scenarioTemplates,
+  type ScenarioTemplate
+} from "./data/scenarios";
 import {
   canOpenView,
   defaultAccessState,
@@ -27,6 +32,7 @@ import { ProfileView } from "./views/ProfileView";
 import { PricingView as PricingPage } from "./views/PricingView";
 import { DataView as DataPage } from "./views/DataView";
 import { RetirementPlanView } from "./views/RetirementPlanView";
+import { ScenarioComparisonView } from "./views/ScenarioComparisonView";
 import { SimulationView } from "./views/SimulationView";
 import { TimelineView } from "./views/TimelineView";
 import type {
@@ -43,7 +49,6 @@ import type {
   Profile,
   RetirementPlanSettings,
   ReviewNote,
-  ScenarioSnapshot,
   ScenarioTag,
   SimulationSettings,
   TimelineMemo,
@@ -51,25 +56,21 @@ import type {
   ViewKey
 } from "./types";
 import {
-  buildPlanFromScenario,
   emergencyMonthsLabel,
   getAssetSummary,
-  getAnnualProjectionRows,
   getBudgetHouseholdInputs,
   getBudgetSummary,
   getCashflowSummary,
   getEmergencyFundResult,
   getFixedCostImpact,
-  getGoalAchievement,
   getGoalAchievements,
   getGoalFundingSummary,
   getGoalPreparedPercent,
-  getPrimaryGoal,
   getTargetAgeForYear,
   manYen,
-  percent,
-  projectAssets
+  percent
 } from "./utils/calculations";
+import { getScenarioComparisonMetrics } from "./utils/scenarios";
 import { createRecoveryBackup, exportPlan, loadPlan, savePlan } from "./utils/storage";
 
 const navItems: { key: ViewKey; label: string; tier?: "pro" }[] = [
@@ -262,16 +263,6 @@ const getAppReminders = (plan: LifePlan, settings: AppSettings): AppReminder[] =
   return reminders;
 };
 
-const scenarioTagLabels: Record<ScenarioTag, string> = {
-  current: "現状維持",
-  spending: "支出見直し",
-  career: "転職",
-  sideBusiness: "副業開始",
-  home: "住宅購入",
-  retirement: "早期退職",
-  custom: "自由入力"
-};
-
 const cloneDefaultPlan = () => JSON.parse(JSON.stringify(defaultPlan)) as LifePlan;
 
 const createEmptyPlan = (): LifePlan => ({
@@ -342,105 +333,6 @@ const createEmptyPlan = (): LifePlan => ({
   budgetItems: [],
   updatedAt: new Date().toISOString()
 });
-
-type ScenarioTemplate = {
-  tag: ScenarioTag;
-  name: string;
-  description: string;
-  apply: (snapshot: ScenarioSnapshot, plan: LifePlan) => ScenarioSnapshot;
-};
-
-const cloneScenarioSnapshot = (plan: LifePlan): ScenarioSnapshot => ({
-  household: { ...plan.household },
-  assets: { ...plan.assets },
-  goals: plan.goals.map((goal) => ({ ...goal })),
-  events: plan.events.map((event) => ({ ...event })),
-  simulation: { ...plan.simulation }
-});
-
-const createScenarioFromTemplate = (plan: LifePlan, template: ScenarioTemplate): PlanScenario => ({
-  id: createId(),
-  name: template.name,
-  description: template.description,
-  tag: template.tag,
-  createdAt: new Date().toISOString(),
-  snapshot: template.apply(cloneScenarioSnapshot(plan), plan)
-});
-
-const scenarioTemplates: ScenarioTemplate[] = [
-  {
-    tag: "current",
-    name: "現状維持",
-    description: "現在の入力条件をそのまま保存します。",
-    apply: (snapshot) => snapshot
-  },
-  {
-    tag: "spending",
-    name: "支出見直し",
-    description: "固定費を月3万円下げた場合の仮シナリオです。",
-    apply: (snapshot) => ({
-      ...snapshot,
-      household: { ...snapshot.household, fixedCost: Math.max(0, snapshot.household.fixedCost - 30000) }
-    })
-  },
-  {
-    tag: "career",
-    name: "転職",
-    description: "月収が5万円変わる前提の仮シナリオです。",
-    apply: (snapshot) => ({
-      ...snapshot,
-      household: { ...snapshot.household, monthlyIncome: snapshot.household.monthlyIncome + 50000 }
-    })
-  },
-  {
-    tag: "sideBusiness",
-    name: "副業開始",
-    description: "副業収入を月5万円として置いた仮シナリオです。",
-    apply: (snapshot) => ({
-      ...snapshot,
-      household: { ...snapshot.household, sideIncome: snapshot.household.sideIncome + 50000 }
-    })
-  },
-  {
-    tag: "home",
-    name: "住宅購入",
-    description: "5年後に住宅購入関連費用を置いた仮シナリオです。",
-    apply: (snapshot, plan) => {
-      const year = new Date().getFullYear() + 5;
-      return {
-        ...snapshot,
-        events: [
-          ...snapshot.events,
-          {
-            id: createId(),
-            title: "住宅購入関連費用",
-            owner: "household",
-            category: "home",
-            year,
-            month: 9,
-            age: getTargetAgeForYear(plan.profile.age, year),
-            amount: 3000000,
-            cashflowType: "expense",
-            memo: "Proシナリオ比較用の仮イベント"
-          }
-        ]
-      };
-    }
-  },
-  {
-    tag: "retirement",
-    name: "早期退職",
-    description: "収入と生活費を退職前提で見直すための仮シナリオです。",
-    apply: (snapshot) => ({
-      ...snapshot,
-      household: {
-        ...snapshot.household,
-        monthlyIncome: Math.max(0, snapshot.household.monthlyIncome - 100000),
-        fixedCost: Math.max(0, snapshot.household.fixedCost - 20000)
-      }
-    })
-  }
-];
 
 function App() {
   const [plan, setPlan] = useState<LifePlan>(() => loadPlan());
@@ -1123,199 +1015,6 @@ function App() {
           );
         })}
       </nav>
-    </div>
-  );
-}
-
-type ScenarioComparisonViewProps = {
-  plan: LifePlan;
-  addScenario: (template: ScenarioTemplate) => void;
-  updateScenario: <K extends keyof PlanScenario>(id: string, key: K, value: PlanScenario[K]) => void;
-  removeScenario: (id: string) => void;
-};
-
-function getScenarioComparisonMetrics(plan: LifePlan) {
-  const scenarios = plan.scenarios || [];
-  const comparisonPlans = [
-    { id: "current", name: "現在プラン", plan },
-    ...scenarios.map((scenario) => ({
-      id: scenario.id,
-      name: scenario.name,
-      plan: buildPlanFromScenario(plan, scenario)
-    }))
-  ];
-
-  return comparisonPlans.map((item) => {
-    const cashflow = getCashflowSummary(item.plan.household);
-    const assets = getAssetSummary(item.plan.assets);
-    const projection = projectAssets(item.plan, 30);
-    const primaryGoal = getPrimaryGoal(item.plan);
-    const goalAchievement = primaryGoal ? getGoalAchievement(item.plan, primaryGoal) : null;
-    const emergency = getEmergencyFundResult(item.plan);
-    const goalLabel = !primaryGoal
-      ? "目標未設定"
-      : goalAchievement?.status === "achieved"
-        ? "達成済み"
-        : goalAchievement?.status === "unreachable"
-          ? "毎月の準備額未設定"
-          : goalAchievement?.status === "recurring"
-            ? `${primaryGoal.title}: 継続目標`
-            : `${primaryGoal.title}: ${goalAchievement?.targetAge}歳目安`;
-    const emergencyLabel =
-      emergency.status === "short"
-        ? `${emergency.lowerMonths}ヶ月分まであと${manYen(emergency.shortageToLower)}`
-        : emergency.status === "above"
-          ? `${emergency.upperMonths}ヶ月分を上回る`
-          : `${emergencyMonthsLabel(emergency.lowerMonths, emergency.upperMonths)}の目安内`;
-
-    return {
-      id: item.id,
-      name: item.name,
-      monthlySavings: cashflow.monthlySavings,
-      annualBalance: cashflow.annualIncome - cashflow.annualLivingCost,
-      netAssets: assets.netAssets,
-      tenYear: projection[10]?.value ?? 0,
-      thirtyYear: projection[30]?.value ?? 0,
-      goalLabel,
-      emergencyLabel
-    };
-  });
-}
-
-function ScenarioComparisonView({ plan, addScenario, updateScenario, removeScenario }: ScenarioComparisonViewProps) {
-  const scenarios = plan.scenarios || [];
-  const [selectedScenarioId, setSelectedScenarioId] = useState("current");
-  const comparisonMetrics = useMemo(() => getScenarioComparisonMetrics(plan), [plan]);
-  const scenarioOptions = useMemo(
-    () => [
-      { id: "current", name: "現在プラン", plan },
-      ...scenarios.map((scenario) => ({ id: scenario.id, name: scenario.name, plan: buildPlanFromScenario(plan, scenario) }))
-    ],
-    [plan, scenarios]
-  );
-  const selectedScenario = scenarioOptions.find((item) => item.id === selectedScenarioId) || scenarioOptions[0];
-  const selectedScenarioRows = getAnnualProjectionRows(selectedScenario.plan, 30);
-
-  return (
-    <div className="view-stack">
-      <section className="pro-hero">
-        <div>
-          <p className="eyebrow">Pro予定 / シナリオ比較</p>
-          <h2>選択肢ごとの将来見通しを横並びで確認</h2>
-          <p>現状維持、支出見直し、転職、副業、住宅購入、早期退職などを同じ入力条件から分けて保存します。</p>
-        </div>
-        <span className="lock-badge">Coming soon</span>
-      </section>
-
-      <section className="panel">
-        <div className="section-heading">
-          <div>
-            <h2>シナリオを追加</h2>
-            <p>テンプレートは仮条件です。個別の助言ではなく、前提条件に基づく比較用のたたき台として使います。</p>
-          </div>
-          <span className="status-pill recurring">{scenarios.length}件</span>
-        </div>
-        <div className="template-actions">
-          {scenarioTemplates.map((template) => (
-            <button key={template.tag} type="button" className="secondary" onClick={() => addScenario(template)}>
-              {template.name}
-            </button>
-          ))}
-        </div>
-        {scenarios.length === 0 ? (
-          <EmptyState title="シナリオはまだありません" detail="まずは現状維持と、気になる変更案を1つ追加すると比較しやすくなります。" />
-        ) : (
-          <div className="scenario-list">
-            {scenarios.map((scenario) => (
-              <div className="scenario-row" key={scenario.id}>
-                <label>
-                  シナリオ名
-                  <input value={scenario.name} onChange={(event) => updateScenario(scenario.id, "name", event.target.value)} />
-                </label>
-                <label>
-                  種類
-                  <select
-                    value={scenario.tag}
-                    onChange={(event) => updateScenario(scenario.id, "tag", event.target.value as ScenarioTag)}
-                  >
-                    {Object.entries(scenarioTagLabels).map(([value, label]) => (
-                      <option key={value} value={value}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="scenario-description-field">
-                  前提メモ
-                  <input
-                    value={scenario.description}
-                    onChange={(event) => updateScenario(scenario.id, "description", event.target.value)}
-                    placeholder="例: 固定費を月3万円見直す"
-                  />
-                </label>
-                <button type="button" className="text-button" onClick={() => removeScenario(scenario.id)}>
-                  削除
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
-
-      <section className="panel">
-        <div className="section-heading">
-          <div>
-            <h2>シナリオ別の年次グラフ</h2>
-            <p>選んだシナリオの30年見通しをグラフで確認します。</p>
-          </div>
-          <label className="compact-select">
-            表示シナリオ
-            <select value={selectedScenarioId} onChange={(event) => setSelectedScenarioId(event.target.value)}>
-              {scenarioOptions.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-        <LineChart points={selectedScenarioRows} />
-      </section>
-
-      <section className="panel">
-        <h2>比較表</h2>
-        <p>入力条件に基づく参考試算として、主要な差分を確認します。</p>
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>比較項目</th>
-                {comparisonMetrics.map((item) => (
-                  <th key={item.id}>{item.name}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {[
-                { label: "通常月の家計余剰", getValue: (item: (typeof comparisonMetrics)[number]) => manYen(item.monthlySavings) },
-                { label: "年間収支", getValue: (item: (typeof comparisonMetrics)[number]) => manYen(item.annualBalance) },
-                { label: "現在純資産", getValue: (item: (typeof comparisonMetrics)[number]) => manYen(item.netAssets) },
-                { label: "10年後資産", getValue: (item: (typeof comparisonMetrics)[number]) => manYen(item.tenYear) },
-                { label: "30年後資産", getValue: (item: (typeof comparisonMetrics)[number]) => manYen(item.thirtyYear) },
-                { label: "主要目標の達成目安", getValue: (item: (typeof comparisonMetrics)[number]) => item.goalLabel },
-                { label: "生活防衛資金の状態", getValue: (item: (typeof comparisonMetrics)[number]) => item.emergencyLabel }
-              ].map((row) => (
-                <tr key={row.label}>
-                  <td>{row.label}</td>
-                  {comparisonMetrics.map((item) => (
-                    <td key={`${row.label}-${item.id}`}>{row.getValue(item)}</td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
     </div>
   );
 }
