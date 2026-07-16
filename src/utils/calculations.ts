@@ -237,6 +237,14 @@ export const manYen = (value: number) => {
 
 export const percent = (value: number) => `${Math.round((value || 0) * 10) / 10}%`;
 
+export const getTargetAgeForYear = (currentAge: number, dueYear: number) => {
+  const currentYear = new Date().getFullYear();
+  return currentAge + Math.max(0, dueYear - currentYear);
+};
+
+export const emergencyMonthsLabel = (lower: number, upper: number) =>
+  lower === upper ? `${lower}ヶ月分` : `${lower}〜${upper}ヶ月分`;
+
 export const getCashflowSummary = (household: Household): CashflowSummary => {
   const monthlyIncome = household.monthlyIncome + household.sideIncome;
   const annualIncome = monthlyIncome * 12 + household.annualBonus;

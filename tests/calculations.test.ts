@@ -17,10 +17,19 @@ import {
   hasFeatureAccess,
   type AccessState
 } from "../src/features";
+import {
+  getMobileNavKey,
+  getPublicPath,
+  getViewForPath,
+  getViewTitle,
+  isLegalDocumentView
+} from "../src/navigation";
+import { createEmptyPlan } from "../src/hooks/useLifePlanEditor";
 import type { LifePlan } from "../src/types";
 import { decryptCloudBackup, encryptCloudBackup } from "../src/utils/cloudBackupCrypto";
 import {
   buildPlanFromScenario,
+  emergencyMonthsLabel,
   getAssetSummary,
   getAnnualProjectionRows,
   getBasicProjectionAllocation,
@@ -37,6 +46,7 @@ import {
   getInputCompletion,
   getMonthlyProjectionRows,
   getNextEvent,
+  getTargetAgeForYear,
   projectAssets,
   simulateContributionVariability,
   simulateRetirementPlan,
@@ -53,8 +63,16 @@ import {
   savePlan,
   validateImportedPlan
 } from "../src/utils/storage";
+import { defaultSettings, getAppReminders } from "../src/utils/settings";
 
 const currentYear = new Date().getFullYear();
+
+test("shared age and emergency-fund labels keep existing display rules", () => {
+  assert.equal(getTargetAgeForYear(35, currentYear + 5), 40);
+  assert.equal(getTargetAgeForYear(35, currentYear - 1), 35);
+  assert.equal(emergencyMonthsLabel(6, 6), "6ヶ月分");
+  assert.equal(emergencyMonthsLabel(6, 12), "6〜12ヶ月分");
+});
 
 test("preview access keeps Pro features available before billing is enabled", () => {
   assert.equal(defaultAccessState.tier, "free");
@@ -79,6 +97,38 @@ test("enforced Pro access unlocks Pro views without preview mode", () => {
   assert.equal(getEffectiveTier(access), "pro");
   assert.equal(hasFeatureAccess(access, "lifePlanDiagnosis"), true);
   assert.equal(canOpenView(access, "diagnosis"), true);
+});
+
+test("public routes and titles preserve direct legal-page navigation", () => {
+  assert.equal(getViewForPath("/privacy"), "privacy");
+  assert.equal(getViewForPath("/privacy/"), "privacy");
+  assert.equal(getViewForPath("/unknown"), "dashboard");
+  assert.equal(getPublicPath("commercial"), "/commercial-disclosure");
+  assert.equal(getPublicPath("household"), "/");
+  assert.equal(getViewTitle("commercial"), "特定商取引法に基づく表記");
+  assert.equal(isLegalDocumentView("refund"), true);
+  assert.equal(isLegalDocumentView("pricing"), false);
+});
+
+test("mobile navigation groups related planning views", () => {
+  assert.equal(getMobileNavKey("dashboard"), "home");
+  assert.equal(getMobileNavKey("budget"), "household");
+  assert.equal(getMobileNavKey("timeline"), "goals");
+  assert.equal(getMobileNavKey("retirement"), "forecast");
+  assert.equal(getMobileNavKey("settings"), "menu");
+});
+
+test("empty plan starts without personal data and keeps complete simulation settings", () => {
+  const plan = createEmptyPlan();
+
+  assert.equal(plan.version, CURRENT_PLAN_VERSION);
+  assert.equal(plan.profile.name, "新しいプラン");
+  assert.deepEqual(plan.goals, []);
+  assert.deepEqual(plan.events, []);
+  assert.deepEqual(plan.budgetItems, []);
+  assert.equal(plan.withdrawalPlan.years, 101);
+  assert.equal(plan.withdrawalPlan.periods.length, 1);
+  assert.equal(plan.simulation.years, 30);
 });
 
 class MemoryStorage {
@@ -174,6 +224,67 @@ const basePlan: LifePlan = {
 const assertAlmostEqual = (actual: number, expected: number, tolerance = 0.01) => {
   assert.ok(Math.abs(actual - expected) <= tolerance, `expected ${actual} to be within ${tolerance} of ${expected}`);
 };
+
+test("app reminders cover due actuals, reviews, goals, and upcoming events", () => {
+  const now = new Date(2026, 6, 26);
+  const plan: LifePlan = {
+    ...basePlan,
+    budgetItems: [
+      {
+        id: "budget-1",
+        name: "食費",
+        category: "food",
+        frequency: "monthlyVariable",
+        budgetAmount: 50000,
+        actuals: {},
+        memo: ""
+      }
+    ],
+    goals: [
+      {
+        id: "goal-1",
+        title: "期限目標",
+        goalType: "oneTime",
+        dueYear: 2026,
+        dueMonth: 7,
+        requiredAmount: 100000,
+        savedAmount: 50000,
+        monthlyAllocation: 10000,
+        recurrence: "yearly",
+        priority: "medium",
+        progress: 50,
+        memo: ""
+      }
+    ],
+    events: [
+      {
+        id: "event-1",
+        title: "近い予定",
+        category: "other",
+        year: 2026,
+        month: 9,
+        age: 35,
+        amount: 0,
+        cashflowType: "neutral",
+        memo: ""
+      }
+    ]
+  };
+
+  const reminders = getAppReminders(plan, defaultSettings, now);
+
+  assert.deepEqual(reminders.map((reminder) => reminder.view), ["budget", "reviews", "goals", "timeline"]);
+});
+
+test("disabled app reminders return no dashboard guidance", () => {
+  const reminders = getAppReminders(
+    basePlan,
+    { ...defaultSettings, remindersEnabled: false },
+    new Date(2026, 6, 26)
+  );
+
+  assert.deepEqual(reminders, []);
+});
 
 test("basic household cashflow is calculated from monthly and annual inputs", () => {
   const summary = getCashflowSummary(basePlan.household);

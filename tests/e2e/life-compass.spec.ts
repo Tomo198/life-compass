@@ -146,6 +146,15 @@ test("無料版とPro版の境界が表示され、横方向にはみ出さな�
   await openView(page, "simulation");
   await expect(page.getByRole("button", { name: "詳細積立 Pro" })).toBeVisible();
   await expect(page.getByRole("button", { name: "取り崩し Pro" })).toBeVisible();
+  await openView(page, "retirement");
+  await expect(page.getByRole("heading", { name: "老後プラン", exact: true, level: 1 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "年金・社会保険・税金を含めた取り崩し見通し", level: 2 })).toBeVisible();
+  await openView(page, "reviews");
+  await expect(page.getByRole("heading", { name: "レビュー履歴", exact: true, level: 1 })).toBeVisible();
+  await expect(page.getByRole("button", { name: "レビューを追加" })).toBeVisible();
+  await openView(page, "diagnosis");
+  await expect(page.getByRole("heading", { name: "ライフプラン診断", exact: true, level: 1 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "確認ポイント", exact: true, level: 2 })).toBeVisible();
 
   await openView(page, "pricing");
   await expect(page.getByRole("heading", { name: "無料版とPro版の比較" })).toBeVisible();
@@ -171,6 +180,9 @@ test("無料版とPro版の境界が表示され、横方向にはみ出さな�
 
   await page.getByRole("button", { name: "開発中のPro機能を確認する", exact: true }).click();
   await expect(page.getByRole("heading", { name: "シナリオ比較", level: 1 })).toBeVisible();
+  await page.getByRole("button", { name: "現状維持", exact: true }).click();
+  await expect(page.locator(".scenario-row")).toHaveCount(1);
+  await expect(page.getByRole("cell", { name: "10年後資産", exact: true })).toBeVisible();
   await expect(page.getByTestId("app-shell")).toHaveAttribute("data-access-mode", "preview");
   await expect(page.getByTestId("app-shell")).toHaveAttribute("data-access-tier", "free");
 });
@@ -251,6 +263,10 @@ test("設定画面でログインが任意でありクラウド保存を開始�
   await expect(accountPanel).toContainText("無料版はログインなしで利用できます");
   await expect(accountPanel).toContainText("ログインしても自動でクラウド保存しません");
   await expect(accountPanel).toContainText("Googleログインは設定中です");
+  await page.getByRole("button", { name: /^ダーク/ }).click();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  await page.reload();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
 });
 
 test("ログアウトとアカウント削除後にGoogleログインボタンを再表示できる", async ({ page }) => {
