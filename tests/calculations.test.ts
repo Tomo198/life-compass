@@ -17,6 +17,13 @@ import {
   hasFeatureAccess,
   type AccessState
 } from "../src/features";
+import {
+  getMobileNavKey,
+  getPublicPath,
+  getViewForPath,
+  getViewTitle,
+  isLegalDocumentView
+} from "../src/navigation";
 import type { LifePlan } from "../src/types";
 import { decryptCloudBackup, encryptCloudBackup } from "../src/utils/cloudBackupCrypto";
 import {
@@ -89,6 +96,25 @@ test("enforced Pro access unlocks Pro views without preview mode", () => {
   assert.equal(getEffectiveTier(access), "pro");
   assert.equal(hasFeatureAccess(access, "lifePlanDiagnosis"), true);
   assert.equal(canOpenView(access, "diagnosis"), true);
+});
+
+test("public routes and titles preserve direct legal-page navigation", () => {
+  assert.equal(getViewForPath("/privacy"), "privacy");
+  assert.equal(getViewForPath("/privacy/"), "privacy");
+  assert.equal(getViewForPath("/unknown"), "dashboard");
+  assert.equal(getPublicPath("commercial"), "/commercial-disclosure");
+  assert.equal(getPublicPath("household"), "/");
+  assert.equal(getViewTitle("commercial"), "特定商取引法に基づく表記");
+  assert.equal(isLegalDocumentView("refund"), true);
+  assert.equal(isLegalDocumentView("pricing"), false);
+});
+
+test("mobile navigation groups related planning views", () => {
+  assert.equal(getMobileNavKey("dashboard"), "home");
+  assert.equal(getMobileNavKey("budget"), "household");
+  assert.equal(getMobileNavKey("timeline"), "goals");
+  assert.equal(getMobileNavKey("retirement"), "forecast");
+  assert.equal(getMobileNavKey("settings"), "menu");
 });
 
 class MemoryStorage {
