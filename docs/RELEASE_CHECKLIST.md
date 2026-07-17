@@ -60,6 +60,9 @@
 
 ## 6. 自動テスト
 
+- `npm.cmd run verify` でロジック、Worker API、PC・スマホE2E、本番ビルドが一括で通ること
 - `npm.cmd run test:logic` で計算・保存互換性テストが通ること
 - `npm.cmd run test:e2e` で最新ビルドを作成し、PC幅とスマホ幅の入力保存、JSON操作、保存失敗通知、Pro境界表示が通ること
 - `npm.cmd run build` で本番ビルドが通ること
+- GitHub Actionsの月次検証とDependabotの週次確認が有効であること
+- `npm.cmd audit --audit-level=high` で高・重大リスクが0件であること

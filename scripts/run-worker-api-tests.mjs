@@ -170,7 +170,9 @@ test("health endpoint returns scaffold status without caching", async () => {
   assert.equal(response.headers.get("Cache-Control"), "no-store");
   assert.equal(body.ok, true);
   assert.equal(body.mode, "scaffold");
-  assert.equal(body.privacy.planDataStoredOnServer, false);
+  assert.equal(body.privacy.plainPlanDataStoredOnServer, false);
+  assert.equal(body.privacy.encryptedBackupOnly, true);
+  assert.equal(body.privacy.automaticCloudSync, false);
 });
 
 test("me endpoint does not pretend the user is logged in", async () => {
@@ -201,7 +203,7 @@ test("cloud backups are listed as unavailable until encryption storage is implem
   assert.equal(response.status, 200);
   assert.equal(body.available, false);
   assert.deepEqual(body.backups, []);
-  assert.equal(body.privacy.planDataStoredOnServer, false);
+  assert.equal(body.privacy.plainPlanDataStoredOnServer, false);
 });
 
 test("cloud backup writes are rejected while not configured", async () => {
@@ -308,11 +310,18 @@ test("encrypted cloud backups enforce login, preview allowlist, ownership, integ
   assert.equal(BACKUPS.objects.size, 0);
 
   DB.failCloudBackupInsert = true;
-  const failedMetadata = await authRequest("/api/backups", {
-    method: "POST",
-    headers: { ...ownerHeaders, "Content-Type": "application/json", Origin: "https://life.example" },
-    body: JSON.stringify({ planVersion: 3, envelope })
-  });
+  const originalConsoleError = console.error;
+  console.error = () => {};
+  let failedMetadata;
+  try {
+    failedMetadata = await authRequest("/api/backups", {
+      method: "POST",
+      headers: { ...ownerHeaders, "Content-Type": "application/json", Origin: "https://life.example" },
+      body: JSON.stringify({ planVersion: 3, envelope })
+    });
+  } finally {
+    console.error = originalConsoleError;
+  }
   assert.equal(failedMetadata.status, 500);
   assert.equal(DB.cloudBackups.size, 0);
   assert.equal(BACKUPS.objects.size, 0);
@@ -328,6 +337,32 @@ test("cloud backup preview rejects users outside the server-side allowlist", asy
     ...env,
     DB,
     BACKUPS,
+    GOOGLE_CLIENT_ID: "google-client-id",
+    CLOUD_BACKUP_MODE: "preview",
+    CLOUD_BACKUP_TEST_USERS: "owner@example.com"
+  };
+  const authRequest = (path, init) => secureWorker.fetch(new Request(`https://life.example${path}`, init), authEnv, {});
+  const nonceResponse = await authRequest("/api/auth/nonce");
+  const nonceBody = await json(nonceResponse);
+  const loginResponse = await authRequest("/api/auth/google", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Origin: "https://life.example", Cookie: `__Host-lc_oauth_nonce=${nonceBody.nonce}` },
+    body: JSON.stringify({ credential: "valid", nonce: nonceBody.nonce })
+  });
+  const sessionCookie = cookieValue(loginResponse, "__Host-lc_session");
+  const response = await authRequest("/api/backups", { headers: { Cookie: `__Host-lc_session=${sessionCookie}` } });
+  assert.equal(response.status, 403);
+});
+
+test("cloud backup preview rejects an allowlisted but unverified email", async () => {
+  const DB = new FakeD1();
+  const secureWorker = createWorker({
+    verifyGoogleToken: async () => ({ sub: "unverified", email: "owner@example.com", emailVerified: false })
+  });
+  const authEnv = {
+    ...env,
+    DB,
+    BACKUPS: new FakeR2(),
     GOOGLE_CLIENT_ID: "google-client-id",
     CLOUD_BACKUP_MODE: "preview",
     CLOUD_BACKUP_TEST_USERS: "owner@example.com"
@@ -450,7 +485,7 @@ test("Google login creates a minimal D1 user and a hashed server session", async
   const me = await json(meResponse);
   assert.equal(me.authenticated, true);
   assert.equal(me.user.email, "user@example.com");
-  assert.equal(me.privacy.planDataStoredOnServer, false);
+  assert.equal(me.privacy.plainPlanDataStoredOnServer, false);
 
   const logoutResponse = await authRequest("/api/auth/logout", {
     method: "POST",
@@ -659,12 +694,30 @@ test("database failures return a generic error without internal details", async 
       }
     }
   };
-  const response = await worker.fetch(new Request("https://life.example/api/me", {
-    headers: { Cookie: "__Host-lc_session=untrusted-session-token" }
-  }), brokenEnv, {});
+  const errorLogs = [];
+  const originalConsoleError = console.error;
+  console.error = (message) => errorLogs.push(String(message));
+  let response;
+  try {
+    response = await worker.fetch(new Request("https://life.example/api/me", {
+      headers: { Cookie: "__Host-lc_session=untrusted-session-token", "CF-Ray": "safe-ray-id" }
+    }), brokenEnv, {});
+  } finally {
+    console.error = originalConsoleError;
+  }
   const body = await json(response);
   assert.equal(response.status, 500);
   assert.equal(body.error.code, "internal_error");
   assert.equal(JSON.stringify(body).includes("private database"), false);
   assert.equal(JSON.stringify(body).includes("untrusted-session-token"), false);
+  assert.equal(errorLogs.length, 1);
+  assert.deepEqual(JSON.parse(errorLogs[0]), {
+    event: "worker_error",
+    scope: "api_request",
+    method: "GET",
+    ray: "safe-ray-id",
+    errorName: "Error"
+  });
+  assert.equal(errorLogs[0].includes("private database"), false);
+  assert.equal(errorLogs[0].includes("untrusted-session-token"), false);
 });

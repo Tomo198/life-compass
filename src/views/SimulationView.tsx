@@ -126,18 +126,22 @@ export function SimulationView({
     returnImpact: row.returnImpact
   }));
   const contributionVariability = useMemo(
-    () => simulateContributionVariability(plan.simulation, returnVariabilityRate),
-    [plan.simulation, returnVariabilityRate]
+    () => simulationTab === "contribution"
+      ? simulateContributionVariability(plan.simulation, returnVariabilityRate)
+      : null,
+    [plan.simulation, returnVariabilityRate, simulationTab]
   );
   const withdrawalResult = useMemo(
-    () => simulateWithdrawal(withdrawalSettings),
-    [withdrawalSettings]
+    () => simulationTab === "withdrawal" ? simulateWithdrawal(withdrawalSettings) : null,
+    [simulationTab, withdrawalSettings]
   );
   const withdrawalVariability = useMemo(
-    () => simulateWithdrawalVariability(withdrawalSettings, returnVariabilityRate),
-    [returnVariabilityRate, withdrawalSettings]
+    () => simulationTab === "withdrawal"
+      ? simulateWithdrawalVariability(withdrawalSettings, returnVariabilityRate)
+      : null,
+    [returnVariabilityRate, simulationTab, withdrawalSettings]
   );
-  const withdrawalChartPoints = withdrawalResult.rows.map((row) => ({
+  const withdrawalChartPoints = (withdrawalResult?.rows || []).map((row) => ({
     year: row.yearIndex,
     label: `${row.age}歳`,
     age: row.age,
@@ -378,7 +382,7 @@ export function SimulationView({
       </>
       )}
 
-      {simulationTab === "contribution" && (
+      {simulationTab === "contribution" && contributionVariability && (
       <section className="panel form-panel">
         <StepTitle step="6" title="詳細積立シミュレーション" description="積立額、ボーナス積立、利回り、期間をもとに年ごとの見通しを確認します。" />
         <div className="form-grid">
@@ -487,7 +491,7 @@ export function SimulationView({
       </section>
       )}
 
-      {simulationTab === "withdrawal" && (
+      {simulationTab === "withdrawal" && withdrawalResult && withdrawalVariability && (
       <section className="panel form-panel">
         <StepTitle step="6" title="取り崩しシミュレーション" description="期間入力は使わず、開始年齢・開始資金・月額または年率から資産推移を確認します。" />
         <div className="form-grid">

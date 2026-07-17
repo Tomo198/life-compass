@@ -32,7 +32,7 @@ const requireBackupAccess = async (user, env) => {
       .split(",")
       .map((email) => email.trim().toLowerCase())
       .filter(Boolean);
-    if (user.email && allowedEmails.includes(user.email.toLowerCase())) return;
+    if (user.emailVerified && user.email && allowedEmails.includes(user.email.toLowerCase())) return;
     throw new AuthError(403, "backup_preview_not_allowed", "Encrypted cloud backup preview is limited to test users.");
   }
   if (mode !== "enforced") {

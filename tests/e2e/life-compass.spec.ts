@@ -1,5 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
+const uncaughtPageErrors = new WeakMap<Page, Error[]>();
+
 const mobilePrimaryViews: Partial<Record<string, string>> = {
   dashboard: "home",
   household: "household",
@@ -27,9 +29,16 @@ const openView = async (page: Page, view: string) => {
 };
 
 test.beforeEach(async ({ page }) => {
+  const errors: Error[] = [];
+  uncaughtPageErrors.set(page, errors);
+  page.on("pageerror", (error) => errors.push(error));
   await page.goto("/");
   await page.evaluate(() => localStorage.clear());
   await page.reload();
+});
+
+test.afterEach(async ({ page }) => {
+  expect(uncaughtPageErrors.get(page) || []).toEqual([]);
 });
 
 test("基本入力が画面移動と再読み込み後も保存される", async ({ page }) => {

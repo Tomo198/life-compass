@@ -82,9 +82,9 @@ const notConfigured = (feature) =>
   );
 
 const privacyBaseline = {
-  planDataStoredOnServer: false,
-  cloudBackupAvailable: false,
-  cloudBackupEncryptedOnly: true
+  plainPlanDataStoredOnServer: false,
+  encryptedBackupOnly: true,
+  automaticCloudSync: false
 };
 
 function jsonResponse(body, status = 200, headers = {}) {
@@ -96,6 +96,21 @@ function jsonResponse(body, status = 200, headers = {}) {
     }
   });
 }
+
+const reportWorkerError = (request, scope, error) => {
+  console.error(JSON.stringify({
+    event: "worker_error",
+    scope,
+    method: request.method,
+    ray: request.headers.get("CF-Ray") || null,
+    errorName: error instanceof Error ? error.name : "UnknownError"
+  }));
+};
+
+const internalErrorResponse = (request, scope, error, message) => {
+  reportWorkerError(request, scope, error);
+  return jsonResponse({ ok: false, error: { code: "internal_error", message } }, 500);
+};
 
 function healthResponse() {
   return jsonResponse({
@@ -222,7 +237,9 @@ async function handleApiRequest(request, env, services) {
     try {
       return await handleBackupsRequest(request, env, jsonResponse, privacyBaseline);
     } catch (error) {
-      return error instanceof AuthError ? authErrorResponse(error) : jsonResponse({ ok: false, error: { code: "internal_error", message: "Encrypted backup is temporarily unavailable." } }, 500);
+      return error instanceof AuthError
+        ? authErrorResponse(error)
+        : internalErrorResponse(request, "backups", error, "Encrypted backup is temporarily unavailable.");
     }
   }
 
@@ -238,7 +255,9 @@ async function handleApiRequest(request, env, services) {
     try {
       return issueGoogleNonce(request, env, jsonResponse);
     } catch (error) {
-      return error instanceof AuthError ? authErrorResponse(error) : jsonResponse({ ok: false, error: { code: "internal_error", message: "Authentication is temporarily unavailable." } }, 500);
+      return error instanceof AuthError
+        ? authErrorResponse(error)
+        : internalErrorResponse(request, "auth_nonce", error, "Authentication is temporarily unavailable.");
     }
   }
 
@@ -248,7 +267,9 @@ async function handleApiRequest(request, env, services) {
     try {
       return await loginWithGoogle(request, env, services.verifyGoogleToken, jsonResponse);
     } catch (error) {
-      return error instanceof AuthError ? authErrorResponse(error) : jsonResponse({ ok: false, error: { code: "internal_error", message: "Authentication is temporarily unavailable." } }, 500);
+      return error instanceof AuthError
+        ? authErrorResponse(error)
+        : internalErrorResponse(request, "auth_google", error, "Authentication is temporarily unavailable.");
     }
   }
 
@@ -257,7 +278,9 @@ async function handleApiRequest(request, env, services) {
     try {
       return await logout(request, env, jsonResponse);
     } catch (error) {
-      return error instanceof AuthError ? authErrorResponse(error) : jsonResponse({ ok: false, error: { code: "internal_error", message: "Authentication is temporarily unavailable." } }, 500);
+      return error instanceof AuthError
+        ? authErrorResponse(error)
+        : internalErrorResponse(request, "auth_logout", error, "Authentication is temporarily unavailable.");
     }
   }
 
@@ -266,7 +289,9 @@ async function handleApiRequest(request, env, services) {
     try {
       return await logoutAll(request, env, jsonResponse);
     } catch (error) {
-      return error instanceof AuthError ? authErrorResponse(error) : jsonResponse({ ok: false, error: { code: "internal_error", message: "Session revocation is temporarily unavailable." } }, 500);
+      return error instanceof AuthError
+        ? authErrorResponse(error)
+        : internalErrorResponse(request, "auth_logout_all", error, "Session revocation is temporarily unavailable.");
     }
   }
 
@@ -275,7 +300,9 @@ async function handleApiRequest(request, env, services) {
     try {
       return await deleteAccount(request, env, jsonResponse);
     } catch (error) {
-      return error instanceof AuthError ? authErrorResponse(error) : jsonResponse({ ok: false, error: { code: "internal_error", message: "Account deletion is temporarily unavailable." } }, 500);
+      return error instanceof AuthError
+        ? authErrorResponse(error)
+        : internalErrorResponse(request, "account_delete", error, "Account deletion is temporarily unavailable.");
     }
   }
 
@@ -293,11 +320,8 @@ export const createWorker = ({ verifyGoogleToken = verifyGoogleIdToken } = {}) =
     if (url.pathname.startsWith("/api/")) {
       try {
         return await handleApiRequest(request, env, { verifyGoogleToken });
-      } catch {
-        return jsonResponse(
-          { ok: false, error: { code: "internal_error", message: "The service is temporarily unavailable." } },
-          500
-        );
+      } catch (error) {
+        return internalErrorResponse(request, "api_request", error, "The service is temporarily unavailable.");
       }
     }
 
