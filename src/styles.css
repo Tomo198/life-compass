@@ -4562,11 +4562,418 @@ td select {
   .mobile-record select {
     min-height: 2.62rem;
   }
+
+  /* Keep the mobile hierarchy compact without changing any screen behavior. */
+  .sidebar {
+    gap: 0.75rem;
+    height: min(72vh, 38rem);
+    padding: 0.75rem 0.85rem 0.85rem;
+    border-radius: 8px 8px 0 0;
+    box-shadow: 0 -12px 28px rgba(36, 48, 47, 0.12);
+  }
+
+  .mobile-menu-heading {
+    padding: 0.05rem 0 0.65rem;
+    border-bottom: 1px solid color-mix(in srgb, var(--line) 78%, transparent);
+  }
+
+  .mobile-menu-heading button {
+    color: var(--primary-dark);
+    background: var(--surface);
+  }
+
+  .nav-list {
+    gap: 0.28rem 0.4rem;
+    padding-top: 0.05rem;
+  }
+
+  .nav-list button {
+    min-height: 3rem;
+    border-radius: 6px;
+  }
+
+  .nav-list button.active {
+    box-shadow: none;
+  }
+
+  .mobile-bottom-nav {
+    padding-top: 0.35rem;
+    border-top-color: color-mix(in srgb, var(--line) 88%, transparent);
+    box-shadow: 0 -6px 18px rgba(36, 48, 47, 0.08);
+  }
+
+  .mobile-bottom-nav button {
+    border-radius: 0;
+  }
+
+  .mobile-bottom-nav button.active {
+    border-color: transparent;
+    background: transparent;
+  }
+
+  .mobile-bottom-nav button.active::after {
+    inset-inline: 28%;
+  }
+
+  .topbar {
+    gap: 0.5rem;
+    margin-bottom: 0.72rem;
+    padding-top: 0.68rem;
+    padding-bottom: 0.64rem;
+    background: color-mix(in srgb, var(--surface) 94%, transparent);
+  }
+
+  .topbar h1 {
+    font-size: 1.2rem;
+  }
+
+  .topbar-settings {
+    border: 1px solid color-mix(in srgb, var(--primary) 28%, var(--line));
+    background: var(--surface);
+    color: var(--primary-dark);
+  }
+
+  .topbar-settings:hover {
+    background: var(--surface-soft);
+  }
+
+  .view-stack {
+    gap: 0.72rem;
+  }
+
+  .panel,
+  .form-panel {
+    padding: 0.84rem;
+    border-color: color-mix(in srgb, var(--line) 88%, transparent);
+  }
+
+  .section-heading {
+    gap: 0.55rem;
+    margin-bottom: 0.65rem;
+  }
+
+  .step-title p,
+  .section-heading p {
+    font-size: 0.9rem;
+  }
+
+  .form-grid {
+    gap: 0.72rem;
+    margin-top: 0.9rem;
+  }
+
+  .reminder-panel {
+    padding: 0.74rem 0.8rem;
+    border-left-width: 3px;
+  }
+
+  .reminder-panel .section-heading {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    margin-bottom: 0.25rem;
+  }
+
+  .reminder-panel .section-heading > button {
+    width: auto;
+    min-height: 2.45rem;
+    padding: 0.45rem 0.65rem;
+    font-size: 0.84rem;
+  }
+
+  .reminder-panel .eyebrow {
+    margin-bottom: 0.15rem;
+  }
+
+  .reminder-list button {
+    min-height: 3.55rem;
+    padding: 0.62rem 0.05rem;
+  }
+
+  .dashboard-overview {
+    gap: 0.68rem;
+    padding: 0.78rem;
+    background: var(--surface);
+    box-shadow: none;
+  }
+
+  .dashboard-overview-header {
+    grid-template-columns: 1fr;
+    align-items: start;
+    gap: 0.5rem;
+  }
+
+  .dashboard-overview-header > span {
+    align-self: start;
+    justify-self: start;
+  }
+
+  .dashboard-overview .summary-grid {
+    gap: 0.5rem;
+  }
+
+  .dashboard-overview .summary-grid .metric:first-child {
+    grid-column: 1 / -1;
+  }
+
+  .dashboard-overview .summary-grid .metric:last-child {
+    grid-column: auto;
+  }
+
+  .metric {
+    min-height: 4.95rem;
+    gap: 0.32rem;
+    padding: 0.64rem;
+  }
+
+  .dashboard-overview .summary-grid .metric:first-child {
+    min-height: 5.2rem;
+  }
+
+  .quick-action-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.5rem;
+  }
+
+  .quick-action-grid button {
+    min-height: 4.1rem;
+    gap: 0.22rem;
+    padding: 0.62rem;
+  }
+
+  .quick-action-grid button strong {
+    font-size: 0.92rem;
+  }
+
+  .quick-action-grid span {
+    font-size: 0.76rem;
+    line-height: 1.35;
+  }
+
+  .split-layout .section-heading > button,
+  .dashboard-lower .section-heading > button {
+    align-self: flex-start;
+    width: auto;
+    min-height: 2.55rem;
+    padding: 0.5rem 0.72rem;
+  }
+
+  .focus-list {
+    gap: 0;
+  }
+
+  .focus-list button {
+    min-height: 3.75rem;
+    padding: 0.68rem 0.1rem;
+    border-width: 0 0 1px;
+    border-radius: 0;
+  }
+
+  .focus-list button:last-child {
+    border-bottom: 0;
+  }
+
+  .guidance-list {
+    gap: 0;
+    margin-top: 0.72rem;
+    padding-top: 0.72rem;
+  }
+
+  .guidance-item {
+    padding: 0.68rem 0.62rem;
+    border-width: 0 0 1px 3px;
+    border-radius: 0;
+    background: transparent;
+  }
+
+  .guidance-item.notice {
+    border-bottom-color: var(--line);
+    border-left-color: #d7b8a4;
+  }
+
+  .guidance-item.check {
+    border-bottom-color: var(--line);
+    border-left-color: #cad4c5;
+  }
+
+  .guidance-item.good {
+    border-bottom-color: var(--line);
+    border-left-color: #a9c0b3;
+  }
+
+  .insight-row {
+    gap: 0.65rem;
+    align-items: flex-start;
+    padding: 0.72rem 0;
+  }
+
+  .insight-row span {
+    font-size: 0.82rem;
+  }
+
+  .insight-row b {
+    flex: 0 0 auto;
+    text-align: right;
+  }
+
+  .completion-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.45rem;
+  }
+
+  .completion-list button {
+    grid-template-columns: 1fr;
+    align-content: center;
+    min-height: 3.35rem;
+    gap: 0.12rem;
+    padding: 0.52rem 0.58rem;
+    border-radius: 6px;
+  }
+
+  .completion-list button small {
+    white-space: normal;
+  }
+
+  .template-panel {
+    gap: 0.6rem;
+    padding: 0.75rem;
+    background: var(--surface-soft);
+  }
+
+  .template-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.45rem;
+  }
+
+  .template-actions button {
+    min-height: 3.45rem;
+    padding: 0.5rem;
+    line-height: 1.35;
+  }
+
+  .list-toolbar {
+    gap: 0.55rem;
+    margin: 0.82rem 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .mobile-card-list {
+    margin-top: 0.75rem;
+  }
+
+  .life-calendar {
+    gap: 0.72rem;
+    margin-bottom: 0.85rem;
+    padding: 0;
+    border: 0;
+    background: transparent;
+  }
+
+  .calendar-year-navigation select {
+    min-width: 0;
+  }
+
+  .calendar-year-detail {
+    gap: 0.65rem;
+    padding: 0.74rem;
+    background: color-mix(in srgb, var(--surface-soft) 52%, var(--surface));
+    box-shadow: none;
+  }
+
+  .calendar-month-grid {
+    gap: 0.45rem;
+  }
+
+  .calendar-month-card {
+    min-height: 7.2rem;
+    padding: 0.56rem;
+  }
+
+  .calendar-organize-panel,
+  .calendar-month-agenda {
+    box-shadow: none;
+  }
+
+  .data-status-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.55rem;
+  }
+
+  .data-status-grid > div:first-child {
+    grid-column: 1 / -1;
+  }
+
+  .data-status-grid div,
+  .data-guide div {
+    padding: 0.75rem;
+    background: color-mix(in srgb, var(--surface-soft) 46%, var(--surface));
+  }
+
+  .storage-capacity-panel {
+    margin-top: 0.65rem;
+    padding: 0.75rem;
+    box-shadow: none;
+  }
+
+  .account-panel .section-heading-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.6rem;
+    align-items: start;
+  }
+
+  .account-panel > .notice-band {
+    margin-top: 0.7rem;
+    padding: 0.72rem 0;
+    border-width: 1px 0 0;
+    border-radius: 0;
+    background: transparent;
+  }
+
+  .account-privacy-note {
+    margin-top: 0.75rem;
+    padding: 0.72rem 0.75rem;
+  }
+
+  .setting-options {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.55rem;
+  }
+
+  .setting-options .setting-option:first-child {
+    grid-column: 1 / -1;
+  }
+
+  .pro-hero {
+    gap: 0.75rem;
+    padding: 1rem;
+    box-shadow: none;
+  }
+
+  .pricing-card {
+    padding: 0.9rem;
+    box-shadow: none;
+  }
 }
 
 @media (max-width: 380px) {
   .summary-grid {
     grid-template-columns: 1fr;
+  }
+
+  .reminder-panel .section-heading {
+    grid-template-columns: 1fr;
+  }
+
+  .reminder-panel .section-heading > button {
+    justify-self: end;
+  }
+
+  .dashboard-overview .metric small {
+    font-size: 0.72rem;
   }
 
   .nav-list button {
@@ -4627,6 +5034,26 @@ td select {
 
   .budget-composition-legend {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (min-width: 400px) and (max-width: 720px) {
+  .dashboard-overview-header {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: end;
+  }
+
+  .dashboard-overview-header > span {
+    align-self: end;
+    justify-self: end;
+  }
+
+  .calendar-year-navigation {
+    grid-template-columns: 2.7rem minmax(0, 1fr) 2.7rem auto;
+  }
+
+  .calendar-today-button {
+    grid-column: auto;
   }
 }
 
