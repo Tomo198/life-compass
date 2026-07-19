@@ -1,3 +1,5 @@
+import { useState } from "react";
+import { LineChart } from "../components/Charts";
 import { EmptyState, Metric, MoneyInput, NumericInput, StepFlowNav, StepTitle } from "../components/CommonUi";
 import { MAX_PLAN_YEAR } from "../config";
 import { eventOwnerLabels, monthLabels } from "../data/labels";
@@ -21,7 +23,9 @@ export function NotesView({
   removeTimelineMemo,
   addReview,
   updateReview,
-  removeReview
+  removeReview,
+  applyBudgetActualsToReviewRecord,
+  addScenarioFromReview
 }: {
   mode: "notes" | "reviews";
   plan: LifePlan;
@@ -33,20 +37,43 @@ export function NotesView({
   addReview: () => void;
   updateReview: <K extends keyof ReviewNote>(id: string, key: K, value: ReviewNote[K]) => void;
   removeReview: (id: string) => void;
+  applyBudgetActualsToReviewRecord: (id: string) => boolean;
+  addScenarioFromReview: (id: string) => boolean;
 }) {
+  const [reviewMessage, setReviewMessage] = useState("");
   const sortedReviews = [...(plan.reviews || [])].sort((a, b) => b.date.localeCompare(a.date));
   const chronologicalReviews = [...(plan.reviews || [])].sort((a, b) => a.date.localeCompare(b.date));
   const previousReviewById = new Map<string, ReviewNote | undefined>();
   chronologicalReviews.forEach((review, index) => previousReviewById.set(review.id, chronologicalReviews[index - 1]));
   const latestReview = sortedReviews[0];
-  const latestPreviousReview = latestReview ? previousReviewById.get(latestReview.id) : undefined;
-  const latestNetAssetDiff =
-    latestReview?.actualNetAssets === undefined || latestPreviousReview?.actualNetAssets === undefined
-      ? null
-      : latestReview.actualNetAssets - latestPreviousReview.actualNetAssets;
   const openTodoCount = (plan.reviews || []).filter((review) => review.todo && !review.todoDone).length;
   const reviewMonthKey = latestReview?.date ? latestReview.date.slice(0, 7) : new Date().toISOString().slice(0, 7);
   const reviewBudgetSummary = getBudgetSummary(plan.budgetItems || [], reviewMonthKey);
+  const currentMonthKey = new Date().toISOString().slice(0, 7);
+  const currentMonthReview = sortedReviews.find(
+    (review) => review.reviewType === "monthly" && review.date.slice(0, 7) === currentMonthKey
+  );
+  const activeScenarioName = plan.activeScenario?.name || latestReview?.scenarioName || "基本プラン";
+  const reviewTrendPoints = chronologicalReviews
+    .filter((review) => review.actualNetAssets !== undefined)
+    .map((review, index) => ({
+      year: index,
+      label: review.date.slice(0, 7).replace("-", "/"),
+      value: review.actualNetAssets ?? 0
+    }));
+
+  const handleApplyBudgetActuals = (review: ReviewNote) => {
+    if (applyBudgetActualsToReviewRecord(review.id)) {
+      setReviewMessage(`${review.date.slice(0, 7)}の予算・実績をレビューへ反映しました。`);
+      return;
+    }
+    setReviewMessage("対象月の予算・実績を全項目入力してから反映してください。");
+  };
+
+  const handleCreateReviewScenario = () => {
+    if (!latestReview || !addScenarioFromReview(latestReview.id)) return;
+    setActiveView("scenarios");
+  };
 
   return (
     <div className="view-stack">
@@ -129,137 +156,137 @@ export function NotesView({
       )}
 
       {mode === "reviews" && (
-      <section className="panel">
-        <div className="section-heading">
+        <section className="pro-hero">
           <div>
-            <h2>レビュー履歴</h2>
-            <p>月次・四半期で、予定値と実績値、前回比、次回TODOを残します。</p>
+            <p className="eyebrow">Pro / レビューセンター</p>
+            <h2>計画と実績の差を、次の見直しへつなげる</h2>
+            <p>月次・四半期の実績、採用したシナリオ、将来見通し、次回TODOを同じ履歴として残します。</p>
           </div>
-          <button type="button" onClick={addReview}>
-            レビューを追加
-          </button>
-        </div>
-        {sortedReviews.length === 0 ? (
-          <EmptyState title="まだレビューがありません" detail="レビューを追加すると、予定値と実績値、前回比、次回TODOを残せます。" />
-        ) : (
-          <>
-          <div className="calculation-band compact">
-            <Metric label="レビュー件数" value={`${sortedReviews.length}件`} helper="ブラウザ内保存" />
-            <Metric label="未完了TODO" value={`${openTodoCount}件`} helper="次回確認すること" />
-            <Metric label="最新の前回比" value={latestNetAssetDiff === null ? "-" : manYen(latestNetAssetDiff)} helper="実際の純資産" />
-            <Metric
-              label="予算との差"
-              value={
-                plan.budgetItems.length > 0 && reviewBudgetSummary.actualEntryCount === plan.budgetItems.length
-                  ? manYen(reviewBudgetSummary.variance)
-                  : reviewBudgetSummary.actualEntryCount > 0
-                    ? "入力途中"
-                    : "未入力"
-              }
-              helper={`${reviewMonthKey} / 全項目入力後に判定`}
-            />
-          </div>
-          <div className="review-list">
-            {sortedReviews.map((review) => {
-              const previousReview = previousReviewById.get(review.id);
-              const actualNetAssets = review.actualNetAssets ?? 0;
-              const actualMonthlySavings = review.actualMonthlySavings ?? 0;
-              const plannedNetAssets = review.plannedNetAssets ?? 0;
-              const plannedMonthlySavings = review.plannedMonthlySavings ?? 0;
-              const netAssetGap = actualNetAssets - plannedNetAssets;
-              const monthlySavingsGap = actualMonthlySavings - plannedMonthlySavings;
-              const previousNetAssetGap =
-                previousReview?.actualNetAssets === undefined ? null : actualNetAssets - previousReview.actualNetAssets;
-
-              return (
-                <div className="review-record" key={review.id}>
-                  <div className="review-record-head">
-                    <label>
-                      確認日
-                      <input type="date" value={review.date} onChange={(event) => updateReview(review.id, "date", event.target.value)} />
-                    </label>
-                    <label>
-                      確認区分
-                      <select
-                        value={review.reviewType || "monthly"}
-                        onChange={(event) => updateReview(review.id, "reviewType", event.target.value as ReviewNote["reviewType"])}
-                      >
-                        <option value="monthly">月次レビュー</option>
-                        <option value="quarterly">四半期レビュー</option>
-                      </select>
-                    </label>
-                    <button type="button" className="text-button" onClick={() => removeReview(review.id)}>
-                      削除
-                    </button>
-                  </div>
-                  <div className="review-input-grid">
-                    <MoneyInput
-                      label="実際の純資産"
-                      value={actualNetAssets}
-                      onChange={(value) => updateReview(review.id, "actualNetAssets", value)}
-                    />
-                    <MoneyInput
-                      label="実際の毎月貯蓄"
-                      value={actualMonthlySavings}
-                      onChange={(value) => updateReview(review.id, "actualMonthlySavings", value)}
-                    />
-                    <label className="review-memo-field">
-                      メモ
-                      <input
-                        value={review.memo}
-                        onChange={(event) => updateReview(review.id, "memo", event.target.value)}
-                        placeholder="例: ボーナス支給、旅行支出、固定費見直しなど"
-                      />
-                    </label>
-                    <label className="review-memo-field">
-                      次回TODO
-                      <input
-                        value={review.todo || ""}
-                        onChange={(event) => updateReview(review.id, "todo", event.target.value)}
-                        placeholder="例: 通信費を確認、目標額を見直す"
-                      />
-                    </label>
-                    <label className="todo-check-field">
-                      <input
-                        type="checkbox"
-                        checked={Boolean(review.todoDone)}
-                        onChange={(event) => updateReview(review.id, "todoDone", event.target.checked)}
-                      />
-                      <span>TODO完了</span>
-                    </label>
-                  </div>
-                  <div className="review-metrics">
-                    <Metric label="予定との差" value={manYen(netAssetGap)} helper={`予定純資産 ${manYen(plannedNetAssets)}`} />
-                    <Metric label="毎月貯蓄の差" value={manYen(monthlySavingsGap)} helper={`予定 ${manYen(plannedMonthlySavings)}`} />
-                    <Metric
-                      label="前回比"
-                      value={previousNetAssetGap === null ? "-" : manYen(previousNetAssetGap)}
-                      helper={previousReview ? `${previousReview.date} と比較` : "次回から表示"}
-                    />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-          </>
-        )}
-      </section>
+          <span className="lock-badge">Pro</span>
+        </section>
       )}
 
       {mode === "reviews" && (
-      <section className="panel">
-        <h2>無料版とPro版の境界</h2>
-        <div className="boundary-grid">
-          <div>
-            <strong>無料版</strong>
-            <p>単一プランのメモとして保存します。ブラウザ内保存とJSONバックアップに含まれます。</p>
+        <section className="panel review-center">
+          <div className="section-heading">
+            <div>
+              <h2>今月の見直し</h2>
+              <p>現在の計画を基準として保存し、実際の純資産と家計余剰を比較します。</p>
+            </div>
+            <button type="button" disabled={Boolean(currentMonthReview)} onClick={addReview}>
+              {currentMonthReview ? "今月分は作成済み" : "今月のレビューを作成"}
+            </button>
           </div>
-          <div>
-            <strong>Pro予定</strong>
-            <p>複数回のレビュー履歴、前回との差分、TODO管理、シナリオ別の見直し記録を拡張予定です。</p>
+
+          <div className="calculation-band compact">
+            <Metric label="採用中の計画" value={activeScenarioName} helper={plan.activeScenario ? `${plan.activeScenario.adoptedAt.slice(0, 10)} 採用` : "基本プラン"} />
+            <Metric label="最終レビュー" value={latestReview?.date || "未実施"} helper={`${sortedReviews.length}件の履歴`} />
+            <Metric label="未完了TODO" value={`${openTodoCount}件`} helper="次回確認すること" />
+            <Metric
+              label="予算実績"
+              value={
+                plan.budgetItems.length > 0 && reviewBudgetSummary.actualEntryCount === plan.budgetItems.length
+                  ? "入力済み"
+                  : `${reviewBudgetSummary.actualEntryCount}/${plan.budgetItems.length}件`
+              }
+              helper={`${reviewMonthKey}の入力状況`}
+            />
           </div>
-        </div>
-      </section>
+
+          <div className="review-cycle-actions">
+            <button type="button" className="secondary" onClick={() => setActiveView("budget")}>予算・実績を確認</button>
+            <button type="button" className="secondary" disabled={!latestReview} onClick={handleCreateReviewScenario}>最新レビューから見直し案を作る</button>
+          </div>
+          {reviewMessage && <p className="success-text" role="status">{reviewMessage}</p>}
+
+          {sortedReviews.length === 0 ? (
+            <EmptyState title="まだレビューがありません" detail="最初のレビューを作ると、その時点の10年・30年見通しと目標到達目安も一緒に保存されます。" />
+          ) : (
+            <>
+              {reviewTrendPoints.length >= 2 && (
+                <div className="review-trend-section">
+                  <div className="section-heading">
+                    <div>
+                      <h3>純資産の実績推移</h3>
+                      <p>レビューごとに入力した実際の純資産を確認します。</p>
+                    </div>
+                    <span className="status-pill recurring">{reviewTrendPoints.length}回分</span>
+                  </div>
+                  <LineChart points={reviewTrendPoints} />
+                </div>
+              )}
+
+              <div className="review-list">
+                {sortedReviews.map((review) => {
+                  const previousReview = previousReviewById.get(review.id);
+                  const actualNetAssets = review.actualNetAssets ?? 0;
+                  const actualMonthlySavings = review.actualMonthlySavings ?? 0;
+                  const plannedNetAssets = review.plannedNetAssets ?? 0;
+                  const plannedMonthlySavings = review.plannedMonthlySavings ?? 0;
+                  const netAssetGap = actualNetAssets - plannedNetAssets;
+                  const monthlySavingsGap = actualMonthlySavings - plannedMonthlySavings;
+                  const previousNetAssetGap =
+                    previousReview?.actualNetAssets === undefined ? null : actualNetAssets - previousReview.actualNetAssets;
+
+                  return (
+                    <div className="review-record" key={review.id}>
+                      <div className="review-record-head">
+                        <label>
+                          確認日
+                          <input type="date" value={review.date} onChange={(event) => updateReview(review.id, "date", event.target.value)} />
+                        </label>
+                        <label>
+                          確認区分
+                          <select
+                            value={review.reviewType || "monthly"}
+                            onChange={(event) => updateReview(review.id, "reviewType", event.target.value as ReviewNote["reviewType"])}
+                          >
+                            <option value="monthly">月次レビュー</option>
+                            <option value="quarterly">四半期レビュー</option>
+                          </select>
+                        </label>
+                        <span className="status-pill recurring">基準: {review.scenarioName || "基本プラン"}</span>
+                        <button type="button" className="text-button" onClick={() => removeReview(review.id)}>削除</button>
+                      </div>
+                      <div className="review-input-grid">
+                        <MoneyInput label="実際の純資産" value={actualNetAssets} onChange={(value) => updateReview(review.id, "actualNetAssets", value)} />
+                        <MoneyInput label="実際の通常月の家計余剰" value={actualMonthlySavings} onChange={(value) => updateReview(review.id, "actualMonthlySavings", value)} />
+                        <MoneyInput label="実際の支出（月合計）" value={review.actualMonthlyExpenses ?? 0} onChange={(value) => updateReview(review.id, "actualMonthlyExpenses", value)} />
+                        <label className="review-memo-field">
+                          メモ
+                          <input value={review.memo} onChange={(event) => updateReview(review.id, "memo", event.target.value)} placeholder="例: ボーナス支給、旅行支出、固定費見直しなど" />
+                        </label>
+                        <label className="review-memo-field">
+                          次回TODO
+                          <input value={review.todo || ""} onChange={(event) => updateReview(review.id, "todo", event.target.value)} placeholder="例: 通信費を確認、目標額を見直す" />
+                        </label>
+                        <label className="todo-check-field">
+                          <input type="checkbox" checked={Boolean(review.todoDone)} onChange={(event) => updateReview(review.id, "todoDone", event.target.checked)} />
+                          <span>TODO完了</span>
+                        </label>
+                      </div>
+                      <div className="review-record-actions">
+                        <button type="button" className="secondary" onClick={() => handleApplyBudgetActuals(review)}>この月の予算・実績を反映</button>
+                      </div>
+                      <div className="review-metrics">
+                        <Metric label="純資産の計画差" value={manYen(netAssetGap)} helper={`予定 ${manYen(plannedNetAssets)}`} />
+                        <Metric label="家計余剰の計画差" value={manYen(monthlySavingsGap)} helper={`予定 ${manYen(plannedMonthlySavings)}`} />
+                        <Metric label="前回レビュー比" value={previousNetAssetGap === null ? "-" : manYen(previousNetAssetGap)} helper={previousReview ? `${previousReview.date} と比較` : "次回から表示"} />
+                        <Metric label="10年後見通し" value={review.plannedTenYearAssets === undefined ? "-" : manYen(review.plannedTenYearAssets)} helper="レビュー作成時の試算" />
+                        <Metric label="30年後見通し" value={review.plannedThirtyYearAssets === undefined ? "-" : manYen(review.plannedThirtyYearAssets)} helper="レビュー作成時の試算" />
+                        <Metric
+                          label="主要目標の目安"
+                          value={review.plannedGoalTargetAge == null ? "-" : `${review.plannedGoalTargetAge}歳頃`}
+                          helper={review.plannedGoalTitle || "目標未設定"}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
+        </section>
       )}
     </div>
   );

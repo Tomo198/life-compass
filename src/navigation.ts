@@ -14,7 +14,7 @@ export const navItems: { key: ViewKey; label: string; tier?: "pro" }[] = [
   { key: "retirement", label: "老後プラン", tier: "pro" },
   { key: "scenarios", label: "シナリオ比較", tier: "pro" },
   { key: "diagnosis", label: "ライフプラン診断", tier: "pro" },
-  { key: "reviews", label: "レビュー履歴", tier: "pro" },
+  { key: "reviews", label: "レビューセンター", tier: "pro" },
   { key: "data", label: "データ管理" },
   { key: "pricing", label: "Pro・料金" },
   { key: "legal", label: "法務" }

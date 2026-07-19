@@ -24,7 +24,7 @@ export type ScenarioTemplate = {
   apply: (snapshot: ScenarioSnapshot, plan: LifePlan) => ScenarioSnapshot;
 };
 
-const cloneScenarioSnapshot = (plan: LifePlan): ScenarioSnapshot => ({
+export const createScenarioSnapshot = (plan: LifePlan): ScenarioSnapshot => ({
   household: { ...plan.household },
   assets: { ...plan.assets },
   goals: plan.goals.map((goal) => ({ ...goal })),
@@ -38,7 +38,7 @@ export const createScenarioFromTemplate = (plan: LifePlan, template: ScenarioTem
   description: template.description,
   tag: template.tag,
   createdAt: new Date().toISOString(),
-  snapshot: template.apply(cloneScenarioSnapshot(plan), plan)
+  snapshot: template.apply(createScenarioSnapshot(plan), plan)
 });
 
 export const scenarioTemplates: ScenarioTemplate[] = [

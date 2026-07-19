@@ -10,7 +10,7 @@ D1へ保存するのは次の情報だけです。
 - メールアドレスとGoogle上の確認状態
 - Life Compass内部の利用者ID
 - ハッシュ化したログインセッションと有効期限
-- 将来のStripe契約状態
+- 将来のSquare契約状態
 
 収入、支出、資産、家族、目標、イベント、メモ、JSONバックアップ本文は保存しません。
 
@@ -62,16 +62,27 @@ npx.cmd wrangler d1 migrations apply life-compass-auth --remote
 
 ## 3. Workerの環境変数を設定する
 
-`GOOGLE_CLIENT_ID` はGoogleが発行したウェブクライアントIDです。ブラウザへ公開される識別子であり秘密鍵ではありません。`ACCESS_MODE` はStripe導入まで `preview` のままにします。
+`GOOGLE_CLIENT_ID` はGoogleが発行したウェブクライアントIDです。ブラウザへ公開される識別子であり秘密鍵ではありません。公開環境は`ACCESS_MODE=enforced`とし、一般利用者を無料版として扱います。
 
 ```json
 "vars": {
   "GOOGLE_CLIENT_ID": "発行されたクライアントID.apps.googleusercontent.com",
-  "ACCESS_MODE": "preview"
+  "ACCESS_MODE": "enforced"
 }
 ```
 
 Googleクライアントシークレットは、このログイン方式では使用しません。リポジトリやVite環境変数へ登録しないでください。
+
+運営者本人のProテストには、Googleログイン後にD1へ保存された固定識別子`google_sub`をCloudflare Secret `OWNER_GOOGLE_SUB`へ1度だけ登録します。メールアドレスの許可リストは使用しません。この値は画面やAPIへ返さず、リポジトリにも保存しません。
+
+固定IDを画面へ表示せず登録する場合は、Cloudflareへログイン済みのPowerShellで次を1度だけ実行します。
+
+```powershell
+cd "C:\Users\rengo\Documents\Life Compass"
+powershell.exe -ExecutionPolicy Bypass -File ".\scripts\configure-owner-access.ps1" -Email "tomo198.support@gmail.com"
+```
+
+このスクリプトは、D1上で確認済みのGoogleアカウントが1件だけ見つかった場合に限り、その固定IDを直接Cloudflare Secretへ渡します。固定IDをファイルやターミナルへ表示しません。
 
 ## 4. デプロイ前確認
 

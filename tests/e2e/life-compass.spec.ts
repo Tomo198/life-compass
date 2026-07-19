@@ -32,6 +32,9 @@ test.beforeEach(async ({ page }) => {
   const errors: Error[] = [];
   uncaughtPageErrors.set(page, errors);
   page.on("pageerror", (error) => errors.push(error));
+  await page.route("**/api/entitlement", (route) => route.fulfill({
+    json: { access: { tier: "free", mode: "preview", source: "local-preview" } }
+  }));
   await page.goto("/");
   await page.evaluate(() => localStorage.clear());
   await page.reload();
@@ -153,14 +156,14 @@ test("無料版とPro版の境界が表示され、横方向にはみ出さな�
   await openView(page, "household");
   await expect(page.getByText("Proプレビュー", { exact: true })).toBeVisible();
   await openView(page, "simulation");
-  await expect(page.getByRole("button", { name: "詳細積立 Pro" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "取り崩し Pro" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "積立試算" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "取り崩し試算" })).toBeVisible();
   await openView(page, "retirement");
   await expect(page.getByRole("heading", { name: "老後プラン", exact: true, level: 1 })).toBeVisible();
   await expect(page.getByRole("heading", { name: "年金・社会保険・税金を含めた取り崩し見通し", level: 2 })).toBeVisible();
   await openView(page, "reviews");
-  await expect(page.getByRole("heading", { name: "レビュー履歴", exact: true, level: 1 })).toBeVisible();
-  await expect(page.getByRole("button", { name: "レビューを追加" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "レビューセンター", exact: true, level: 1 })).toBeVisible();
+  await expect(page.getByRole("button", { name: "今月のレビューを作成", exact: true })).toBeVisible();
   await openView(page, "diagnosis");
   await expect(page.getByRole("heading", { name: "ライフプラン診断", exact: true, level: 1 })).toBeVisible();
   await expect(page.getByRole("heading", { name: "確認ポイント", exact: true, level: 2 })).toBeVisible();
@@ -176,12 +179,16 @@ test("無料版とPro版の境界が表示され、横方向にはみ出さな�
     await expect(bottomNav.locator('[data-mobile-nav="menu"]')).toHaveAttribute("aria-current", "page");
     await expect(page.getByTestId("pricing-comparison-mobile")).toBeVisible();
     await expect(page.getByTestId("pricing-comparison-mobile")).toContainText("ブラウザ内保存・JSONバックアップ");
+    await expect(page.getByTestId("pricing-comparison-mobile")).toContainText("本人・配偶者・子ども・親ごとの予定整理");
+    await expect(page.getByTestId("pricing-comparison-mobile")).toContainText("1000回のばらつき試算・老後設計");
     const comparisonOverflow = await page.getByTestId("pricing-comparison-mobile").evaluate(
       (element) => element.scrollWidth - element.clientWidth
     );
     expect(comparisonOverflow).toBeLessThanOrEqual(1);
   } else {
     await expect(page.getByRole("cell", { name: "ブラウザ内保存・JSONバックアップ", exact: true })).toBeVisible();
+    await expect(page.getByRole("cell", { name: "本人・配偶者・子ども・親ごとの予定整理", exact: true })).toBeVisible();
+    await expect(page.getByRole("cell", { name: "1000回のばらつき試算・老後設計", exact: true })).toBeVisible();
   }
 
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
@@ -194,6 +201,134 @@ test("無料版とPro版の境界が表示され、横方向にはみ出さな�
   await expect(page.getByRole("cell", { name: "10年後資産", exact: true })).toBeVisible();
   await expect(page.getByTestId("app-shell")).toHaveAttribute("data-access-mode", "preview");
   await expect(page.getByTestId("app-shell")).toHaveAttribute("data-access-tier", "free");
+});
+
+test("無料版でも一定利回りの積立・取り崩し試算を利用できる", async ({ page }) => {
+  await page.route("**/api/entitlement", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ access: { tier: "free", mode: "enforced", source: "anonymous" } })
+    });
+  });
+  await page.route("**/api/backups", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ available: true, backups: [], limit: 5 })
+    });
+  });
+  await page.reload();
+
+  await expect(page.getByTestId("app-shell")).toHaveAttribute("data-access-mode", "enforced");
+  await openView(page, "simulation");
+  await page.getByRole("button", { name: "積立試算" }).click();
+  await expect(page.getByRole("heading", { name: "積立シミュレーション" })).toBeVisible();
+  await expect(page.getByText("利回りのばらつき試算はPro版", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("年ごとの利回りのばらつき目安 %")).toHaveCount(0);
+
+  await page.getByRole("button", { name: "取り崩し試算" }).click();
+  await expect(page.getByLabel("試算開始時資金")).toBeVisible();
+  await expect(page.getByText("資産が尽きるケース割合とばらつき試算はPro版", { exact: true })).toBeVisible();
+  await expect(page.getByRole("cell", { name: "105歳", exact: true })).toHaveCount(0);
+  await page.getByText("年次の試算表を確認").click();
+  await expect(page.getByRole("cell", { name: "105歳", exact: true })).toBeVisible();
+
+  await openView(page, "retirement");
+  await expect(page).toHaveURL(/\/pricing$/);
+  await expect(page.getByTestId("access-summary")).toContainText("無料版");
+  await expect(page.getByRole("button", { name: "Pro版は準備中", exact: true })).toBeDisabled();
+
+  await openView(page, "data");
+  await expect(page.getByText("新しいクラウドバックアップの保存はPro版", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("保存用の復旧パスワード")).toHaveCount(0);
+});
+
+test("運営者としてログインした場合だけ課金なしでPro機能を確認できる", async ({ page }) => {
+  await page.route("**/api/entitlement", (route) => route.fulfill({
+    json: { access: { tier: "pro", mode: "enforced", source: "operator" } }
+  }));
+  await page.reload();
+
+  await openView(page, "pricing");
+  await expect(page.getByTestId("access-summary")).toContainText("運営者テスト");
+  await expect(page.getByText("一般利用者には無料版の機能境界が適用されます。", { exact: false })).toBeVisible();
+  const openPro = page.getByRole("button", { name: "開発中のPro機能を確認する", exact: true });
+  await expect(openPro).toBeEnabled();
+  await openPro.click();
+  await expect(page.getByRole("heading", { name: "シナリオ比較", level: 1 })).toBeVisible();
+  await expect(page.getByTestId("app-shell")).toHaveAttribute("data-access-tier", "pro");
+});
+
+test("シナリオ前提を編集して基本プランへ採用し、採用前の条件を残せる", async ({ page }) => {
+  await openView(page, "scenarios");
+  await page.getByRole("button", { name: "支出見直し", exact: true }).click();
+  const originalFixedCost = await page.evaluate(() => {
+    const plan = JSON.parse(localStorage.getItem("life-compass-plan-v1") || "{}");
+    return plan.household.fixedCost as number;
+  });
+
+  await page.getByLabel("表示シナリオ").selectOption({ label: "支出見直し" });
+  const scenarioFixedCost = page.getByLabel("シナリオの固定費 月額");
+  await scenarioFixedCost.fill("88888");
+  await scenarioFixedCost.blur();
+
+  const beforeAdoption = await page.evaluate(() => JSON.parse(localStorage.getItem("life-compass-plan-v1") || "{}"));
+  expect(beforeAdoption.household.fixedCost).toBe(originalFixedCost);
+  expect(beforeAdoption.scenarios[0].snapshot.household.fixedCost).toBe(88888);
+
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "このシナリオを採用", exact: true }).click();
+  await expect(page.getByRole("status")).toContainText("基本プランへ採用しました");
+
+  const afterAdoption = await page.evaluate(() => JSON.parse(localStorage.getItem("life-compass-plan-v1") || "{}"));
+  expect(afterAdoption.household.fixedCost).toBe(88888);
+  expect(afterAdoption.activeScenario.name).toBe("支出見直し");
+  expect(afterAdoption.scenarios.some((scenario: { name: string }) => scenario.name === "支出見直し")).toBe(false);
+  const previousPlan = afterAdoption.scenarios.find((scenario: { name: string }) => scenario.name.startsWith("採用前:"));
+  expect(previousPlan.snapshot.household.fixedCost).toBe(originalFixedCost);
+
+  await page.reload();
+  const persistedPlan = await page.evaluate(() => JSON.parse(localStorage.getItem("life-compass-plan-v1") || "{}"));
+  expect(persistedPlan.household.fixedCost).toBe(88888);
+  expect(persistedPlan.scenarios.some((scenario: { name: string }) => scenario.name.startsWith("採用前:"))).toBe(true);
+
+  await openView(page, "dashboard");
+  await expect(page.getByRole("heading", { name: "計画を見直すタイミング", level: 2 })).toBeVisible();
+  await expect(page.getByText("支出見直し", { exact: true }).first()).toBeVisible();
+});
+
+test("Proレビューで将来見通しを保存し、見直しシナリオへつなげられる", async ({ page }) => {
+  await openView(page, "reviews");
+  await expect(page.getByRole("heading", { name: "計画と実績の差を、次の見直しへつなげる", level: 2 })).toBeVisible();
+  await page.getByRole("button", { name: "今月のレビューを作成", exact: true }).click();
+
+  await expect(page.locator(".review-record")).toHaveCount(1);
+  await expect(page.getByText("基準: 基本プラン", { exact: true })).toBeVisible();
+  await expect(page.getByText("10年後見通し", { exact: true })).toBeVisible();
+  await expect(page.getByText("30年後見通し", { exact: true })).toBeVisible();
+  const reviewOverflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect(reviewOverflow).toBeLessThanOrEqual(1);
+  await page.getByLabel("実際の純資産").fill("3456789");
+  await page.getByLabel("実際の純資産").blur();
+
+  const savedReview = await page.evaluate(() => {
+    const plan = JSON.parse(localStorage.getItem("life-compass-plan-v1") || "{}");
+    return plan.reviews[0];
+  });
+  expect(savedReview.actualNetAssets).toBe(3456789);
+  expect(savedReview.plannedTenYearAssets).toEqual(expect.any(Number));
+  expect(savedReview.plannedThirtyYearAssets).toEqual(expect.any(Number));
+
+  await page.getByRole("button", { name: "最新レビューから見直し案を作る", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "シナリオ比較", level: 1 })).toBeVisible();
+  const expectedScenarioName = `${new Date().toISOString().slice(0, 7).replace("-", "年")}月 見直し案`;
+  await expect(page.locator(".scenario-row").getByLabel("シナリオ名")).toHaveValue(expectedScenarioName);
+
+  await page.reload();
+  await openView(page, "dashboard");
+  await expect(page.getByRole("heading", { name: "計画を見直すタイミング", level: 2 })).toBeVisible();
+  await expect(page.getByText("今月確認済み", { exact: true })).toBeVisible();
 });
 
 test("基本見通しで家計余剰の振り分けを設定して保存できる", async ({ page }) => {
@@ -225,7 +360,7 @@ test("基本見通しで家計余剰の振り分けを設定して保存でき�
 
 test("詳細シミュレーションのグラフを操作して試算値を確認できる", async ({ page }) => {
   await openView(page, "simulation");
-  await page.getByRole("button", { name: "詳細積立 Pro" }).click();
+  await page.getByRole("button", { name: "積立試算" }).click();
 
   const contributionPoint = page.getByRole("button", { name: /15年目 中央値/ });
   await contributionPoint.click();
@@ -235,11 +370,19 @@ test("詳細シミュレーションのグラフを操作して試算値を確�
   await expect(contributionDetails).toContainText("最頻帯");
   await expect(contributionDetails).toContainText("上位10%");
 
-  await page.getByRole("button", { name: "取り崩し Pro" }).click();
+  await page.getByRole("button", { name: "取り崩し試算" }).click();
+  await expect(page.getByRole("button", { name: /65歳 中央値/ })).toBeVisible();
   await page.getByRole("button", { name: /72歳 中央値/ }).click();
   const withdrawalDetails = page.locator(".chart-selection-panel");
   await expect(withdrawalDetails).toContainText("72歳 / 中央値");
   await expect(withdrawalDetails).toContainText("取り崩し額");
+
+  await page.getByText("年次の試算表を確認").click();
+  const withdrawalTable = page.locator(".projection-detail-table");
+  await expect(withdrawalTable.getByRole("columnheader", { name: "年末年齢" })).toBeVisible();
+  await expect(withdrawalTable.getByRole("cell", { name: "66歳", exact: true })).toBeVisible();
+  await expect(withdrawalTable.getByRole("cell", { name: "100歳", exact: true })).toBeVisible();
+  await expect(withdrawalTable.getByRole("cell", { name: "105歳", exact: true })).toBeVisible();
 
   const ageLabels = await page.locator(".year-label").allTextContents();
   expect(ageLabels).toContain("72歳");

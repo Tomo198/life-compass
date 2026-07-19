@@ -2658,6 +2658,32 @@ td select {
   gap: 1rem;
 }
 
+.review-center .calculation-band {
+  margin: 1rem 0;
+}
+
+.review-cycle-actions,
+.review-record-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  margin: 0.9rem 0;
+}
+
+.review-trend-section {
+  margin: 1.25rem 0;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--line);
+}
+
+.review-trend-section .section-heading {
+  margin-bottom: 0.7rem;
+}
+
+.pro-review-dashboard .calculation-band {
+  margin: 1rem 0;
+}
+
 .review-record {
   display: grid;
   gap: 0.85rem;
@@ -3245,6 +3271,42 @@ td select {
 
 .scenario-description-field {
   min-width: 0;
+}
+
+.scenario-adopt-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--line);
+}
+
+.scenario-adopt-actions > div {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.scenario-adopt-actions span {
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.scenario-adopt-actions button {
+  flex: 0 0 auto;
+}
+
+.scenario-assumptions-panel h3 {
+  margin: 1.4rem 0 0.75rem;
+  font-size: 1rem;
+}
+
+.success-text {
+  margin: 0.8rem 0 0;
+  color: var(--primary-dark);
+  font-weight: 700;
 }
 
 .fixed-cost-impact-cell {
@@ -4351,6 +4413,15 @@ td select {
     min-width: 0;
   }
 
+  .scenario-adopt-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .scenario-adopt-actions button {
+    width: 100%;
+  }
+
   .onboarding-panel .button-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -4435,6 +4506,26 @@ td select {
   .review-record-head {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .review-cycle-actions,
+  .review-record-actions,
+  .pro-review-dashboard .button-row {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .review-cycle-actions button,
+  .review-record-actions button,
+  .pro-review-dashboard .button-row button {
+    width: 100%;
+  }
+
+  .review-center .calculation-band.compact,
+  .pro-review-dashboard .calculation-band.compact,
+  .review-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.6rem;
   }
 
   .metric {

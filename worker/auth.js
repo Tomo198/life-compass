@@ -116,7 +116,7 @@ export const getCurrentUser = async (request, env) => {
 
   const tokenHash = await sha256(token);
   const row = await env.DB.prepare(
-    `SELECT users.id, users.email, users.email_verified,
+    `SELECT users.id, users.google_sub, users.email, users.email_verified,
             unixepoch(sessions.created_at) AS session_created_at
        FROM sessions
        JOIN users ON users.id = sessions.user_id
@@ -130,6 +130,7 @@ export const getCurrentUser = async (request, env) => {
   if (!row) return null;
   return {
     id: row.id,
+    googleSub: row.google_sub,
     email: row.email || null,
     emailVerified: row.email_verified === 1,
     sessionCreatedAt: Number(row.session_created_at || 0)

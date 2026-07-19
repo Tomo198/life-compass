@@ -43,6 +43,6 @@
 	],
 	"vars": {
 		"GOOGLE_CLIENT_ID": "875666861951-90nn38bijltn61p37volprll3e1odi2i.apps.googleusercontent.com",
-		"ACCESS_MODE": "preview"
+		"ACCESS_MODE": "enforced"
 	}
 }

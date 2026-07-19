@@ -1,6 +1,6 @@
 # R2暗号化バックアップ設定手順
 
-この手順は、Life Compassの暗号化クラウドバックアップを運営者本人だけで限定テストするためのものです。Stripeの契約判定が完成するまで一般利用者へ開放しません。
+この手順は、Life Compassの暗号化クラウドバックアップを運営者本人だけで限定テストするためのものです。Squareの契約判定が完成するまで一般利用者へ開放しません。
 
 ## 安全な作業順序
 
@@ -95,11 +95,10 @@ npx.cmd wrangler d1 migrations list life-compass-auth --remote
 2. `life-compass` Workerを選ぶ
 3. `Settings`から`Variables and Secrets`を開く
 4. Secret `CLOUD_BACKUP_MODE`を追加し、値を`preview`にする
-5. Secret `CLOUD_BACKUP_TEST_USERS`を追加し、値をテストに使うGoogleメールアドレスにする
-6. 複数人の場合だけ、メールアドレスをカンマ区切りにする
-7. 変更をデプロイする
+5. Secret `OWNER_GOOGLE_SUB`へ、運営者Googleアカウントの固定識別子を登録する
+6. 変更をデプロイする
 
-`CLOUD_BACKUP_TEST_USERS`の値はリポジトリ、通常の環境変数、チャットへ記載しません。
+`OWNER_GOOGLE_SUB`はD1の`users.google_sub`で確認します。メールアドレスと違って変更されないGoogleアカウント識別子で、運営者本人の1件だけを登録します。値はリポジトリ、通常の環境変数、チャットへ記載しません。
 
 PowerShellでも設定できますが、`wrangler secret put`は新しいWorker版を作成してデプロイします。必ず手順4まで完了してから実行します。
 
@@ -107,14 +106,14 @@ PowerShellでも設定できますが、`wrangler secret put`は新しいWorker�
 npx.cmd wrangler secret put CLOUD_BACKUP_MODE
 # 入力値: preview
 
-npx.cmd wrangler secret put CLOUD_BACKUP_TEST_USERS
-# 入力値: テストでGoogleログインするメールアドレス
+npx.cmd wrangler secret put OWNER_GOOGLE_SUB
+# 入力値: D1で確認した運営者本人のgoogle_sub
 ```
 
 ## 6. 限定テスト
 
 1. JSONエクスポートで現在のプランを手元へ退避する
-2. `CLOUD_BACKUP_TEST_USERS`に設定したGoogleアカウントでログインする
+2. `OWNER_GOOGLE_SUB`に登録したGoogleアカウントでログインする
 3. データ管理画面で12文字以上の復旧パスワードを設定する
 4. 暗号化バックアップを1件保存する
 5. R2内のオブジェクトが`users/{利用者ID}/backups/{バックアップID}.json`になっていることを確認する
@@ -122,7 +121,7 @@ npx.cmd wrangler secret put CLOUD_BACKUP_TEST_USERS
 7. 画面上の値を一つ変更し、バックアップから復元できることを確認する
 8. 間違った復旧パスワードでは復元できないことを確認する
 9. バックアップを削除し、画面一覧とR2の両方から消えることを確認する
-10. 許可リスト外のアカウントでは利用できないことを確認する
+10. 運営者以外のアカウントでは利用できないことを確認する
 
 復旧パスワードはLife Compassへ送信されません。忘れた場合は運営者も復元できないため、Googleパスワードとは別にパスワード管理アプリなどへ保管します。
 
@@ -136,15 +135,15 @@ npx.cmd wrangler d1 execute life-compass-auth --remote --command "SELECT id, use
 
 ## 8. テスト後の状態
 
-運営者本人だけ継続利用する場合は`preview`と限定メールアドレスを維持します。いったん停止する場合は`CLOUD_BACKUP_MODE`を`disabled`へ変更します。
+運営者本人だけ継続利用する場合は`preview`と`OWNER_GOOGLE_SUB`を維持します。いったん停止する場合は`CLOUD_BACKUP_MODE`を`disabled`へ変更します。
 
-Stripe webhookとD1の契約判定が完成するまで`enforced`へ変更しません。完成後に`CLOUD_BACKUP_MODE`を`enforced`へ変更すると、D1上で有効なPro契約を持つ利用者だけが利用できます。
+Square webhookとD1の契約判定が完成するまで`enforced`へ変更しません。完成後に`CLOUD_BACKUP_MODE`を`enforced`へ変更すると、新しいバックアップの保存はD1上で支払い確認済みの有効なPro契約を持つ利用者だけが行えます。保存済みデータの一覧・復元・削除は、契約終了後もログイン済み本人が行えます。
 
 ## セキュリティ上の禁止事項
 
 - R2のPublic Development URLを有効にしない
 - R2へカスタムドメインを設定しない
-- Googleメールアドレスや復旧パスワードを`wrangler.jsonc`へ書かない
+- Google固定識別子や復旧パスワードを`wrangler.jsonc`へ書かない
 - 復旧パスワードをログへ出さない
-- `CLOUD_BACKUP_MODE=enforced`をStripe契約判定完成前に設定しない
+- `CLOUD_BACKUP_MODE=enforced`をSquare契約判定完成前に設定しない
 - 本番D1へ手動SQLを直接追加せず、マイグレーションで管理する

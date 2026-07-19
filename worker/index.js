@@ -13,6 +13,12 @@ import {
   verifyGoogleIdToken
 } from "./auth.js";
 import { handleBackupsRequest } from "./backups.js";
+import {
+  createSquareCheckoutResponse,
+  getBillingConfig,
+  handleSquareWebhook
+} from "./billing.js";
+import { isOwnerTestUser } from "./access.js";
 
 const securityHeaders = {
   "Cache-Control": "no-store",
@@ -68,19 +74,6 @@ const methodNotAllowed = (allow) =>
     { Allow: allow }
   );
 
-const notConfigured = (feature) =>
-  jsonResponse(
-    {
-      ok: false,
-      error: {
-        code: "not_configured",
-        feature,
-        message: "This server-side feature is not enabled yet."
-      }
-    },
-    501
-  );
-
 const privacyBaseline = {
   plainPlanDataStoredOnServer: false,
   encryptedBackupOnly: true,
@@ -134,29 +127,38 @@ async function meResponse(request, env) {
 
 async function entitlementResponse(request, env) {
   const user = await getCurrentUser(request, env);
+  const testAccess = isOwnerTestUser(user, env);
   let subscription = null;
   if (user && env?.DB) {
     subscription = await env.DB.prepare(
-      `SELECT tier, status, current_period_end, cancel_at_period_end
+      `SELECT tier, status, payment_status, current_period_end, cancel_at_period_end
          FROM subscriptions
         WHERE user_id = ?
+          AND tier = 'pro'
+          AND status IN ('active', 'trialing')
+          AND payment_status = 'paid'
+          AND date(current_period_end) >= date('now')
         ORDER BY updated_at DESC
         LIMIT 1`
     ).bind(user.id).first();
   }
 
-  const subscriptionActive = subscription?.tier === "pro" && ["active", "trialing"].includes(subscription?.status);
-  const tier = subscriptionActive ? "pro" : "free";
-  const mode = env?.ACCESS_MODE === "enforced" ? "enforced" : "preview";
+  const subscriptionActive = subscription?.tier === "pro"
+    && ["active", "trialing"].includes(subscription?.status)
+    && subscription?.payment_status === "paid"
+    && typeof subscription?.current_period_end === "string"
+    && subscription.current_period_end >= new Date().toISOString().slice(0, 10);
+  const tier = subscriptionActive || testAccess ? "pro" : "free";
+  const mode = env?.ACCESS_MODE === "preview" ? "preview" : "enforced";
   const effectiveTier = mode === "preview" ? "pro" : tier;
-  const billingConfigured = Boolean(env?.STRIPE_SECRET_KEY && env?.STRIPE_WEBHOOK_SECRET);
+  const billingConfigured = getBillingConfig(env).configured;
 
   return jsonResponse({
     ok: true,
     access: {
       tier,
       mode,
-      source: subscriptionActive ? "subscription" : mode === "preview" ? "local-preview" : "anonymous",
+      source: subscriptionActive ? "subscription" : testAccess ? "operator" : mode === "preview" ? "local-preview" : "anonymous",
       effectiveTier,
       billingConfigured,
       currentPeriodEnd: subscription?.current_period_end || null,
@@ -233,6 +235,34 @@ async function handleApiRequest(request, env, services) {
     return request.method === "GET" ? entitlementResponse(request, env) : methodNotAllowed("GET, OPTIONS");
   }
 
+  if (pathname === "/api/billing/config") {
+    return request.method === "GET"
+      ? jsonResponse({ ok: true, billing: getBillingConfig(env) })
+      : methodNotAllowed("GET, OPTIONS");
+  }
+
+  if (pathname === "/api/billing/checkout") {
+    if (request.method !== "POST") return methodNotAllowed("POST, OPTIONS");
+    try {
+      return await createSquareCheckoutResponse(request, env, jsonResponse);
+    } catch (error) {
+      return error instanceof AuthError
+        ? authErrorResponse(error)
+        : internalErrorResponse(request, "billing_checkout", error, "Checkout is temporarily unavailable.");
+    }
+  }
+
+  if (pathname === "/api/billing/square/webhook") {
+    if (request.method !== "POST") return methodNotAllowed("POST, OPTIONS");
+    try {
+      return await handleSquareWebhook(request, env, jsonResponse, { squareFetch: services.squareFetch });
+    } catch (error) {
+      return error instanceof AuthError
+        ? authErrorResponse(error)
+        : internalErrorResponse(request, "billing_square_webhook", error, "Billing synchronization is temporarily unavailable.");
+    }
+  }
+
   if (pathname === "/api/backups" || pathname.startsWith("/api/backups/")) {
     try {
       return await handleBackupsRequest(request, env, jsonResponse, privacyBaseline);
@@ -306,20 +336,16 @@ async function handleApiRequest(request, env, services) {
     }
   }
 
-  if (pathname === "/api/stripe/webhook") {
-    return request.method === "POST" ? notConfigured("stripe_webhook") : methodNotAllowed("POST, OPTIONS");
-  }
-
   return notFoundResponse();
 }
 
-export const createWorker = ({ verifyGoogleToken = verifyGoogleIdToken } = {}) => ({
+export const createWorker = ({ verifyGoogleToken = verifyGoogleIdToken, squareFetch = fetch } = {}) => ({
   async fetch(request, env) {
     const url = new URL(request.url);
 
     if (url.pathname.startsWith("/api/")) {
       try {
-        return await handleApiRequest(request, env, { verifyGoogleToken });
+        return await handleApiRequest(request, env, { verifyGoogleToken, squareFetch });
       } catch (error) {
         return internalErrorResponse(request, "api_request", error, "The service is temporarily unavailable.");
       }

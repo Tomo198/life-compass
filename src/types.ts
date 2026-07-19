@@ -163,13 +163,25 @@ export type ReviewNote = {
   id: string;
   date: string;
   reviewType: ReviewType;
+  scenarioName?: string;
+  scenarioAdoptedAt?: string;
   plannedNetAssets?: number;
   plannedMonthlySavings?: number;
+  plannedTenYearAssets?: number;
+  plannedThirtyYearAssets?: number;
+  plannedGoalTitle?: string;
+  plannedGoalTargetAge?: number | null;
   actualNetAssets?: number;
   actualMonthlySavings?: number;
+  actualMonthlyExpenses?: number;
   todo: string;
   todoDone: boolean;
   memo: string;
+};
+
+export type ActiveScenario = {
+  name: string;
+  adoptedAt: string;
 };
 
 export type ScenarioSnapshot = {
@@ -227,6 +239,7 @@ export type LifePlan = {
   notes: PlanNotes;
   reviews: ReviewNote[];
   scenarios: PlanScenario[];
+  activeScenario?: ActiveScenario;
   fixedCostItems: FixedCostItem[];
   budgetItems: BudgetItem[];
   updatedAt: string;

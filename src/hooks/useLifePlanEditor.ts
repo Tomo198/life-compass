@@ -22,12 +22,16 @@ import type {
   WithdrawalPlanSettings
 } from "../types";
 import {
-  getAssetSummary,
   getBudgetHouseholdInputs,
-  getCashflowSummary,
   getTargetAgeForYear
 } from "../utils/calculations";
+import {
+  applyBudgetActualsToReview,
+  createPlanReview,
+  createScenarioFromReview
+} from "../utils/reviews";
 import { createRecoveryBackup, loadPlan, savePlan } from "../utils/storage";
+import { adoptScenarioAsBase } from "../utils/scenarios";
 
 const cloneDefaultPlan = () => JSON.parse(JSON.stringify(defaultPlan)) as LifePlan;
 
@@ -176,20 +180,7 @@ export function useLifePlanEditor() {
   };
 
   const addReview = () => {
-    const assets = getAssetSummary(plan.assets);
-    const cashflow = getCashflowSummary(plan.household);
-    const nextReview: ReviewNote = {
-      id: createId(),
-      date: new Date().toISOString().slice(0, 10),
-      reviewType: "monthly",
-      plannedNetAssets: assets.netAssets,
-      plannedMonthlySavings: cashflow.monthlySavings,
-      actualNetAssets: assets.netAssets,
-      actualMonthlySavings: cashflow.monthlySavings,
-      todo: "",
-      todoDone: false,
-      memo: ""
-    };
+    const nextReview = createPlanReview(plan, createId(), new Date().toISOString().slice(0, 10));
     commitPlan({ ...plan, reviews: [nextReview, ...(plan.reviews || [])] });
   };
 
@@ -204,6 +195,24 @@ export function useLifePlanEditor() {
     commitPlan({ ...plan, reviews: (plan.reviews || []).filter((review) => review.id !== id) });
   };
 
+  const applyBudgetActualsToReviewRecord = (id: string) => {
+    const review = (plan.reviews || []).find((item) => item.id === id);
+    if (!review) return false;
+    const updatedReview = applyBudgetActualsToReview(plan, review);
+    if (!updatedReview) return false;
+    return commitPlan({
+      ...plan,
+      reviews: (plan.reviews || []).map((item) => (item.id === id ? updatedReview : item))
+    });
+  };
+
+  const addScenarioFromReview = (reviewId: string) => {
+    const review = (plan.reviews || []).find((item) => item.id === reviewId);
+    if (!review) return false;
+    const scenario = createScenarioFromReview(plan, review, createId(), new Date().toISOString());
+    return commitPlan({ ...plan, scenarios: [...(plan.scenarios || []), scenario] });
+  };
+
   const addScenario = (template: ScenarioTemplate) => {
     const nextScenario = createScenarioFromTemplate(plan, template);
     commitPlan({ ...plan, scenarios: [...(plan.scenarios || []), nextScenario] });
@@ -214,6 +223,45 @@ export function useLifePlanEditor() {
       ...plan,
       scenarios: (plan.scenarios || []).map((scenario) => (scenario.id === id ? { ...scenario, [key]: value } : scenario))
     });
+  };
+
+  const updateScenarioHousehold = <K extends keyof Household>(id: string, key: K, value: Household[K]) => {
+    commitPlan({
+      ...plan,
+      scenarios: (plan.scenarios || []).map((scenario) =>
+        scenario.id === id
+          ? { ...scenario, snapshot: { ...scenario.snapshot, household: { ...scenario.snapshot.household, [key]: value } } }
+          : scenario
+      )
+    });
+  };
+
+  const updateScenarioAssets = <K extends keyof Assets>(id: string, key: K, value: Assets[K]) => {
+    commitPlan({
+      ...plan,
+      scenarios: (plan.scenarios || []).map((scenario) =>
+        scenario.id === id
+          ? { ...scenario, snapshot: { ...scenario.snapshot, assets: { ...scenario.snapshot.assets, [key]: value } } }
+          : scenario
+      )
+    });
+  };
+
+  const updateScenarioSimulation = <K extends keyof SimulationSettings>(id: string, key: K, value: SimulationSettings[K]) => {
+    commitPlan({
+      ...plan,
+      scenarios: (plan.scenarios || []).map((scenario) =>
+        scenario.id === id
+          ? { ...scenario, snapshot: { ...scenario.snapshot, simulation: { ...scenario.snapshot.simulation, [key]: value } } }
+          : scenario
+      )
+    });
+  };
+
+  const adoptScenario = (id: string) => {
+    const scenario = (plan.scenarios || []).find((item) => item.id === id);
+    if (!scenario) return false;
+    return commitPlan(adoptScenarioAsBase(plan, scenario, createId(), new Date().toISOString()));
   };
 
   const removeScenario = (id: string) => {
@@ -435,8 +483,14 @@ export function useLifePlanEditor() {
     addReview,
     updateReview,
     removeReview,
+    applyBudgetActualsToReviewRecord,
+    addScenarioFromReview,
     addScenario,
     updateScenario,
+    updateScenarioHousehold,
+    updateScenarioAssets,
+    updateScenarioSimulation,
+    adoptScenario,
     removeScenario,
     addFixedCostItem,
     updateFixedCostItem,

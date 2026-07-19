@@ -10,6 +10,15 @@ export function PricingView({
   accessState: AccessState;
 }) {
   const effectiveTier = getEffectiveTier(accessState);
+  const hasProAccess = effectiveTier === "pro";
+  const isOperatorTest = accessState.source === "operator";
+  const accessLabel = isOperatorTest
+    ? "運営者テスト"
+    : accessState.mode === "preview"
+      ? "課金なし・プレビュー"
+      : hasProAccess
+        ? "Pro利用中"
+        : "無料版";
 
   return (
     <div className="view-stack">
@@ -20,7 +29,7 @@ export function PricingView({
           <p>複数の選択肢を比べ、毎月・四半期の振り返りと長期の見通しを一つのライフプランに残します。</p>
         </div>
         <span className="lock-badge">
-          {accessState.mode === "preview" ? "課金なし・プレビュー" : effectiveTier === "pro" ? "Pro利用中" : "無料版"}
+          {accessLabel}
         </span>
       </section>
 
@@ -32,12 +41,21 @@ export function PricingView({
           <p className="muted">1か月ごとの自動更新を予定</p>
           <ul>
             <li>複数シナリオを保存し、将来の差を比較</li>
-            <li>予算・実績と前回レビューの変化を確認</li>
-            <li>本人・配偶者・子ども・親の予定を整理</li>
-            <li>詳細取り崩しと老後生活の見通し</li>
+            <li>採用した計画と実績の差を毎月確認</li>
+            <li>10年・30年見通しと次のTODOを履歴化</li>
+            <li>積立・取り崩しの1000回ばらつき試算</li>
+            <li>年金等を含む老後生活の詳細見通し</li>
           </ul>
-          <button type="button" onClick={() => setActiveView("scenarios")}>開発中のPro機能を確認する</button>
-          <small className="pricing-preview-note">現在は申込みではなく、課金なしのプレビューです。入力内容は通常このブラウザ内に保存され、クラウドバックアップは利用者が明示的に操作した場合だけ作成されます。</small>
+          <button type="button" disabled={!hasProAccess} onClick={() => setActiveView("scenarios")}>
+            {hasProAccess ? "開発中のPro機能を確認する" : "Pro版は準備中"}
+          </button>
+          <small className="pricing-preview-note">
+            {isOperatorTest
+              ? "運営者テストとして課金なしでPro機能を確認できます。一般利用者には無料版の機能境界が適用されます。"
+              : accessState.mode === "preview"
+                ? "現在は申込みではなく、課金なしのプレビューです。入力内容は通常このブラウザ内に保存され、クラウドバックアップは利用者が明示的に操作した場合だけ作成されます。"
+                : "Pro版は現在準備中です。提供開始までは無料版を利用でき、入力内容は通常このブラウザ内に保存されます。"}
+          </small>
         </div>
 
         <div className="pricing-card current">
@@ -46,8 +64,8 @@ export function PricingView({
           <strong>0円</strong>
           <ul>
             <li>1つのライフプラン作成・保存</li>
-            <li>家計、予算・実績、資産、目標、年表、メモ</li>
-            <li>生活防衛資金と基本シミュレーション</li>
+            <li>家計、予算・実績履歴、資産、目標、年表、メモ</li>
+            <li>家族別イベントと積立・取り崩し試算</li>
             <li>ブラウザ内保存とJSONバックアップ</li>
           </ul>
           <button type="button" className="secondary" onClick={() => setActiveView("dashboard")}>ダッシュボードへ</button>
@@ -58,17 +76,17 @@ export function PricingView({
         <div className="section-heading">
           <div>
             <h2>開発中のPro機能を確認</h2>
-            <p>課金開始前に限り、以下の機能を現在の入力条件で確認できます。正式提供後はPro契約が必要になる予定です。</p>
+            <p>{hasProAccess ? "運営者テストで、以下の機能を現在の入力条件から確認できます。" : "以下の機能は正式提供後にPro契約で利用できる予定です。"}</p>
           </div>
           <span className="status-pill recurring">Coming soon</span>
         </div>
         <div className="template-actions">
-          <button type="button" className="secondary" onClick={() => setActiveView("scenarios")}>シナリオ比較</button>
-          <button type="button" className="secondary" onClick={() => setActiveView("retirement")}>老後生活プラン</button>
-          <button type="button" className="secondary" onClick={() => setActiveView("diagnosis")}>ライフプラン診断</button>
-          <button type="button" className="secondary" onClick={() => setActiveView("reviews")}>レビュー履歴</button>
-          <button type="button" className="secondary" onClick={() => setActiveView("simulation")}>詳細シミュレーション</button>
-          <button type="button" className="secondary" onClick={() => setActiveView("household")}>固定費見直し</button>
+          <button type="button" className="secondary" disabled={!hasProAccess} onClick={() => setActiveView("scenarios")}>シナリオ比較</button>
+          <button type="button" className="secondary" disabled={!hasProAccess} onClick={() => setActiveView("retirement")}>老後生活プラン</button>
+          <button type="button" className="secondary" disabled={!hasProAccess} onClick={() => setActiveView("diagnosis")}>ライフプラン診断</button>
+          <button type="button" className="secondary" disabled={!hasProAccess} onClick={() => setActiveView("reviews")}>レビューセンター</button>
+          <button type="button" className="secondary" disabled={!hasProAccess} onClick={() => setActiveView("simulation")}>詳細シミュレーション</button>
+          <button type="button" className="secondary" disabled={!hasProAccess} onClick={() => setActiveView("household")}>固定費見直し</button>
         </div>
       </section>
 
@@ -77,8 +95,8 @@ export function PricingView({
         <p className="muted">一度だけ試算するためではなく、状況の変化を定期的に見直したい人向けの機能です。</p>
         <div className="pro-review-cycle">
           <div><strong>毎月</strong><p>予算と実績を比べ、貯蓄や支出の変化を確認します。</p></div>
-          <div><strong>四半期</strong><p>前回レビューとの差、目標の見通し、次のTODOを残します。</p></div>
-          <div><strong>状況が変わったとき</strong><p>転職、住宅、家族、退職などの選択肢をシナリオで比較します。</p></div>
+          <div><strong>四半期</strong><p>前回との差、10年・30年見通し、目標、次のTODOを残します。</p></div>
+          <div><strong>状況が変わったとき</strong><p>レビューから修正版を作り、転職、住宅、家族、退職などの選択肢を比較します。</p></div>
         </div>
         <p className="pricing-free-assurance">定期的な比較や履歴が不要な場合は、無料版だけでもライフプランの作成・保存・見直しを続けられます。</p>
       </section>

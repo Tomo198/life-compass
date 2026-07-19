@@ -31,6 +31,7 @@ type DashboardViewProps = {
   reminders: DashboardReminder[];
   setActiveView: (view: ViewKey) => void;
   startEmptyPlan: () => void;
+  proAccess: boolean;
 };
 
 type DashboardGuidance = {
@@ -118,7 +119,7 @@ const getDashboardGuidance = ({
   return items.slice(0, 3);
 };
 
-export function DashboardView({ plan, reminders, setActiveView, startEmptyPlan }: DashboardViewProps) {
+export function DashboardView({ plan, reminders, setActiveView, startEmptyPlan, proAccess }: DashboardViewProps) {
   const cashflow = getCashflowSummary(plan.household);
   const assets = getAssetSummary(plan.assets);
   const emergency = getEmergencyFundResult(plan);
@@ -135,6 +136,16 @@ export function DashboardView({ plan, reminders, setActiveView, startEmptyPlan }
   const firstMissingView = completion.items.find((item) => !item.complete)?.view ?? "profile";
   const samplePlan = isSamplePlan(plan);
   const showStarterGuide = samplePlan || completion.percentage < 85;
+  const sortedReviews = [...(plan.reviews || [])].sort((a, b) => b.date.localeCompare(a.date));
+  const latestReview = sortedReviews[0];
+  const latestReviewGap = latestReview
+    ? (latestReview.actualNetAssets ?? 0) - (latestReview.plannedNetAssets ?? 0)
+    : null;
+  const openReviewTodoCount = sortedReviews.filter((review) => review.todo && !review.todoDone).length;
+  const currentMonthKey = new Date().toISOString().slice(0, 7);
+  const hasCurrentMonthReview = sortedReviews.some(
+    (review) => review.reviewType === "monthly" && review.date.slice(0, 7) === currentMonthKey
+  );
 
   const handleStartEmptyPlan = () => {
     if (window.confirm("サンプルデータを消して、空のプランから入力を始めます。必要な場合は先にJSONエクスポートしてください。")) {
@@ -284,6 +295,36 @@ export function DashboardView({ plan, reminders, setActiveView, startEmptyPlan }
           </button>
         </div>
       </section>
+
+      {proAccess && (
+        <section className="panel pro-review-dashboard">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">Proレビュー</p>
+              <h2>計画を見直すタイミング</h2>
+              <p>採用中の計画と最新実績を確認し、必要な場合は次のシナリオへ更新します。</p>
+            </div>
+            <span className={`status-pill${hasCurrentMonthReview ? " recurring" : ""}`}>
+              {hasCurrentMonthReview ? "今月確認済み" : "今月の確認待ち"}
+            </span>
+          </div>
+          <div className="calculation-band compact">
+            <Metric
+              label="採用中の計画"
+              value={plan.activeScenario?.name || "基本プラン"}
+              helper={plan.activeScenario ? `${plan.activeScenario.adoptedAt.slice(0, 10)} 採用` : "シナリオ未採用"}
+            />
+            <Metric label="最終レビュー" value={latestReview?.date || "未実施"} helper={`${sortedReviews.length}件の履歴`} />
+            <Metric label="最新の計画差" value={latestReviewGap === null ? "-" : manYen(latestReviewGap)} helper="実際の純資産 - 予定" />
+            <Metric label="未完了TODO" value={`${openReviewTodoCount}件`} helper="次回確認すること" />
+          </div>
+          <div className="button-row">
+            <button type="button" onClick={() => setActiveView("reviews")}>{hasCurrentMonthReview ? "レビュー履歴を確認" : "今月のレビューを始める"}</button>
+            <button type="button" className="secondary" onClick={() => setActiveView("scenarios")}>シナリオを見直す</button>
+            <button type="button" className="secondary" onClick={() => setActiveView("data")}>バックアップを確認</button>
+          </div>
+        </section>
+      )}
 
       <section className="split-layout">
         <div className="panel wide-panel">

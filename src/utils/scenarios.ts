@@ -1,4 +1,5 @@
-import type { LifePlan } from "../types";
+import { createScenarioSnapshot } from "../data/scenarios";
+import type { LifePlan, PlanScenario } from "../types";
 import {
   buildPlanFromScenario,
   emergencyMonthsLabel,
@@ -57,4 +58,30 @@ export function getScenarioComparisonMetrics(plan: LifePlan) {
       emergencyLabel
     };
   });
+}
+
+export function adoptScenarioAsBase(
+  plan: LifePlan,
+  scenario: PlanScenario,
+  previousPlanScenarioId: string,
+  adoptedAt: string
+): LifePlan {
+  const previousPlan: PlanScenario = {
+    id: previousPlanScenarioId,
+    name: `採用前: ${plan.profile.name}`,
+    description: `「${scenario.name}」を基本プランへ採用する前の条件です。`,
+    tag: "current",
+    createdAt: adoptedAt,
+    snapshot: createScenarioSnapshot(plan)
+  };
+  const adoptedPlan = buildPlanFromScenario(plan, scenario);
+
+  return {
+    ...adoptedPlan,
+    activeScenario: {
+      name: scenario.name,
+      adoptedAt
+    },
+    scenarios: [previousPlan, ...(plan.scenarios || []).filter((item) => item.id !== scenario.id)]
+  };
 }

@@ -30,6 +30,7 @@ import { decryptCloudBackup, encryptCloudBackup } from "../src/utils/cloudBackup
 import {
   buildPlanFromScenario,
   emergencyMonthsLabel,
+  formatMoney,
   getAssetSummary,
   getAnnualProjectionRows,
   getBasicProjectionAllocation,
@@ -63,6 +64,12 @@ import {
   savePlan,
   validateImportedPlan
 } from "../src/utils/storage";
+import { adoptScenarioAsBase } from "../src/utils/scenarios";
+import {
+  applyBudgetActualsToReview,
+  createPlanReview,
+  createScenarioFromReview
+} from "../src/utils/reviews";
 import { defaultSettings, getAppReminders } from "../src/utils/settings";
 
 const currentYear = new Date().getFullYear();
@@ -74,26 +81,45 @@ test("shared age and emergency-fund labels keep existing display rules", () => {
   assert.equal(emergencyMonthsLabel(6, 12), "6〜12ヶ月分");
 });
 
-test("preview access keeps Pro features available before billing is enabled", () => {
+test("money labels keep small operational amounts exact and compact large amounts", () => {
+  assert.equal(formatMoney(0), "0円");
+  assert.equal(formatMoney(4000), "4,000円");
+  assert.equal(formatMoney(5000), "5,000円");
+  assert.equal(formatMoney(75000), "75,000円");
+  assert.equal(formatMoney(-5000), "-5,000円");
+  assert.equal(formatMoney(1000000), "100万円");
+  assert.equal(formatMoney(1005000), "100.5万円");
+});
+
+test("default access fails closed as free until the Worker resolves entitlement", () => {
   assert.equal(defaultAccessState.tier, "free");
-  assert.equal(defaultAccessState.mode, "preview");
-  assert.equal(getEffectiveTier(defaultAccessState), "pro");
-  assert.equal(hasFeatureAccess(defaultAccessState, "detailedWithdrawal"), true);
-  assert.equal(canOpenView(defaultAccessState, "scenarios"), true);
-  assert.equal(getScenarioLimit(defaultAccessState), 20);
+  assert.equal(defaultAccessState.mode, "enforced");
+  assert.equal(getEffectiveTier(defaultAccessState), "free");
+  assert.equal(hasFeatureAccess(defaultAccessState, "simulationVariability"), false);
+  assert.equal(canOpenView(defaultAccessState, "scenarios"), false);
+  assert.equal(getScenarioLimit(defaultAccessState), 0);
+});
+
+test("explicit preview access keeps Pro features available for automated testing", () => {
+  const access: AccessState = { tier: "free", mode: "preview", source: "local-preview" };
+  assert.equal(getEffectiveTier(access), "pro");
+  assert.equal(hasFeatureAccess(access, "simulationVariability"), true);
+  assert.equal(canOpenView(access, "scenarios"), true);
+  assert.equal(getScenarioLimit(access), 20);
 });
 
 test("enforced free access blocks Pro views and capabilities", () => {
   const access: AccessState = { tier: "free", mode: "enforced", source: "anonymous" };
   assert.equal(getEffectiveTier(access), "free");
   assert.equal(hasFeatureAccess(access, "fixedCostImpact"), false);
-  assert.equal(hasFeatureAccess(access, "detailedContribution"), false);
+  assert.equal(hasFeatureAccess(access, "budgetPlanning"), true);
+  assert.equal(hasFeatureAccess(access, "simulationVariability"), false);
   assert.equal(canOpenView(access, "retirement"), false);
   assert.equal(canOpenView(access, "dashboard"), true);
 });
 
 test("enforced Pro access unlocks Pro views without preview mode", () => {
-  const access: AccessState = { tier: "pro", mode: "enforced", source: "subscription" };
+  const access: AccessState = { tier: "pro", mode: "enforced", source: "operator" };
   assert.equal(getEffectiveTier(access), "pro");
   assert.equal(hasFeatureAccess(access, "lifePlanDiagnosis"), true);
   assert.equal(canOpenView(access, "diagnosis"), true);
@@ -362,6 +388,108 @@ test("scenario snapshots can be compared without mutating the base plan", () => 
 
   assert.equal(getCashflowSummary(scenarioPlan.household).monthlySavings, getCashflowSummary(basePlan.household).monthlySavings + 30000);
   assert.equal(basePlan.household.fixedCost, 130000);
+});
+
+test("adopting a scenario replaces the base assumptions and preserves the previous plan", () => {
+  const selectedScenario = {
+    id: "scenario-selected",
+    name: "spending review",
+    description: "reduce fixed costs",
+    tag: "spending" as const,
+    createdAt: "2026-07-18T00:00:00.000Z",
+    snapshot: {
+      household: { ...basePlan.household, fixedCost: 90000 },
+      assets: { ...basePlan.assets, cash: 2500000 },
+      goals: [...basePlan.goals],
+      events: [...basePlan.events],
+      simulation: { ...basePlan.simulation, monthlyInvestmentAmount: 50000 }
+    }
+  };
+  const otherScenario = {
+    ...selectedScenario,
+    id: "scenario-other",
+    name: "career change"
+  };
+  const plan = {
+    ...basePlan,
+    scenarios: [selectedScenario, otherScenario]
+  };
+
+  const adopted = adoptScenarioAsBase(
+    plan,
+    selectedScenario,
+    "scenario-previous",
+    "2026-07-18T01:00:00.000Z"
+  );
+
+  assert.equal(adopted.household.fixedCost, 90000);
+  assert.equal(adopted.assets.cash, 2500000);
+  assert.equal(adopted.simulation.monthlyInvestmentAmount, 50000);
+  assert.equal(adopted.scenarios[0].id, "scenario-previous");
+  assert.equal(adopted.scenarios[0].name, "採用前: test");
+  assert.equal(adopted.scenarios[0].snapshot.household.fixedCost, 130000);
+  assert.deepEqual(adopted.scenarios.map((scenario) => scenario.id), ["scenario-previous", "scenario-other"]);
+  assert.deepEqual(adopted.activeScenario, {
+    name: "spending review",
+    adoptedAt: "2026-07-18T01:00:00.000Z"
+  });
+  assert.equal(plan.household.fixedCost, 130000);
+  assert.equal(plan.scenarios[0].snapshot.household.fixedCost, 90000);
+});
+
+test("plan reviews preserve the active scenario and long-term outlook at creation time", () => {
+  const plan = {
+    ...basePlan,
+    activeScenario: {
+      name: "spending review",
+      adoptedAt: "2026-07-18T01:00:00.000Z"
+    }
+  };
+
+  const review = createPlanReview(plan, "review-1", "2026-07-19");
+
+  assert.equal(review.scenarioName, "spending review");
+  assert.equal(review.scenarioAdoptedAt, "2026-07-18T01:00:00.000Z");
+  assert.equal(review.plannedNetAssets, getAssetSummary(basePlan.assets).netAssets);
+  assert.equal(review.plannedMonthlySavings, getCashflowSummary(basePlan.household).monthlySavings);
+  assert.equal(review.plannedTenYearAssets, projectAssets(basePlan, 30)[10].value);
+  assert.equal(review.plannedThirtyYearAssets, projectAssets(basePlan, 30)[30].value);
+  assert.equal(review.actualNetAssets, review.plannedNetAssets);
+});
+
+test("complete monthly budget actuals can be reflected in a review", () => {
+  const review = createPlanReview(basePlan, "review-budget", "2026-07-19");
+  const plan = {
+    ...basePlan,
+    budgetItems: [
+      {
+        id: "budget-actual",
+        name: "living costs",
+        category: "daily" as const,
+        frequency: "monthlyVariable" as const,
+        budgetAmount: 200000,
+        actuals: { "2026-07": 210000 },
+        memo: ""
+      }
+    ]
+  };
+
+  const updated = applyBudgetActualsToReview(plan, review);
+
+  assert.equal(updated?.actualMonthlyExpenses, 210000);
+  assert.equal(updated?.actualMonthlySavings, 140000);
+  assert.equal(applyBudgetActualsToReview({ ...plan, budgetItems: [{ ...plan.budgetItems[0], actuals: {} }] }, review), null);
+});
+
+test("a review can create an editable scenario from the current plan", () => {
+  const review = createPlanReview(basePlan, "review-scenario", "2026-07-19");
+  const scenario = createScenarioFromReview(basePlan, review, "scenario-review", "2026-07-19T01:00:00.000Z");
+
+  assert.equal(scenario.id, "scenario-review");
+  assert.equal(scenario.name, "2026年07月 見直し案");
+  assert.equal(scenario.tag, "custom");
+  assert.equal(scenario.snapshot.household.fixedCost, basePlan.household.fixedCost);
+  assert.match(scenario.description, /純資産差/);
 });
 
 test("budget summary converts frequency to monthly average and selected actuals", () => {
@@ -1898,8 +2026,15 @@ test("import validation preserves review actual values and fills missing review 
         date: "2026-06-01",
         plannedNetAssets: 1000000,
         plannedMonthlySavings: 50000,
+        plannedTenYearAssets: 5000000,
+        plannedThirtyYearAssets: 12000000,
+        plannedGoalTitle: "home",
+        plannedGoalTargetAge: 45,
         actualNetAssets: 1100000,
         actualMonthlySavings: 60000,
+        actualMonthlyExpenses: 240000,
+        scenarioName: "spending review",
+        scenarioAdoptedAt: "2026-05-01T00:00:00.000Z",
         reviewType: "quarterly",
         todo: "next check",
         todoDone: true,
@@ -1910,7 +2045,11 @@ test("import validation preserves review actual values and fills missing review 
         date: "2026-07-01",
         memo: ""
       }
-    ]
+    ],
+    activeScenario: {
+      name: "spending review",
+      adoptedAt: "2026-05-01T00:00:00.000Z"
+    }
   });
 
   assert.equal(imported.reviews.length, 2);
@@ -1919,6 +2058,16 @@ test("import validation preserves review actual values and fills missing review 
   assert.equal(imported.reviews[0].todoDone, true);
   assert.equal(imported.reviews[0].actualNetAssets, 1100000);
   assert.equal(imported.reviews[0].actualMonthlySavings, 60000);
+  assert.equal(imported.reviews[0].actualMonthlyExpenses, 240000);
+  assert.equal(imported.reviews[0].plannedTenYearAssets, 5000000);
+  assert.equal(imported.reviews[0].plannedThirtyYearAssets, 12000000);
+  assert.equal(imported.reviews[0].plannedGoalTitle, "home");
+  assert.equal(imported.reviews[0].plannedGoalTargetAge, 45);
+  assert.equal(imported.reviews[0].scenarioName, "spending review");
+  assert.deepEqual(imported.activeScenario, {
+    name: "spending review",
+    adoptedAt: "2026-05-01T00:00:00.000Z"
+  });
   assert.equal(imported.reviews[1].reviewType, "monthly");
   assert.equal(imported.reviews[1].todo, "");
   assert.equal(imported.reviews[1].todoDone, false);

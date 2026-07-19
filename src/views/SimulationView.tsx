@@ -1,7 +1,6 @@
 import { useMemo, useState } from "react";
 import { LineChart } from "../components/Charts";
 import { Metric, MoneyInput, NumericInput, StepFlowNav, StepTitle } from "../components/CommonUi";
-import { VariabilityPanel } from "../components/VariabilityPanel";
 import {
   MAX_PLAN_AGE,
   MAX_PROJECTION_YEARS,
@@ -39,6 +38,8 @@ const emergencyAmountLabel = (lower: number, upper: number) => {
   return lowerLabel === upperLabel ? lowerLabel : `${lowerLabel}〜${upperLabel}`;
 };
 
+const SIMPLE_WITHDRAWAL_END_AGE = 105;
+
 export function SimulationView({
   plan,
   updateSimulation,
@@ -58,22 +59,13 @@ export function SimulationView({
   const [projectionMode, setProjectionMode] = useState<"annual" | "monthly">("annual");
   const [projectionYears, setProjectionYears] = useState<10 | 30>(30);
   const [projectionMonths, setProjectionMonths] = useState<12 | 24>(24);
-  const openProSimulation = (
-    tab: "contribution" | "withdrawal",
-    feature: "detailedContribution" | "detailedWithdrawal"
-  ) => {
-    if (!hasFeatureAccess(accessState, feature)) {
-      setActiveView("pricing");
-      return;
-    }
-    setSimulationTab(tab);
-  };
+  const canUseSimulationVariability = hasFeatureAccess(accessState, "simulationVariability");
   const currentLiquidAssets = plan.assets.cash + plan.assets.investment;
   const withdrawalPlan = plan.withdrawalPlan || defaultPlan.withdrawalPlan;
   const withdrawalStartAge = withdrawalPlan.startAge;
   const withdrawalStartingAssets = withdrawalPlan.startingAssets;
-  const withdrawalEndAge = Math.max(100, withdrawalStartAge);
-  const withdrawalYears = Math.max(1, withdrawalEndAge - withdrawalStartAge + 1);
+  const withdrawalEndAge = Math.max(SIMPLE_WITHDRAWAL_END_AGE, withdrawalStartAge);
+  const withdrawalYears = Math.max(0, withdrawalEndAge - withdrawalStartAge);
   const withdrawalMode = withdrawalPlan.withdrawalMode;
   const monthlyWithdrawalAmount = withdrawalPlan.monthlyWithdrawalAmount;
   const annualWithdrawalRate = withdrawalPlan.annualWithdrawalRate;
@@ -83,7 +75,7 @@ export function SimulationView({
   const updateWithdrawalStartAge = (value: number) => {
     updateWithdrawalPlanPatch({
       startAge: value,
-      years: Math.max(1, Math.max(100, value) - value + 1)
+      years: Math.max(1, Math.max(SIMPLE_WITHDRAWAL_END_AGE, value) - value)
     });
   };
   const withdrawalSettings = useMemo(
@@ -126,31 +118,54 @@ export function SimulationView({
     returnImpact: row.returnImpact
   }));
   const contributionVariability = useMemo(
-    () => simulationTab === "contribution"
+    () => simulationTab === "contribution" && canUseSimulationVariability
       ? simulateContributionVariability(plan.simulation, returnVariabilityRate)
       : null,
-    [plan.simulation, returnVariabilityRate, simulationTab]
+    [canUseSimulationVariability, plan.simulation, returnVariabilityRate, simulationTab]
   );
   const withdrawalResult = useMemo(
     () => simulationTab === "withdrawal" ? simulateWithdrawal(withdrawalSettings) : null,
     [simulationTab, withdrawalSettings]
   );
   const withdrawalVariability = useMemo(
-    () => simulationTab === "withdrawal"
+    () => simulationTab === "withdrawal" && canUseSimulationVariability
       ? simulateWithdrawalVariability(withdrawalSettings, returnVariabilityRate)
       : null,
-    [returnVariabilityRate, simulationTab, withdrawalSettings]
+    [canUseSimulationVariability, returnVariabilityRate, simulationTab, withdrawalSettings]
   );
-  const withdrawalChartPoints = (withdrawalResult?.rows || []).map((row) => ({
-    year: row.yearIndex,
-    label: `${row.age}歳`,
-    age: row.age,
-    value: row.assets,
-    eventImpact: row.withdrawalAmount,
-    returnImpact: row.returnImpact,
-    impactLabel: "取り崩し額",
-    returnLabel: "運用の影響"
-  }));
+  const withdrawalChartPoints = withdrawalResult
+    ? [
+        {
+          year: 0,
+          label: `${withdrawalStartAge}歳`,
+          age: withdrawalStartAge,
+          value: withdrawalStartingAssets
+        },
+        ...withdrawalResult.rows.map((row) => ({
+          year: row.yearIndex,
+          label: `${row.age + 1}歳`,
+          age: row.age + 1,
+          value: row.assets,
+          eventImpact: row.withdrawalAmount,
+          returnImpact: row.returnImpact,
+          impactLabel: "取り崩し額",
+          returnLabel: "運用の影響"
+        }))
+      ]
+    : [];
+  const withdrawalChartVariabilityRows = withdrawalVariability
+    ? [
+        {
+          yearIndex: 0,
+          label: `${withdrawalStartAge}歳`,
+          lower: withdrawalStartingAssets,
+          mode: withdrawalStartingAssets,
+          median: withdrawalStartingAssets,
+          upper: withdrawalStartingAssets
+        },
+        ...withdrawalVariability.rows
+      ]
+    : [];
   const chartRows = projectionMode === "annual" ? annualRows : monthlyRows;
   const allocationWarnings = [
     basicAllocation.monthlySurplus < 0
@@ -169,7 +184,7 @@ export function SimulationView({
         <div className="section-heading">
           <div>
             <h2>シミュレーション種別</h2>
-            <p>基本見通し、詳細積立、取り崩しを切り替えて確認します。</p>
+            <p>基本見通し、積立試算、取り崩し試算を切り替えて確認します。</p>
           </div>
           <div className="segmented-control" aria-label="シミュレーション種別">
             <button type="button" className={simulationTab === "basic" ? "active" : ""} onClick={() => setSimulationTab("basic")}>
@@ -178,16 +193,16 @@ export function SimulationView({
             <button
               type="button"
               className={simulationTab === "contribution" ? "active" : ""}
-              onClick={() => openProSimulation("contribution", "detailedContribution")}
+              onClick={() => setSimulationTab("contribution")}
             >
-              詳細積立 Pro
+              積立試算
             </button>
             <button
               type="button"
               className={simulationTab === "withdrawal" ? "active" : ""}
-              onClick={() => openProSimulation("withdrawal", "detailedWithdrawal")}
+              onClick={() => setSimulationTab("withdrawal")}
             >
-              取り崩し Pro
+              取り崩し試算
             </button>
           </div>
         </div>
@@ -382,9 +397,9 @@ export function SimulationView({
       </>
       )}
 
-      {simulationTab === "contribution" && contributionVariability && (
+      {simulationTab === "contribution" && (
       <section className="panel form-panel">
-        <StepTitle step="6" title="詳細積立シミュレーション" description="積立額、ボーナス積立、利回り、期間をもとに年ごとの見通しを確認します。" />
+        <StepTitle step="6" title="積立シミュレーション" description="積立額、ボーナス積立、利回り、期間をもとに年ごとの見通しを確認します。" />
         <div className="form-grid">
           <MoneyInput
             label="毎月積立額"
@@ -441,22 +456,39 @@ export function SimulationView({
         </div>
         <div className="section-heading chart-section-heading">
           <div>
-            <h2>積み立て資産の推移</h2>
-            <p>{contributionVariability.trialCount.toLocaleString("ja-JP")}回の試行結果を、上位10%・下位10%・中央値・最頻帯で表示します。想定利回りを中心に、設定した標準偏差で毎年独立に変動する単純モデルです。</p>
+            <h2>
+              積み立て資産の推移
+              {contributionVariability && <span className="pro-inline-badge">{accessState.mode === "preview" ? "Proプレビュー" : "Pro"}</span>}
+            </h2>
+            <p>
+              {contributionVariability
+                ? `${contributionVariability.trialCount.toLocaleString("ja-JP")}回の試行結果を、上位10%・下位10%・中央値・最頻帯で表示します。`
+                : "無料版では、想定利回りが毎年一定の前提で資産推移を表示します。"}
+            </p>
           </div>
-          <label className="compact-number-field">
-            年ごとの利回りのばらつき目安 %
-            <NumericInput value={returnVariabilityRate} min={0} max={MAX_RATE_PERCENT} allowDecimal onChange={setReturnVariabilityRate} />
-            <small>想定利回りを中心とした年率の標準偏差です。</small>
-          </label>
+          {contributionVariability && (
+            <label className="compact-number-field">
+              年ごとの利回りのばらつき目安 %
+              <NumericInput value={returnVariabilityRate} min={0} max={MAX_RATE_PERCENT} allowDecimal onChange={setReturnVariabilityRate} />
+              <small>想定利回りを中心とした年率の標準偏差です。</small>
+            </label>
+          )}
         </div>
-        <LineChart points={contributionChartPoints} variabilityRows={contributionVariability.rows} />
-        <div className="calculation-band compact">
-          <Metric label={`${plan.simulation.years}年後 下位10%`} value={manYen(contributionVariability.lowerFinal)} helper="前提条件に基づく下振れ側の試算" />
-          <Metric label={`${plan.simulation.years}年後 最頻帯`} value={manYen(contributionVariability.modeFinal)} helper="最も多かった金額帯の代表額" />
-          <Metric label={`${plan.simulation.years}年後 中央値`} value={manYen(contributionVariability.medianFinal)} helper="ばらつき試算の中央値" />
-          <Metric label={`${plan.simulation.years}年後 上位10%`} value={manYen(contributionVariability.upperFinal)} helper="上振れ側の試算" />
-        </div>
+        <LineChart points={contributionChartPoints} variabilityRows={contributionVariability?.rows} />
+        {contributionVariability ? (
+          <div className="calculation-band compact">
+            <Metric label={`${plan.simulation.years}年後 下位10%`} value={manYen(contributionVariability.lowerFinal)} helper="前提条件に基づく下振れ側の試算" />
+            <Metric label={`${plan.simulation.years}年後 最頻帯`} value={manYen(contributionVariability.modeFinal)} helper="最も多かった金額帯の代表額" />
+            <Metric label={`${plan.simulation.years}年後 中央値`} value={manYen(contributionVariability.medianFinal)} helper="ばらつき試算の中央値" />
+            <Metric label={`${plan.simulation.years}年後 上位10%`} value={manYen(contributionVariability.upperFinal)} helper="上振れ側の試算" />
+          </div>
+        ) : (
+          <div className="notice-band">
+            <strong>利回りのばらつき試算はPro版</strong>
+            <span>無料版の一定利回り試算はそのまま利用できます。Pro版では、1000回の試行による下位・中央値・上位の幅を確認できます。</span>
+            <div className="button-row"><button type="button" className="secondary" onClick={() => setActiveView("pricing")}>Pro機能・料金を見る</button></div>
+          </div>
+        )}
         <div className="table-wrap projection-detail-table">
           <table>
             <thead>
@@ -479,19 +511,10 @@ export function SimulationView({
             </tbody>
           </table>
         </div>
-        <VariabilityPanel
-          title="利回りのばらつき試算"
-          description="年ごとの利回りが一定ではない前提を置き、下位・中央値・上位の幅を確認します。"
-          result={contributionVariability}
-          suppressPanel
-          volatilityRate={returnVariabilityRate}
-          onVolatilityRateChange={setReturnVariabilityRate}
-          finalLabel={`${plan.simulation.years}年後`}
-        />
       </section>
       )}
 
-      {simulationTab === "withdrawal" && withdrawalResult && withdrawalVariability && (
+      {simulationTab === "withdrawal" && withdrawalResult && (
       <section className="panel form-panel">
         <StepTitle step="6" title="取り崩しシミュレーション" description="期間入力は使わず、開始年齢・開始資金・月額または年率から資産推移を確認します。" />
         <div className="form-grid">
@@ -537,11 +560,13 @@ export function SimulationView({
             インフレ率 %
             <NumericInput value={withdrawalInflationRate} min={0} max={MAX_RATE_PERCENT} allowDecimal onChange={(value) => updateWithdrawalPlan("inflationRate", value)} />
           </label>
-          <label>
-            年ごとの利回りのばらつき目安 %
-            <NumericInput value={returnVariabilityRate} min={0} max={MAX_RATE_PERCENT} allowDecimal onChange={setReturnVariabilityRate} />
-            <small>想定利回りを中心とした年率の標準偏差です。</small>
-          </label>
+          {withdrawalVariability && (
+            <label>
+              年ごとの利回りのばらつき目安 %
+              <NumericInput value={returnVariabilityRate} min={0} max={MAX_RATE_PERCENT} allowDecimal onChange={setReturnVariabilityRate} />
+              <small>想定利回りを中心とした年率の標準偏差です。</small>
+            </label>
+          )}
         </div>
         <div className="button-row">
           <button type="button" className="secondary" onClick={() => updateWithdrawalPlan("startingAssets", currentLiquidAssets)}>
@@ -550,15 +575,22 @@ export function SimulationView({
         </div>
         <div className="notice-band check">
           <strong>通常の取り崩しを単純に確認する画面です</strong>
-          <span>開始年齢が100歳以下の場合は100歳まで描画し、毎月の取り崩しと利回りを月ごとに反映します。年金、社会保険、税金、老後生活費を含める場合は、別枠の老後プランを使います。</span>
+          <span>開始年齢が105歳以下の場合は105歳まで描画し、毎月の取り崩しと利回りを月ごとに反映します。年金、社会保険、税金、老後生活費を含める場合は、別枠の老後プランを使います。</span>
         </div>
         <div className="section-heading chart-section-heading">
           <div>
-            <h2>取り崩し後の資産推移</h2>
-            <p>{withdrawalVariability.trialCount.toLocaleString("ja-JP")}回の試行結果を、上位10%・下位10%・中央値・最頻帯で表示します。想定利回りを中心に、設定した標準偏差で毎年独立に変動する単純モデルです。</p>
+            <h2>
+              取り崩し後の資産推移
+              {withdrawalVariability && <span className="pro-inline-badge">{accessState.mode === "preview" ? "Proプレビュー" : "Pro"}</span>}
+            </h2>
+            <p>
+              {withdrawalVariability
+                ? `${withdrawalVariability.trialCount.toLocaleString("ja-JP")}回の試行結果を、上位10%・下位10%・中央値・最頻帯で表示します。`
+                : "無料版では、想定利回りが毎年一定の前提で105歳までの資産推移を表示します。"}
+            </p>
           </div>
         </div>
-        <LineChart points={withdrawalChartPoints} variabilityRows={withdrawalVariability.rows} />
+        <LineChart points={withdrawalChartPoints} variabilityRows={withdrawalVariability ? withdrawalChartVariabilityRows : undefined} />
         <div className="calculation-band compact">
           <Metric label="試算開始時資金" value={manYen(withdrawalStartingAssets)} helper={`${withdrawalStartAge}歳から試算`} />
           <Metric label="初年度取り崩し" value={manYen(withdrawalResult.rows[0]?.withdrawalAmount ?? 0)} helper={withdrawalMode === "monthlyAmount" ? "毎月の指定額 × 12" : "開始時資金 × 取り崩し率"} />
@@ -569,27 +601,37 @@ export function SimulationView({
           />
           <Metric label={`${withdrawalEndAge}歳時点の試算額`} value={manYen(withdrawalResult.finalAssets)} helper="運用しながら取り崩す前提" />
         </div>
-        <div className={`notice-band ${withdrawalVariability.depletionRate > 0 ? "notice" : "check"}`}>
-          <strong>{withdrawalVariability.depletionRate > 0 ? "資金が不足するケースがあります" : "現在の前提では期間内に資金が残る見通しです"}</strong>
-          <span>
-            ばらつき試算では、資産が尽きるケースは {percent(withdrawalVariability.depletionRate)}
-            {withdrawalVariability.medianDepletedAge ? `、中央値では ${withdrawalVariability.medianDepletedAge}歳ごろです。` : " です。"}
-            取り崩し額、試算開始時資金、利回りの前提を変えて見直せます。
-          </span>
-        </div>
-        <div className="calculation-band compact">
-          <Metric label={`${withdrawalEndAge}歳時点 下位10%`} value={manYen(withdrawalVariability.lowerFinal)} helper="前提条件に基づく下振れ側の試算" />
-          <Metric label={`${withdrawalEndAge}歳時点 最頻帯`} value={manYen(withdrawalVariability.modeFinal)} helper="最も多かった金額帯の代表額" />
-          <Metric label={`${withdrawalEndAge}歳時点 中央値`} value={manYen(withdrawalVariability.medianFinal)} helper="ばらつき試算の中央値" />
-          <Metric label={`${withdrawalEndAge}歳時点 上位10%`} value={manYen(withdrawalVariability.upperFinal)} helper="上振れ側の試算" />
-        </div>
+        {withdrawalVariability ? (
+          <>
+            <div className={`notice-band ${withdrawalVariability.depletionRate > 0 ? "notice" : "check"}`}>
+              <strong>{withdrawalVariability.depletionRate > 0 ? "資金が不足するケースがあります" : "現在の前提では期間内に資金が残る見通しです"}</strong>
+              <span>
+                ばらつき試算では、資産が尽きるケースは {percent(withdrawalVariability.depletionRate)}
+                {withdrawalVariability.medianDepletedAge ? `、中央値では ${withdrawalVariability.medianDepletedAge}歳ごろです。` : " です。"}
+                取り崩し額、試算開始時資金、利回りの前提を変えて見直せます。
+              </span>
+            </div>
+            <div className="calculation-band compact">
+              <Metric label={`${withdrawalEndAge}歳時点 下位10%`} value={manYen(withdrawalVariability.lowerFinal)} helper="前提条件に基づく下振れ側の試算" />
+              <Metric label={`${withdrawalEndAge}歳時点 最頻帯`} value={manYen(withdrawalVariability.modeFinal)} helper="最も多かった金額帯の代表額" />
+              <Metric label={`${withdrawalEndAge}歳時点 中央値`} value={manYen(withdrawalVariability.medianFinal)} helper="ばらつき試算の中央値" />
+              <Metric label={`${withdrawalEndAge}歳時点 上位10%`} value={manYen(withdrawalVariability.upperFinal)} helper="上振れ側の試算" />
+            </div>
+          </>
+        ) : (
+          <div className="notice-band">
+            <strong>資産が尽きるケース割合とばらつき試算はPro版</strong>
+            <span>無料版の一定利回りによる取り崩し試算はそのまま利用できます。Pro版では、1000回の試行結果と資産が尽きるケース割合を確認できます。</span>
+            <div className="button-row"><button type="button" className="secondary" onClick={() => setActiveView("pricing")}>Pro機能・料金を見る</button></div>
+          </div>
+        )}
         <details className="projection-details">
           <summary>年次の試算表を確認</summary>
           <div className="table-wrap projection-detail-table">
             <table>
               <thead>
                 <tr>
-                  <th>年齢</th>
+                  <th>年末年齢</th>
                   <th>年末資産</th>
                   <th>年間取り崩し額</th>
                   <th>運用の影響</th>
@@ -598,7 +640,7 @@ export function SimulationView({
               <tbody>
                 {withdrawalResult.rows.map((row) => (
                   <tr key={row.yearIndex}>
-                    <td>{row.age}歳</td>
+                    <td>{row.age + 1}歳</td>
                     <td>{manYen(row.assets)}</td>
                     <td>{manYen(row.withdrawalAmount)}</td>
                     <td>{manYen(row.returnImpact)}</td>

@@ -134,14 +134,14 @@ export function CloudBackupPanel({
   }, []);
 
   useEffect(() => {
-    if (!hasProAccess) {
-      setState("restricted");
-      return;
-    }
     void loadBackups();
-  }, [hasProAccess, loadBackups]);
+  }, [loadBackups]);
 
   const saveBackup = async () => {
+    if (!hasProAccess) {
+      setMessage("新しいクラウドバックアップの保存にはPro契約が必要です。");
+      return;
+    }
     if (savePassword.length < 12) {
       setMessage("保存用の復旧パスワードは12文字以上で入力してください。");
       return;
@@ -242,34 +242,43 @@ export function CloudBackupPanel({
 
       {state === "available" && (
         <>
-          <div className="cloud-action-heading">
-            <h3>新しいバックアップを保存</h3>
-            <p>現在のプランを、ここで設定する復旧パスワードで暗号化して保存します。</p>
-          </div>
-          <div className="cloud-password-grid">
-            <PasswordInput
-              label="保存用の復旧パスワード"
-              value={savePassword}
-              onChange={setSavePassword}
-              helper="12文字以上で入力してください。"
-              autoComplete="new-password"
-            />
-            <PasswordInput
-              label="保存用の復旧パスワード（確認）"
-              value={saveConfirmation}
-              onChange={setSaveConfirmation}
-              helper="同じ復旧パスワードを入力してください。"
-              autoComplete="new-password"
-            />
-          </div>
-          <div className="cloud-password-warning" role="note">
-            <strong>復旧パスワードを忘れると、運営者でも復元できません。</strong>
-            <span>パスワード管理アプリや安全なメモへ必ず記録してください。</span>
-          </div>
-          <div className="button-row">
-            <button type="button" disabled={busy || backups.length >= limit} onClick={saveBackup}>内容を確認して保存</button>
-            <button type="button" className="secondary" disabled={busy} onClick={() => void loadBackups()}>一覧を更新</button>
-          </div>
+          {hasProAccess ? (
+            <>
+              <div className="cloud-action-heading">
+                <h3>新しいバックアップを保存</h3>
+                <p>現在のプランを、ここで設定する復旧パスワードで暗号化して保存します。</p>
+              </div>
+              <div className="cloud-password-grid">
+                <PasswordInput
+                  label="保存用の復旧パスワード"
+                  value={savePassword}
+                  onChange={setSavePassword}
+                  helper="12文字以上で入力してください。"
+                  autoComplete="new-password"
+                />
+                <PasswordInput
+                  label="保存用の復旧パスワード（確認）"
+                  value={saveConfirmation}
+                  onChange={setSaveConfirmation}
+                  helper="同じ復旧パスワードを入力してください。"
+                  autoComplete="new-password"
+                />
+              </div>
+              <div className="cloud-password-warning" role="note">
+                <strong>復旧パスワードを忘れると、運営者でも復元できません。</strong>
+                <span>パスワード管理アプリや安全なメモへ必ず記録してください。</span>
+              </div>
+              <div className="button-row">
+                <button type="button" disabled={busy || backups.length >= limit} onClick={saveBackup}>内容を確認して保存</button>
+                <button type="button" className="secondary" disabled={busy} onClick={() => void loadBackups()}>一覧を更新</button>
+              </div>
+            </>
+          ) : (
+            <div className="notice-band">
+              <strong>新しいクラウドバックアップの保存はPro版</strong>
+              <span>契約終了後も、保存済みバックアップの復元と削除は本人がログインして行えます。</span>
+            </div>
+          )}
 
           <div className="cloud-action-heading cloud-list-heading">
             <h3>保存済みバックアップ</h3>

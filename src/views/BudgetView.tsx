@@ -371,7 +371,7 @@ export function BudgetView({
           <span>毎月・固定は固定費、毎月・変動は変動費、不定期・年1回は年間特別支出として反映します。1回だけの支出は年表イベントで管理するのが基本です。</span>
         </div>
         <div>
-          <strong>レビュー履歴との関係</strong>
+          <strong>レビューセンターとの連携</strong>
           <span>選択月の予算差額は、月次レビュー時に見直しポイントとして使えます。</span>
         </div>
         <div>

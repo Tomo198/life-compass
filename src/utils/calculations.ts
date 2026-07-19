@@ -230,10 +230,18 @@ export const yen = (value: number) =>
     maximumFractionDigits: 0
   }).format(Math.round(value || 0));
 
-export const manYen = (value: number) => {
-  const rounded = Math.round((value || 0) / 10000);
-  return `${new Intl.NumberFormat("ja-JP").format(rounded)}万円`;
+export const formatMoney = (value: number) => {
+  const roundedYen = Number.isFinite(value) ? Math.round(value) : 0;
+  if (Math.abs(roundedYen) < 1_000_000) {
+    return `${new Intl.NumberFormat("ja-JP").format(roundedYen)}円`;
+  }
+
+  return `${new Intl.NumberFormat("ja-JP", {
+    maximumFractionDigits: 1
+  }).format(roundedYen / 10000)}万円`;
 };
+
+export const manYen = formatMoney;
 
 export const percent = (value: number) => `${Math.round((value || 0) * 10) / 10}%`;
 

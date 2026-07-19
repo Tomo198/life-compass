@@ -11,6 +11,11 @@ const env = {
 
 const request = (path, init) => worker.fetch(new Request(`https://life.example${path}`, init), env, {});
 const json = async (response) => JSON.parse(await response.text());
+const utcDateAfter = (days) => {
+  const date = new Date();
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+};
 
 class FakeD1 {
   constructor() {
@@ -18,6 +23,8 @@ class FakeD1 {
     this.usersById = new Map();
     this.sessionsByHash = new Map();
     this.cloudBackups = new Map();
+    this.subscriptionsByProviderId = new Map();
+    this.billingWebhookEvents = new Map();
     this.failCloudBackupInsert = false;
   }
 
@@ -77,6 +84,56 @@ class FakeD1 {
             });
             return { success: true };
           }
+          if (normalized.startsWith("INSERT INTO billing_webhook_events")) {
+            const [id, provider, eventId, eventType, providerObjectId] = args;
+            this.billingWebhookEvents.set(`${provider}:${eventId}`, {
+              id,
+              provider,
+              event_id: eventId,
+              event_type: eventType,
+              provider_object_id: providerObjectId,
+              status: "received"
+            });
+            return { success: true };
+          }
+          if (normalized.startsWith("UPDATE billing_webhook_events")) {
+            const [status, provider, eventId] = args;
+            const event = this.billingWebhookEvents.get(`${provider}:${eventId}`);
+            if (event) Object.assign(event, { status, processed_at: new Date().toISOString() });
+            return { success: true };
+          }
+          if (normalized.startsWith("INSERT INTO subscriptions")) {
+            const [id, userId, provider, customerId, subscriptionId, planId, status, paymentStatus, currentPeriodEnd, cancelAtPeriodEnd] = args;
+            this.subscriptionsByProviderId.set(`${provider}:${subscriptionId}`, {
+              id,
+              user_id: userId,
+              billing_provider: provider,
+              provider_customer_id: customerId,
+              provider_subscription_id: subscriptionId,
+              provider_plan_id: planId,
+              tier: "pro",
+              status,
+              payment_status: paymentStatus,
+              current_period_end: currentPeriodEnd,
+              cancel_at_period_end: cancelAtPeriodEnd
+            });
+            return { success: true };
+          }
+          if (normalized.startsWith("UPDATE subscriptions")) {
+            const [userId, customerId, planId, status, paymentStatus, currentPeriodEnd, cancelAtPeriodEnd, id] = args;
+            const subscription = [...this.subscriptionsByProviderId.values()].find((item) => item.id === id);
+            if (subscription) Object.assign(subscription, {
+              user_id: userId,
+              provider_customer_id: customerId,
+              provider_plan_id: planId,
+              tier: "pro",
+              status,
+              payment_status: paymentStatus,
+              current_period_end: currentPeriodEnd,
+              cancel_at_period_end: cancelAtPeriodEnd
+            });
+            return { success: true };
+          }
           if (normalized.startsWith("DELETE FROM cloud_backups")) {
             const [id, userId] = args;
             const backup = this.cloudBackups.get(id);
@@ -115,12 +172,41 @@ class FakeD1 {
             const user = this.usersById.get(session.user_id);
             return user ? { ...user, session_created_at: session.created_at } : null;
           }
+          if (normalized.includes("FROM users") && normalized.includes("lower(email) = lower(?)")) {
+            const email = String(args[0] || "").toLowerCase();
+            return [...this.usersById.values()].find((user) => (
+              user.email_verified === 1
+              && !user.deleted_at
+              && String(user.email || "").toLowerCase() === email
+            )) || null;
+          }
           if (normalized.startsWith("SELECT COUNT(*) AS count FROM cloud_backups")) {
             return { count: [...this.cloudBackups.values()].filter((backup) => backup.user_id === args[0]).length };
           }
           if (normalized.includes("FROM cloud_backups WHERE id = ? AND user_id = ?")) {
             const backup = this.cloudBackups.get(args[0]);
             return backup?.user_id === args[1] ? backup : null;
+          }
+          if (normalized.includes("FROM billing_webhook_events")) {
+            return this.billingWebhookEvents.get(`${args[0]}:${args[1]}`) || null;
+          }
+          if (normalized.includes("FROM subscriptions") && normalized.includes("provider_subscription_id = ?")) {
+            return this.subscriptionsByProviderId.get(`${args[0]}:${args[1]}`) || null;
+          }
+          if (normalized.includes("FROM subscriptions") && normalized.includes("WHERE user_id = ?")) {
+            const subscriptions = [...this.subscriptionsByProviderId.values()]
+              .filter((subscription) => subscription.user_id === args[0]);
+            if (normalized.includes("payment_status = 'paid'")) {
+              const today = new Date().toISOString().slice(0, 10);
+              return subscriptions.find((subscription) => (
+                subscription.tier === "pro"
+                && ["active", "trialing"].includes(subscription.status)
+                && subscription.payment_status === "paid"
+                && typeof subscription.current_period_end === "string"
+                && subscription.current_period_end >= today
+              )) || null;
+            }
+            return subscriptions[0] || null;
           }
           if (normalized.includes("FROM subscriptions")) return null;
           throw new Error(`Unexpected D1 first query: ${normalized}`);
@@ -162,6 +248,19 @@ const cookieValue = (response, name) => {
   return header.match(new RegExp(`${name}=([^;,]+)`))?.[1] || "";
 };
 
+const createSquareSignature = async (notificationUrl, body, signatureKey) => {
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(signatureKey),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(`${notificationUrl}${body}`));
+  return Buffer.from(signature).toString("base64");
+};
+
 test("health endpoint returns scaffold status without caching", async () => {
   const response = await request("/api/health");
   const body = await json(response);
@@ -185,8 +284,12 @@ test("me endpoint does not pretend the user is logged in", async () => {
   assert.equal(body.loginConfigured, false);
 });
 
-test("entitlement endpoint keeps Pro in preview mode before billing", async () => {
-  const response = await request("/api/entitlement");
+test("entitlement endpoint enables Pro preview only when explicitly configured", async () => {
+  const response = await worker.fetch(
+    new Request("https://life.example/api/entitlement"),
+    { ...env, ACCESS_MODE: "preview" },
+    {}
+  );
   const body = await json(response);
 
   assert.equal(response.status, 200);
@@ -194,6 +297,271 @@ test("entitlement endpoint keeps Pro in preview mode before billing", async () =
   assert.equal(body.access.mode, "preview");
   assert.equal(body.access.billingConfigured, false);
   assert.equal(body.access.effectiveTier, "pro");
+});
+
+test("enforced access grants test Pro only to the configured Google owner", async () => {
+  const DB = new FakeD1();
+  const secureWorker = createWorker({
+    verifyGoogleToken: async ({ credential }) => ({
+      sub: credential,
+      email: `${credential}@example.com`,
+      emailVerified: credential !== "unverified"
+    })
+  });
+  const authEnv = {
+    ...env,
+    DB,
+    GOOGLE_CLIENT_ID: "google-client-id",
+    ACCESS_MODE: "enforced",
+    OWNER_GOOGLE_SUB: "owner"
+  };
+  const authRequest = (path, init) => secureWorker.fetch(new Request(`https://life.example${path}`, init), authEnv, {});
+  const loginAs = async (identity) => {
+    const nonceResponse = await authRequest("/api/auth/nonce");
+    const nonce = await json(nonceResponse);
+    const loginResponse = await authRequest("/api/auth/google", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "https://life.example",
+        Cookie: `__Host-lc_oauth_nonce=${nonce.nonce}`
+      },
+      body: JSON.stringify({ credential: identity, nonce: nonce.nonce })
+    });
+    return cookieValue(loginResponse, "__Host-lc_session");
+  };
+
+  const ownerCookie = await loginAs("owner");
+  const owner = await json(await authRequest("/api/entitlement", {
+    headers: { Cookie: `__Host-lc_session=${ownerCookie}` }
+  }));
+  assert.equal(owner.access.mode, "enforced");
+  assert.equal(owner.access.tier, "pro");
+  assert.equal(owner.access.source, "operator");
+  assert.equal(owner.access.effectiveTier, "pro");
+
+  const otherCookie = await loginAs("other");
+  const other = await json(await authRequest("/api/entitlement", {
+    headers: { Cookie: `__Host-lc_session=${otherCookie}` }
+  }));
+  assert.equal(other.access.tier, "free");
+  assert.equal(other.access.source, "anonymous");
+
+  const unverifiedCookie = await loginAs("unverified");
+  const unverified = await json(await authRequest("/api/entitlement", {
+    headers: { Cookie: `__Host-lc_session=${unverifiedCookie}` }
+  }));
+  assert.equal(unverified.access.tier, "free");
+  assert.equal(unverified.access.source, "anonymous");
+});
+
+test("Square billing stays disabled until all server-side settings are present", async () => {
+  const configResponse = await request("/api/billing/config");
+  const config = await json(configResponse);
+  assert.equal(configResponse.status, 200);
+  assert.deepEqual(config.billing, {
+    provider: "square",
+    configured: false,
+    checkoutAvailable: false,
+    environment: "production"
+  });
+
+  const webhookResponse = await request("/api/billing/square/webhook", { method: "POST", body: "{}" });
+  const webhook = await json(webhookResponse);
+  assert.equal(webhookResponse.status, 501);
+  assert.equal(webhook.error.code, "square_billing_not_configured");
+});
+
+test("Square webhook verifies signatures, links verified email and waits for successful payment", async () => {
+  const DB = new FakeD1();
+  const notificationUrl = "https://life.example/api/billing/square/webhook";
+  const futurePeriodEnd = utcDateAfter(45);
+  const subscription = {
+    id: "subscription-1",
+    customer_id: "customer-1",
+    location_id: "location-1",
+    plan_variation_id: "plan-variation-1",
+    status: "ACTIVE",
+    charged_through_date: futurePeriodEnd
+  };
+  const squareFetch = async (url) => {
+    if (url.endsWith("/v2/customers/customer-1")) {
+      return Response.json({ customer: { id: "customer-1", email_address: "owner@example.com" } });
+    }
+    if (url.endsWith("/v2/customers/customer-unmatched")) {
+      return Response.json({ customer: { id: "customer-unmatched", email_address: "unmatched@example.com" } });
+    }
+    if (url.endsWith("/v2/subscriptions/subscription-1")) {
+      return Response.json({ subscription });
+    }
+    return new Response("not found", { status: 404 });
+  };
+  const secureWorker = createWorker({
+    verifyGoogleToken: async () => ({ sub: "owner", email: "owner@example.com", emailVerified: true }),
+    squareFetch
+  });
+  const billingEnv = {
+    ...env,
+    DB,
+    GOOGLE_CLIENT_ID: "google-client-id",
+    ACCESS_MODE: "enforced",
+    SQUARE_ACCESS_TOKEN: "secret-access-token",
+    SQUARE_WEBHOOK_SIGNATURE_KEY: "secret-signature-key",
+    SQUARE_WEBHOOK_NOTIFICATION_URL: notificationUrl,
+    SQUARE_PLAN_VARIATION_ID: "plan-variation-1",
+    SQUARE_MERCHANT_ID: "merchant-1",
+    SQUARE_PAYMENT_LINK_URL: "https://square.link/u/example"
+  };
+  const billingRequest = (path, init) => secureWorker.fetch(new Request(`https://life.example${path}`, init), billingEnv, {});
+  const nonceResponse = await billingRequest("/api/auth/nonce");
+  const nonce = await json(nonceResponse);
+  const loginResponse = await billingRequest("/api/auth/google", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Origin: "https://life.example",
+      Cookie: `__Host-lc_oauth_nonce=${nonce.nonce}`
+    },
+    body: JSON.stringify({ credential: "valid", nonce: nonce.nonce })
+  });
+  const sessionCookie = cookieValue(loginResponse, "__Host-lc_session");
+  const authHeaders = { Cookie: `__Host-lc_session=${sessionCookie}` };
+
+  const checkoutResponse = await billingRequest("/api/billing/checkout", {
+    method: "POST",
+    headers: { ...authHeaders, Origin: "https://life.example" }
+  });
+  const checkout = await json(checkoutResponse);
+  assert.equal(checkoutResponse.status, 200);
+  assert.equal(checkout.checkout.provider, "square");
+  assert.equal(checkout.checkout.url, "https://square.link/u/example");
+  assert.equal(checkout.checkout.accountEmail, "owner@example.com");
+
+  const sendEvent = async (event) => {
+    const body = JSON.stringify(event);
+    const signature = await createSquareSignature(notificationUrl, body, billingEnv.SQUARE_WEBHOOK_SIGNATURE_KEY);
+    return billingRequest("/api/billing/square/webhook", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-square-hmacsha256-signature": signature
+      },
+      body
+    });
+  };
+
+  const invalidSignature = await billingRequest("/api/billing/square/webhook", {
+    method: "POST",
+    headers: { "x-square-hmacsha256-signature": "invalid" },
+    body: "{}"
+  });
+  assert.equal(invalidSignature.status, 403);
+
+  const wrongUrlBody = JSON.stringify({
+    merchant_id: "merchant-1",
+    type: "subscription.created",
+    event_id: "event-wrong-url",
+    data: { object: { subscription } }
+  });
+  const wrongUrlSignature = await createSquareSignature(
+    notificationUrl,
+    wrongUrlBody,
+    billingEnv.SQUARE_WEBHOOK_SIGNATURE_KEY
+  );
+  const wrongUrlResponse = await secureWorker.fetch(new Request(
+    "https://preview.example/api/billing/square/webhook",
+    {
+      method: "POST",
+      headers: { "x-square-hmacsha256-signature": wrongUrlSignature },
+      body: wrongUrlBody
+    }
+  ), billingEnv, {});
+  assert.equal(wrongUrlResponse.status, 403);
+
+  const createdEvent = {
+    merchant_id: "merchant-1",
+    type: "subscription.created",
+    event_id: "event-created",
+    data: { object: { subscription } }
+  };
+  const createdResponse = await sendEvent(createdEvent);
+  assert.equal(createdResponse.status, 200);
+  const storedSubscription = DB.subscriptionsByProviderId.get("square:subscription-1");
+  assert.equal(storedSubscription.status, "active");
+  assert.equal(storedSubscription.payment_status, "unknown");
+
+  const beforePayment = await json(await billingRequest("/api/entitlement", { headers: authHeaders }));
+  assert.equal(beforePayment.access.tier, "free");
+
+  const paidEvent = {
+    merchant_id: "merchant-1",
+    type: "invoice.payment_made",
+    event_id: "event-paid",
+    data: { object: { invoice: { subscription_id: "subscription-1" } } }
+  };
+  const paidResponse = await sendEvent(paidEvent);
+  assert.equal(paidResponse.status, 200);
+  assert.equal(storedSubscription.payment_status, "paid");
+
+  const afterPayment = await json(await billingRequest("/api/entitlement", { headers: authHeaders }));
+  assert.equal(afterPayment.access.tier, "pro");
+  assert.equal(afterPayment.access.source, "subscription");
+
+  storedSubscription.current_period_end = utcDateAfter(-1);
+  const afterExpiry = await json(await billingRequest("/api/entitlement", { headers: authHeaders }));
+  assert.equal(afterExpiry.access.tier, "free");
+  storedSubscription.current_period_end = futurePeriodEnd;
+
+  const duplicate = await json(await sendEvent(paidEvent));
+  assert.equal(duplicate.duplicate, true);
+
+  const unmatchedSubscription = {
+    ...subscription,
+    id: "subscription-unmatched",
+    customer_id: "customer-unmatched"
+  };
+  const unmatchedResponse = await sendEvent({
+    merchant_id: "merchant-1",
+    type: "subscription.created",
+    event_id: "event-unmatched",
+    data: { object: { subscription: unmatchedSubscription } }
+  });
+  assert.equal(unmatchedResponse.status, 200);
+  assert.equal(DB.subscriptionsByProviderId.has("square:subscription-unmatched"), false);
+  assert.equal(DB.billingWebhookEvents.get("square:event-unmatched").status, "unmatched");
+
+  subscription.canceled_date = futurePeriodEnd;
+  const updatedResponse = await sendEvent({
+    merchant_id: "merchant-1",
+    type: "subscription.updated",
+    event_id: "event-cancel-scheduled",
+    data: { object: { subscription } }
+  });
+  assert.equal(updatedResponse.status, 200);
+  assert.equal(storedSubscription.cancel_at_period_end, 1);
+  assert.equal(storedSubscription.payment_status, "paid");
+
+  const failedResponse = await sendEvent({
+    merchant_id: "merchant-1",
+    type: "invoice.scheduled_charge_failed",
+    event_id: "event-failed",
+    data: { object: { invoice: { subscription_id: "subscription-1" } } }
+  });
+  assert.equal(failedResponse.status, 200);
+  assert.equal(storedSubscription.payment_status, "failed");
+  const afterFailure = await json(await billingRequest("/api/entitlement", { headers: authHeaders }));
+  assert.equal(afterFailure.access.tier, "free");
+
+  const invalidLinkResponse = await secureWorker.fetch(new Request("https://life.example/api/billing/checkout", {
+    method: "POST",
+    headers: { ...authHeaders, Origin: "https://life.example" }
+  }), {
+    ...billingEnv,
+    SQUARE_PAYMENT_LINK_URL: "https://billing.example/checkout"
+  }, {});
+  const invalidLink = await json(invalidLinkResponse);
+  assert.equal(invalidLinkResponse.status, 501);
+  assert.equal(invalidLink.error.code, "square_checkout_not_configured");
 });
 
 test("cloud backups are listed as unavailable until encryption storage is implemented", async () => {
@@ -215,7 +583,107 @@ test("cloud backup writes are rejected while not configured", async () => {
   assert.equal(body.error.code, "cloud_backup_disabled");
 });
 
-test("encrypted cloud backups enforce login, preview allowlist, ownership, integrity and deletion", async () => {
+test("enforced cloud backup requires Pro for writes and keeps existing backups recoverable", async () => {
+  const DB = new FakeD1();
+  const BACKUPS = new FakeR2();
+  const secureWorker = createWorker({
+    verifyGoogleToken: async () => ({ sub: "owner", email: "owner@example.com", emailVerified: true })
+  });
+  const authEnv = {
+    ...env,
+    DB,
+    BACKUPS,
+    GOOGLE_CLIENT_ID: "google-client-id",
+    CLOUD_BACKUP_MODE: "enforced"
+  };
+  const authRequest = (path, init) => secureWorker.fetch(new Request(`https://life.example${path}`, init), authEnv, {});
+  const nonceResponse = await authRequest("/api/auth/nonce");
+  const nonce = await json(nonceResponse);
+  const loginResponse = await authRequest("/api/auth/google", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Origin: "https://life.example",
+      Cookie: `__Host-lc_oauth_nonce=${nonce.nonce}`
+    },
+    body: JSON.stringify({ credential: "valid", nonce: nonce.nonce })
+  });
+  const headers = {
+    "Content-Type": "application/json",
+    Origin: "https://life.example",
+    Cookie: `__Host-lc_session=${cookieValue(loginResponse, "__Host-lc_session")}`
+  };
+  const body = JSON.stringify({
+    planVersion: 3,
+    envelope: {
+      format: "life-compass-encrypted-backup",
+      version: 1,
+      encryption: { name: "AES-GCM", keyLength: 256, iv: "AAAAAAAAAAAAAAAA" },
+      keyDerivation: { name: "PBKDF2", hash: "SHA-256", iterations: 600000, salt: "AAAAAAAAAAAAAAAAAAAAAA==" },
+      ciphertext: "AQIDBAUGBwgJCgsMDQ4PEBES"
+    }
+  });
+
+  const freeList = await authRequest("/api/backups", { headers });
+  assert.equal(freeList.status, 200);
+  assert.deepEqual((await json(freeList)).backups, []);
+
+  const withoutSubscription = await authRequest("/api/backups", { method: "POST", headers, body });
+  assert.equal(withoutSubscription.status, 403);
+
+  authEnv.OWNER_GOOGLE_SUB = "owner";
+  const ownerTestWrite = await authRequest("/api/backups", { method: "POST", headers, body });
+  assert.equal(ownerTestWrite.status, 201);
+  const ownerTestBackup = await json(ownerTestWrite);
+  const ownerTestDelete = await authRequest(`/api/backups/${ownerTestBackup.backup.id}`, {
+    method: "DELETE",
+    headers
+  });
+  assert.equal(ownerTestDelete.status, 200);
+  delete authEnv.OWNER_GOOGLE_SUB;
+
+  const subscription = {
+    id: "local-subscription",
+    user_id: DB.usersBySub.get("owner").id,
+    tier: "pro",
+    status: "active",
+    payment_status: "unknown",
+    current_period_end: utcDateAfter(30)
+  };
+  DB.subscriptionsByProviderId.set("square:subscription-1", subscription);
+  const beforePayment = await authRequest("/api/backups", { method: "POST", headers, body });
+  assert.equal(beforePayment.status, 403);
+
+  subscription.payment_status = "paid";
+  subscription.current_period_end = utcDateAfter(-1);
+  const afterExpiry = await authRequest("/api/backups", { method: "POST", headers, body });
+  assert.equal(afterExpiry.status, 403);
+
+  subscription.current_period_end = utcDateAfter(30);
+  const paidAndActive = await authRequest("/api/backups", { method: "POST", headers, body });
+  assert.equal(paidAndActive.status, 201);
+  const created = await json(paidAndActive);
+  assert.equal(DB.cloudBackups.size, 1);
+  assert.equal(BACKUPS.objects.size, 1);
+
+  subscription.current_period_end = utcDateAfter(-1);
+  const listAfterExpiry = await authRequest("/api/backups", { headers });
+  assert.equal(listAfterExpiry.status, 200);
+  assert.equal((await json(listAfterExpiry)).backups.length, 1);
+  const downloadAfterExpiry = await authRequest(`/api/backups/${created.backup.id}`, { headers });
+  assert.equal(downloadAfterExpiry.status, 200);
+  const writeAfterExpiry = await authRequest("/api/backups", { method: "POST", headers, body });
+  assert.equal(writeAfterExpiry.status, 403);
+  const deleteAfterExpiry = await authRequest(`/api/backups/${created.backup.id}`, {
+    method: "DELETE",
+    headers
+  });
+  assert.equal(deleteAfterExpiry.status, 200);
+  assert.equal(DB.cloudBackups.size, 0);
+  assert.equal(BACKUPS.objects.size, 0);
+});
+
+test("encrypted cloud backups enforce login, owner preview, ownership, integrity and deletion", async () => {
   const DB = new FakeD1();
   const BACKUPS = new FakeR2();
   const secureWorker = createWorker({
@@ -231,7 +699,7 @@ test("encrypted cloud backups enforce login, preview allowlist, ownership, integ
     BACKUPS,
     GOOGLE_CLIENT_ID: "google-client-id",
     CLOUD_BACKUP_MODE: "preview",
-    CLOUD_BACKUP_TEST_USERS: "owner@example.com,other@example.com"
+    OWNER_GOOGLE_SUB: "owner"
   };
   const authRequest = (path, init) => secureWorker.fetch(new Request(`https://life.example${path}`, init), authEnv, {});
   const loginAs = async (identity) => {
@@ -289,7 +757,7 @@ test("encrypted cloud backups enforce login, preview allowlist, ownership, integ
   const otherRead = await authRequest(`/api/backups/${created.backup.id}`, {
     headers: { Cookie: `__Host-lc_session=${otherCookie}` }
   });
-  assert.equal(otherRead.status, 404);
+  assert.equal(otherRead.status, 403);
 
   const downloadResponse = await authRequest(`/api/backups/${created.backup.id}`, { headers: ownerHeaders });
   const download = await json(downloadResponse);
@@ -327,7 +795,7 @@ test("encrypted cloud backups enforce login, preview allowlist, ownership, integ
   assert.equal(BACKUPS.objects.size, 0);
 });
 
-test("cloud backup preview rejects users outside the server-side allowlist", async () => {
+test("cloud backup preview rejects users other than the configured owner", async () => {
   const DB = new FakeD1();
   const BACKUPS = new FakeR2();
   const secureWorker = createWorker({
@@ -339,7 +807,7 @@ test("cloud backup preview rejects users outside the server-side allowlist", asy
     BACKUPS,
     GOOGLE_CLIENT_ID: "google-client-id",
     CLOUD_BACKUP_MODE: "preview",
-    CLOUD_BACKUP_TEST_USERS: "owner@example.com"
+    OWNER_GOOGLE_SUB: "owner"
   };
   const authRequest = (path, init) => secureWorker.fetch(new Request(`https://life.example${path}`, init), authEnv, {});
   const nonceResponse = await authRequest("/api/auth/nonce");
@@ -354,7 +822,7 @@ test("cloud backup preview rejects users outside the server-side allowlist", asy
   assert.equal(response.status, 403);
 });
 
-test("cloud backup preview rejects an allowlisted but unverified email", async () => {
+test("cloud backup preview rejects an unverified owner identity", async () => {
   const DB = new FakeD1();
   const secureWorker = createWorker({
     verifyGoogleToken: async () => ({ sub: "unverified", email: "owner@example.com", emailVerified: false })
@@ -365,7 +833,7 @@ test("cloud backup preview rejects an allowlisted but unverified email", async (
     BACKUPS: new FakeR2(),
     GOOGLE_CLIENT_ID: "google-client-id",
     CLOUD_BACKUP_MODE: "preview",
-    CLOUD_BACKUP_TEST_USERS: "owner@example.com"
+    OWNER_GOOGLE_SUB: "unverified"
   };
   const authRequest = (path, init) => secureWorker.fetch(new Request(`https://life.example${path}`, init), authEnv, {});
   const nonceResponse = await authRequest("/api/auth/nonce");
@@ -554,6 +1022,24 @@ test("account deletion requires same-origin confirmation and removes the D1 iden
   assert.equal(DB.usersBySub.size, 1);
 
   const userId = [...DB.usersById.keys()][0];
+  DB.subscriptionsByProviderId.set("square:account-delete-subscription", {
+    id: "account-delete-subscription",
+    user_id: userId,
+    tier: "pro",
+    status: "active",
+    payment_status: "paid",
+    current_period_end: utcDateAfter(30)
+  });
+  const activeSubscription = await authRequest("/api/account", {
+    method: "DELETE",
+    headers: { ...sessionHeaders, Origin: "https://life.example" },
+    body: JSON.stringify({ confirmation: "DELETE_ACCOUNT" })
+  });
+  const activeSubscriptionBody = await json(activeSubscription);
+  assert.equal(activeSubscription.status, 409);
+  assert.equal(activeSubscriptionBody.error.code, "active_subscription");
+  DB.subscriptionsByProviderId.delete("square:account-delete-subscription");
+
   const objectKey = `users/${userId}/backups/account-delete-test.json`;
   BACKUPS.objects.set(objectKey, "encrypted");
   DB.cloudBackups.set("account-delete-test", {

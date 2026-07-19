@@ -1,4 +1,5 @@
 import { AuthError, getCurrentUser } from "./auth.js";
+import { isOwnerTestUser } from "./access.js";
 
 const MAX_BACKUP_BODY_BYTES = 7 * 1024 * 1024;
 const MAX_BACKUPS_PER_USER = 5;
@@ -25,25 +26,28 @@ const requireUser = async (request, env) => {
 
 const backupMode = (env) => ["preview", "enforced"].includes(env?.CLOUD_BACKUP_MODE) ? env.CLOUD_BACKUP_MODE : "disabled";
 
-const requireBackupAccess = async (user, env) => {
+const requireBackupReadAccess = (user, env) => {
   const mode = backupMode(env);
   if (mode === "preview") {
-    const allowedEmails = String(env?.CLOUD_BACKUP_TEST_USERS || "")
-      .split(",")
-      .map((email) => email.trim().toLowerCase())
-      .filter(Boolean);
-    if (user.emailVerified && user.email && allowedEmails.includes(user.email.toLowerCase())) return;
+    if (isOwnerTestUser(user, env)) return;
     throw new AuthError(403, "backup_preview_not_allowed", "Encrypted cloud backup preview is limited to test users.");
   }
   if (mode !== "enforced") {
     throw new AuthError(501, "cloud_backup_disabled", "Encrypted cloud backup is not enabled.");
   }
+};
+
+const requireBackupWriteAccess = async (user, env) => {
+  requireBackupReadAccess(user, env);
+  if (backupMode(env) === "preview" || isOwnerTestUser(user, env)) return;
   const subscription = await env.DB.prepare(
     `SELECT status
        FROM subscriptions
       WHERE user_id = ?
         AND tier = 'pro'
         AND status IN ('active', 'trialing')
+        AND payment_status = 'paid'
+        AND date(current_period_end) >= date('now')
       LIMIT 1`
   ).bind(user.id).first();
   if (!subscription) throw new AuthError(403, "pro_required", "An active Pro subscription is required.");
@@ -151,7 +155,7 @@ export const handleBackupsRequest = async (request, env, jsonResponse, privacy) 
 
   if (request.method === "GET" && !backupId) {
     const user = await requireUser(request, env);
-    await requireBackupAccess(user, env);
+    requireBackupReadAccess(user, env);
     await requireBackupRateLimit(request, user, env);
     const result = await env.DB.prepare(
       `SELECT id, plan_version, size_bytes, created_at, updated_at
@@ -172,7 +176,7 @@ export const handleBackupsRequest = async (request, env, jsonResponse, privacy) 
   if (request.method === "POST" && !backupId) {
     if (!sameOrigin(request)) throw new AuthError(403, "invalid_origin", "Backup request origin is invalid.");
     const user = await requireUser(request, env);
-    await requireBackupAccess(user, env);
+    await requireBackupWriteAccess(user, env);
     await requireBackupRateLimit(request, user, env);
     const count = await env.DB.prepare("SELECT COUNT(*) AS count FROM cloud_backups WHERE user_id = ?").bind(user.id).first();
     if (Number(count?.count || 0) >= MAX_BACKUPS_PER_USER) {
@@ -215,7 +219,7 @@ export const handleBackupsRequest = async (request, env, jsonResponse, privacy) 
 
   if (request.method === "GET" && backupId) {
     const user = await requireUser(request, env);
-    await requireBackupAccess(user, env);
+    requireBackupReadAccess(user, env);
     await requireBackupRateLimit(request, user, env);
     const row = await env.DB.prepare(
       `SELECT id, r2_object_key, checksum_sha256
@@ -234,7 +238,7 @@ export const handleBackupsRequest = async (request, env, jsonResponse, privacy) 
   if (request.method === "DELETE" && backupId) {
     if (!sameOrigin(request)) throw new AuthError(403, "invalid_origin", "Backup deletion origin is invalid.");
     const user = await requireUser(request, env);
-    await requireBackupAccess(user, env);
+    requireBackupReadAccess(user, env);
     await requireBackupRateLimit(request, user, env);
     const row = await env.DB.prepare(
       `SELECT id, r2_object_key FROM cloud_backups WHERE id = ? AND user_id = ? LIMIT 1`

@@ -274,6 +274,7 @@ const normalizePlan = (plan: LifePlan): LifePlan => {
     retirementPlan: normalizeRetirementPlan(plan.retirementPlan),
     reviews: Array.isArray(plan.reviews) ? plan.reviews.map(normalizeReview) : [],
     scenarios: Array.isArray(plan.scenarios) ? plan.scenarios.map(normalizeScenario) : [],
+    activeScenario: normalizeActiveScenario(plan.activeScenario),
     fixedCostItems: Array.isArray(plan.fixedCostItems) ? plan.fixedCostItems.map(normalizeFixedCostItem) : [],
     budgetItems: Array.isArray(plan.budgetItems) ? plan.budgetItems.map(normalizeBudgetItem) : [],
     updatedAt: normalizeTimestamp(plan.updatedAt)
@@ -424,10 +425,21 @@ const normalizeReview = (review: ReviewNote): ReviewNote => ({
   id: identifierValue(review?.id),
   date: /^\d{4}-\d{2}-\d{2}$/.test(stringValue(review?.date)) ? review.date : new Date().toISOString().slice(0, 10),
   reviewType: review.reviewType === "quarterly" ? "quarterly" : "monthly",
+  scenarioName: stringValue(review?.scenarioName) || undefined,
+  scenarioAdoptedAt:
+    typeof review?.scenarioAdoptedAt === "string" && !Number.isNaN(Date.parse(review.scenarioAdoptedAt))
+      ? review.scenarioAdoptedAt
+      : undefined,
   plannedNetAssets: finiteOptionalNumber(review.plannedNetAssets),
   plannedMonthlySavings: finiteOptionalNumber(review.plannedMonthlySavings),
+  plannedTenYearAssets: finiteOptionalNumber(review.plannedTenYearAssets),
+  plannedThirtyYearAssets: finiteOptionalNumber(review.plannedThirtyYearAssets),
+  plannedGoalTitle: stringValue(review?.plannedGoalTitle) || undefined,
+  plannedGoalTargetAge:
+    review?.plannedGoalTargetAge === null ? null : finiteOptionalNumber(review?.plannedGoalTargetAge),
   actualNetAssets: finiteOptionalNumber(review.actualNetAssets),
   actualMonthlySavings: finiteOptionalNumber(review.actualMonthlySavings),
+  actualMonthlyExpenses: finiteOptionalNumber(review.actualMonthlyExpenses),
   todo: stringValue(review?.todo),
   todoDone: Boolean(review?.todoDone),
   memo: stringValue(review?.memo)
@@ -449,6 +461,14 @@ const normalizeScenario = (scenario: PlanScenario): PlanScenario => ({
   createdAt: stringValue(scenario?.createdAt, new Date().toISOString()),
   snapshot: normalizeScenarioSnapshot(scenario?.snapshot)
 });
+
+const normalizeActiveScenario = (activeScenario: LifePlan["activeScenario"]): LifePlan["activeScenario"] => {
+  if (!activeScenario || typeof activeScenario.name !== "string" || !activeScenario.name.trim()) return undefined;
+  return {
+    name: activeScenario.name,
+    adoptedAt: normalizeTimestamp(activeScenario.adoptedAt)
+  };
+};
 
 const normalizeFixedCostItem = (item: FixedCostItem): FixedCostItem => ({
   id: identifierValue(item?.id),

@@ -63,8 +63,14 @@ function App() {
     addReview,
     updateReview,
     removeReview,
+    applyBudgetActualsToReviewRecord,
+    addScenarioFromReview,
     addScenario,
     updateScenario,
+    updateScenarioHousehold,
+    updateScenarioAssets,
+    updateScenarioSimulation,
+    adoptScenario,
     removeScenario,
     addFixedCostItem,
     updateFixedCostItem,
@@ -102,7 +108,7 @@ function App() {
       if (
         (access?.tier === "free" || access?.tier === "pro") &&
         (access.mode === "preview" || access.mode === "enforced") &&
-        (access.source === "local-preview" || access.source === "anonymous" || access.source === "subscription")
+        (access.source === "local-preview" || access.source === "operator" || access.source === "anonymous" || access.source === "subscription")
       ) {
         setAccessState({ tier: access.tier, mode: access.mode, source: access.source });
       }
@@ -203,7 +209,15 @@ function App() {
   const renderView = () => {
     switch (activeView) {
       case "dashboard":
-        return <DashboardView plan={plan} reminders={reminders} setActiveView={setActiveView} startEmptyPlan={startEmptyPlan} />;
+        return (
+          <DashboardView
+            plan={plan}
+            reminders={reminders}
+            setActiveView={setActiveView}
+            startEmptyPlan={startEmptyPlan}
+            proAccess={hasFeatureAccess(accessState, "reviewHistory")}
+          />
+        );
       case "profile":
         return <ProfileView plan={plan} updateProfile={updateProfile} setActiveView={setActiveView} />;
       case "household":
@@ -282,6 +296,10 @@ function App() {
             plan={plan}
             addScenario={addScenario}
             updateScenario={updateScenario}
+            updateScenarioHousehold={updateScenarioHousehold}
+            updateScenarioAssets={updateScenarioAssets}
+            updateScenarioSimulation={updateScenarioSimulation}
+            adoptScenario={adoptScenario}
             removeScenario={removeScenario}
           />
         );
@@ -300,6 +318,8 @@ function App() {
             addReview={addReview}
             updateReview={updateReview}
             removeReview={removeReview}
+            applyBudgetActualsToReviewRecord={applyBudgetActualsToReviewRecord}
+            addScenarioFromReview={addScenarioFromReview}
           />
         );
       case "reviews":
@@ -315,6 +335,8 @@ function App() {
             addReview={addReview}
             updateReview={updateReview}
             removeReview={removeReview}
+            applyBudgetActualsToReviewRecord={applyBudgetActualsToReviewRecord}
+            addScenarioFromReview={addScenarioFromReview}
           />
         );
       case "data":

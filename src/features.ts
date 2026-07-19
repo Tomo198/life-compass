@@ -2,7 +2,7 @@ import type { ViewKey } from "./types";
 
 export type AccessTier = "free" | "pro";
 export type AccessMode = "preview" | "enforced";
-export type AccessSource = "local-preview" | "anonymous" | "subscription";
+export type AccessSource = "local-preview" | "operator" | "anonymous" | "subscription";
 
 export type AccessState = {
   tier: AccessTier;
@@ -20,7 +20,6 @@ export type FeatureKey =
   | "scenarioComparison"
   | "reviewHistory"
   | "fixedCostImpact"
-  | "advancedBudgetReview"
   | "lifePlanDiagnosis"
   | "householdEventOwners"
   | "detailedWithdrawal"
@@ -34,12 +33,9 @@ export const featureTiers = {
     reviewHistory: false,
     fixedCostImpact: false,
     budgetPlanning: true,
-    advancedBudgetReview: false,
     encryptedCloudBackup: false,
     lifePlanDiagnosis: false,
-    householdEventOwners: false,
-    detailedContribution: false,
-    detailedWithdrawal: false,
+    simulationVariability: false,
     retirementPlanning: false
   },
   pro: {
@@ -49,12 +45,9 @@ export const featureTiers = {
     reviewHistory: true,
     fixedCostImpact: true,
     budgetPlanning: true,
-    advancedBudgetReview: true,
     encryptedCloudBackup: true,
     lifePlanDiagnosis: true,
-    householdEventOwners: true,
-    detailedContribution: true,
-    detailedWithdrawal: true,
+    simulationVariability: true,
     retirementPlanning: true
   }
 };
@@ -63,8 +56,8 @@ export type FeatureAccessKey = Exclude<keyof typeof featureTiers.free, "planLimi
 
 export const defaultAccessState: AccessState = {
   tier: "free",
-  mode: "preview",
-  source: "local-preview"
+  mode: "enforced",
+  source: "anonymous"
 };
 
 const proViewFeatures: Partial<Record<ViewKey, FeatureAccessKey>> = {
@@ -88,27 +81,22 @@ export const canOpenView = (access: AccessState, view: ViewKey) => {
 export const getPlanLimit = (access: AccessState) => featureTiers[getEffectiveTier(access)].planLimit;
 export const getScenarioLimit = (access: AccessState) => featureTiers[getEffectiveTier(access)].scenarioLimit;
 
-export const proPriceLabel = "月額590円（税込・予定）";
-
 export const featureComparison: Array<{
   key: FeatureKey;
   label: string;
   free: string;
   pro: string;
 }> = [
-  { key: "singlePlan", label: "ライフプラン", free: "1プラン", pro: "最大20シナリオ" },
+  { key: "singlePlan", label: "ライフプラン", free: "基本プラン1件", pro: "基本プラン + 最大20シナリオ" },
   { key: "basicPlanning", label: "基本機能", free: "家計・資産・目標・年表・メモ", pro: "無料版の全機能" },
-  { key: "budgetPlanning", label: "予算・実績", free: "月次の予算と実績", pro: "履歴・前年差・レビュー連携" },
-  { key: "basicSimulation", label: "見通し", free: "基本資産推移・積立・基本取り崩し", pro: "詳細条件・ばらつき・老後設計" },
+  { key: "budgetPlanning", label: "予算・実績", free: "月次入力・年間履歴・予算比較", pro: "レビューへの実績反映・計画差" },
+  { key: "basicSimulation", label: "見通し", free: "基本資産推移・積立・取り崩し", pro: "1000回のばらつき試算・老後設計" },
   { key: "jsonBackup", label: "データ保存", free: "ブラウザ内保存・JSONバックアップ", pro: "無料版と同じ" },
-  { key: "encryptedCloudBackup", label: "暗号化クラウドバックアップ", free: "JSONで手動保管", pro: "暗号化した手動保存・復元（準備中）" },
+  { key: "encryptedCloudBackup", label: "暗号化クラウドバックアップ", free: "JSONで手動保管", pro: "暗号化した手動保存・復元" },
   { key: "scenarioComparison", label: "シナリオ比較", free: "プレビュー", pro: "保存・比較・差分確認" },
-  { key: "reviewHistory", label: "見直し履歴", free: "現在のメモ", pro: "月次・四半期履歴とTODO" },
+  { key: "reviewHistory", label: "レビューセンター", free: "現在のメモ", pro: "計画差・前回差・将来見通し・TODO" },
   { key: "fixedCostImpact", label: "固定費見直し", free: "固定費の入力", pro: "年間・10年後・30年後への影響比較" },
-  { key: "householdEventOwners", label: "家族・世帯", free: "世帯全体の予定", pro: "本人・配偶者・子・親ごとの管理" },
-  { key: "lifePlanDiagnosis", label: "ライフプラン診断", free: "入力完了度", pro: "確認ポイントと改善履歴" },
-  { key: "detailedWithdrawal", label: "詳細取り崩し・老後設計", free: "基本取り崩し", pro: "ばらつき・年金等を含む詳細見通し" }
+  { key: "householdEventOwners", label: "家族・世帯", free: "本人・配偶者・子ども・親ごとの予定整理", pro: "家族の予定を含むシナリオ比較" },
+  { key: "lifePlanDiagnosis", label: "ライフプラン診断", free: "入力完了度・未入力ガイド", pro: "家計・資産・目標等の横断確認" },
+  { key: "detailedWithdrawal", label: "取り崩し・老後設計", free: "金額・年率による105歳までの試算", pro: "ばらつき・年金等を含む詳細見通し" }
 ];
-
-// 課金導入前はPro画面を試用できる状態にし、境界はバッジと料金表で明示します。
-export const proPreviewEnabled = defaultAccessState.mode === "preview";
