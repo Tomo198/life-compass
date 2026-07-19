@@ -3,6 +3,7 @@ import { LineChart } from "../components/Charts";
 import { EmptyState, Metric, MoneyInput, NumericInput, StepFlowNav, StepTitle } from "../components/CommonUi";
 import { MAX_PLAN_YEAR } from "../config";
 import { eventOwnerLabels, monthLabels } from "../data/labels";
+import { featureTiers } from "../features";
 import type {
   EventOwner,
   LifePlan,
@@ -54,6 +55,7 @@ export function NotesView({
     (review) => review.reviewType === "monthly" && review.date.slice(0, 7) === currentMonthKey
   );
   const activeScenarioName = plan.activeScenario?.name || latestReview?.scenarioName || "基本プラン";
+  const scenarioLimitReached = (plan.scenarios || []).length >= featureTiers.pro.scenarioLimit;
   const reviewTrendPoints = chronologicalReviews
     .filter((review) => review.actualNetAssets !== undefined)
     .map((review, index) => ({
@@ -71,7 +73,15 @@ export function NotesView({
   };
 
   const handleCreateReviewScenario = () => {
-    if (!latestReview || !addScenarioFromReview(latestReview.id)) return;
+    if (!latestReview) return;
+    if (!addScenarioFromReview(latestReview.id)) {
+      setReviewMessage(
+        scenarioLimitReached
+          ? `比較案は最大${featureTiers.pro.scenarioLimit}件です。不要な案を削除してから追加してください。`
+          : "見直し案を保存できませんでした。ブラウザの保存状態を確認してください。"
+      );
+      return;
+    }
     setActiveView("scenarios");
   };
 

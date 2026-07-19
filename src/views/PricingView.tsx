@@ -41,6 +41,7 @@ export function PricingView({
           <p className="muted">1か月ごとの自動更新を予定</p>
           <ul>
             <li>複数シナリオを保存し、将来の差を比較</li>
+            <li>見直し候補を横断整理し、比較案へつなげる</li>
             <li>採用した計画と実績の差を毎月確認</li>
             <li>10年・30年見通しと次のTODOを履歴化</li>
             <li>積立・取り崩しの1000回ばらつき試算</li>

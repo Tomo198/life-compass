@@ -2768,12 +2768,18 @@ td select {
   margin-top: 1rem;
 }
 
+.diagnosis-section-heading {
+  margin-top: 1.25rem;
+}
+
 .diagnosis-item {
   display: flex;
   justify-content: space-between;
   gap: 1rem;
   align-items: center;
+  padding: 0.9rem;
   border: 1px solid var(--line);
+  border-radius: 8px;
   background: var(--surface);
   color: var(--ink);
   text-align: left;
@@ -2783,15 +2789,29 @@ td select {
   background: var(--surface-soft);
 }
 
-.diagnosis-item div {
+.diagnosis-item-copy {
+  flex: 1 1 auto;
+  min-width: 0;
   display: grid;
   gap: 0.25rem;
 }
 
-.diagnosis-item span,
+.diagnosis-item-copy span,
 .diagnosis-item small {
   color: var(--muted);
   line-height: 1.5;
+}
+
+.diagnosis-item-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.diagnosis-item-actions button {
+  white-space: nowrap;
 }
 
 .diagnosis-item.good {
@@ -2804,6 +2824,18 @@ td select {
 
 .diagnosis-item.notice {
   border-color: rgba(162, 59, 59, 0.32);
+}
+
+.diagnosis-confirmed {
+  margin-top: 1rem;
+  border-top: 1px solid var(--line);
+}
+
+.diagnosis-confirmed summary {
+  padding: 1rem 0 0.25rem;
+  color: var(--muted);
+  cursor: pointer;
+  font-weight: 700;
 }
 
 .data-status-grid,
@@ -4523,9 +4555,25 @@ td select {
 
   .review-center .calculation-band.compact,
   .pro-review-dashboard .calculation-band.compact,
+  .life-plan-diagnosis .calculation-band.compact,
   .review-metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 0.6rem;
+  }
+
+  .diagnosis-item {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .diagnosis-item-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .diagnosis-item-actions button {
+    width: 100%;
+    white-space: normal;
   }
 
   .metric {

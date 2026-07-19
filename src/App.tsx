@@ -304,7 +304,7 @@ function App() {
           />
         );
       case "diagnosis":
-        return <LifePlanDiagnosisView plan={plan} setActiveView={setActiveView} />;
+        return <LifePlanDiagnosisView plan={plan} setActiveView={setActiveView} addScenario={addScenario} />;
       case "notes":
         return (
           <NotesView

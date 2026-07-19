@@ -7,6 +7,7 @@ import {
   scenarioTemplates,
   type ScenarioTemplate
 } from "../data/scenarios";
+import { featureTiers } from "../features";
 import type { Assets, Household, LifePlan, PlanScenario, ScenarioTag, SimulationSettings } from "../types";
 import {
   buildPlanFromScenario,
@@ -17,7 +18,7 @@ import { getScenarioComparisonMetrics } from "../utils/scenarios";
 
 type ScenarioComparisonViewProps = {
   plan: LifePlan;
-  addScenario: (template: ScenarioTemplate) => void;
+  addScenario: (template: ScenarioTemplate) => boolean;
   updateScenario: <K extends keyof PlanScenario>(id: string, key: K, value: PlanScenario[K]) => void;
   updateScenarioHousehold: <K extends keyof Household>(id: string, key: K, value: Household[K]) => void;
   updateScenarioAssets: <K extends keyof Assets>(id: string, key: K, value: Assets[K]) => void;
@@ -38,6 +39,7 @@ export function ScenarioComparisonView({
 }: ScenarioComparisonViewProps) {
   const scenarios = plan.scenarios || [];
   const [selectedScenarioId, setSelectedScenarioId] = useState("current");
+  const [addMessage, setAddMessage] = useState("");
   const [actionMessage, setActionMessage] = useState("");
   const comparisonMetrics = useMemo(() => getScenarioComparisonMetrics(plan), [plan]);
   const scenarioOptions = useMemo(
@@ -50,6 +52,19 @@ export function ScenarioComparisonView({
   const selectedScenario = scenarioOptions.find((item) => item.id === selectedScenarioId) || scenarioOptions[0];
   const selectedPlanScenario = scenarios.find((scenario) => scenario.id === selectedScenarioId) || null;
   const selectedScenarioRows = getAnnualProjectionRows(selectedScenario.plan, 30);
+  const scenarioLimitReached = scenarios.length >= featureTiers.pro.scenarioLimit;
+
+  const handleAddScenario = (template: ScenarioTemplate) => {
+    if (addScenario(template)) {
+      setAddMessage(`「${template.name}」の比較案を追加しました。仮条件を確認して調整してください。`);
+      return;
+    }
+    setAddMessage(
+      scenarioLimitReached
+        ? `比較案は最大${featureTiers.pro.scenarioLimit}件です。不要な案を削除してから追加してください。`
+        : "比較案を保存できませんでした。ブラウザの保存状態を確認してください。"
+    );
+  };
 
   const handleAdoptScenario = () => {
     if (!selectedPlanScenario) return;
@@ -80,15 +95,16 @@ export function ScenarioComparisonView({
             <h2>シナリオを追加</h2>
             <p>テンプレートは仮条件です。個別の助言ではなく、前提条件に基づく比較用のたたき台として使います。</p>
           </div>
-          <span className="status-pill recurring">{scenarios.length}件</span>
+          <span className="status-pill recurring">{scenarios.length} / {featureTiers.pro.scenarioLimit}件</span>
         </div>
         <div className="template-actions">
           {scenarioTemplates.map((template) => (
-            <button key={template.tag} type="button" className="secondary" onClick={() => addScenario(template)}>
+            <button key={template.tag} type="button" className="secondary" disabled={scenarioLimitReached} onClick={() => handleAddScenario(template)}>
               {template.name}
             </button>
           ))}
         </div>
+        {addMessage ? <p className="success-text" role="status">{addMessage}</p> : null}
         {scenarios.length === 0 ? (
           <EmptyState title="シナリオはまだありません" detail="まずは現状維持と、気になる変更案を1つ追加すると比較しやすくなります。" />
         ) : (
@@ -142,6 +158,7 @@ export function ScenarioComparisonView({
               onChange={(event) => {
                 setSelectedScenarioId(event.target.value);
                 setActionMessage("");
+                setAddMessage("");
               }}
             >
               {scenarioOptions.map((item) => (

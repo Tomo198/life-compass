@@ -71,6 +71,7 @@ import {
   createScenarioFromReview
 } from "../src/utils/reviews";
 import { defaultSettings, getAppReminders } from "../src/utils/settings";
+import { getLifePlanDiagnosis } from "../src/utils/diagnosis";
 
 const currentYear = new Date().getFullYear();
 
@@ -123,6 +124,46 @@ test("enforced Pro access unlocks Pro views without preview mode", () => {
   assert.equal(getEffectiveTier(access), "pro");
   assert.equal(hasFeatureAccess(access, "lifePlanDiagnosis"), true);
   assert.equal(canOpenView(access, "diagnosis"), true);
+});
+
+test("life plan diagnosis links a household deficit to an editable spending scenario", () => {
+  const deficitPlan: LifePlan = {
+    ...basePlan,
+    household: {
+      ...basePlan.household,
+      monthlyIncome: 100000,
+      sideIncome: 0,
+      fixedCost: 180000,
+      variableCost: 80000
+    }
+  };
+  const deficitItem = getLifePlanDiagnosis(deficitPlan).find((item) => item.title === "通常月の収支がマイナスの前提です");
+  assert.equal(deficitItem?.suggestedScenarioTag, "spending");
+
+  const regularItem = getLifePlanDiagnosis(basePlan).find((item) => item.title === "通常月の家計余剰を確認できます");
+  assert.equal(regularItem?.tone, "good");
+  assert.equal(regularItem?.suggestedScenarioTag, undefined);
+});
+
+test("life plan diagnosis links a completed budget overrun to a spending scenario", () => {
+  const now = new Date();
+  const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const plan: LifePlan = {
+    ...basePlan,
+    budgetItems: [
+      {
+        id: "budget-overrun",
+        name: "食費",
+        category: "food",
+        frequency: "monthlyVariable",
+        budgetAmount: 50000,
+        actuals: { [currentMonthKey]: 65000 },
+        memo: ""
+      }
+    ]
+  };
+  const budgetItem = getLifePlanDiagnosis(plan).find((item) => item.title === "予算を上回っているカテゴリがあります");
+  assert.equal(budgetItem?.suggestedScenarioTag, "spending");
 });
 
 test("public routes and titles preserve direct legal-page navigation", () => {

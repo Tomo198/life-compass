@@ -97,6 +97,6 @@ export const featureComparison: Array<{
   { key: "reviewHistory", label: "レビューセンター", free: "現在のメモ", pro: "計画差・前回差・将来見通し・TODO" },
   { key: "fixedCostImpact", label: "固定費見直し", free: "固定費の入力", pro: "年間・10年後・30年後への影響比較" },
   { key: "householdEventOwners", label: "家族・世帯", free: "本人・配偶者・子ども・親ごとの予定整理", pro: "家族の予定を含むシナリオ比較" },
-  { key: "lifePlanDiagnosis", label: "ライフプラン診断", free: "入力完了度・未入力ガイド", pro: "家計・資産・目標等の横断確認" },
+  { key: "lifePlanDiagnosis", label: "ライフプラン診断", free: "入力完了度・未入力ガイド", pro: "見直し候補の横断整理・比較案作成" },
   { key: "detailedWithdrawal", label: "取り崩し・老後設計", free: "金額・年率による105歳までの試算", pro: "ばらつき・年金等を含む詳細見通し" }
 ];

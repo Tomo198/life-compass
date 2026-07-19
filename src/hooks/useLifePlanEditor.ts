@@ -4,6 +4,7 @@ import { createId, defaultPlan } from "../data/defaultPlan";
 import type { EventTemplate } from "../data/eventTemplates";
 import type { GoalTemplate } from "../data/goalTemplates";
 import { createScenarioFromTemplate, type ScenarioTemplate } from "../data/scenarios";
+import { featureTiers } from "../features";
 import type {
   Assets,
   BudgetItem,
@@ -208,14 +209,15 @@ export function useLifePlanEditor() {
 
   const addScenarioFromReview = (reviewId: string) => {
     const review = (plan.reviews || []).find((item) => item.id === reviewId);
-    if (!review) return false;
+    if (!review || (plan.scenarios || []).length >= featureTiers.pro.scenarioLimit) return false;
     const scenario = createScenarioFromReview(plan, review, createId(), new Date().toISOString());
     return commitPlan({ ...plan, scenarios: [...(plan.scenarios || []), scenario] });
   };
 
   const addScenario = (template: ScenarioTemplate) => {
+    if ((plan.scenarios || []).length >= featureTiers.pro.scenarioLimit) return false;
     const nextScenario = createScenarioFromTemplate(plan, template);
-    commitPlan({ ...plan, scenarios: [...(plan.scenarios || []), nextScenario] });
+    return commitPlan({ ...plan, scenarios: [...(plan.scenarios || []), nextScenario] });
   };
 
   const updateScenario = <K extends keyof PlanScenario>(id: string, key: K, value: PlanScenario[K]) => {

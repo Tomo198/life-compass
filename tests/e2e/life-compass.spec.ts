@@ -298,6 +298,28 @@ test("シナリオ前提を編集して基本プランへ採用し、採用前�
   await expect(page.getByText("支出見直し", { exact: true }).first()).toBeVisible();
 });
 
+test("診断の見直し候補から支出見直しの比較案を作成して保存できる", async ({ page }) => {
+  await openView(page, "household");
+  const fixedCostInput = page.getByLabel("固定費");
+  await fixedCostInput.fill("900000");
+  await fixedCostInput.blur();
+
+  await openView(page, "diagnosis");
+  await expect(page.getByRole("heading", { name: "今回の見直し候補", level: 3 })).toBeVisible();
+  await expect(page.getByText("通常月の収支がマイナスの前提です", { exact: true })).toBeVisible();
+  await expect(page.locator(".diagnosis-confirmed")).not.toHaveAttribute("open", "");
+  await page.getByRole("button", { name: "支出見直しの比較案を作る", exact: true }).click();
+
+  await expect(page.getByRole("heading", { name: "シナリオ比較", level: 1 })).toBeVisible();
+  await expect(page.locator(".scenario-row").getByLabel("シナリオ名")).toHaveValue("支出見直し");
+  await page.reload();
+  await openView(page, "scenarios");
+  await expect(page.locator(".scenario-row").getByLabel("シナリオ名")).toHaveValue("支出見直し");
+
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect(overflow).toBeLessThanOrEqual(1);
+});
+
 test("Proレビューで将来見通しを保存し、見直しシナリオへつなげられる", async ({ page }) => {
   await openView(page, "reviews");
   await expect(page.getByRole("heading", { name: "計画と実績の差を、次の見直しへつなげる", level: 2 })).toBeVisible();

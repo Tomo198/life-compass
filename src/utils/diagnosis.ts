@@ -1,5 +1,5 @@
 import { budgetCategoryLabels } from "../data/labels";
-import type { EventOwner, LifePlan, ViewKey } from "../types";
+import type { EventOwner, LifePlan, ScenarioTag, ViewKey } from "../types";
 import {
   emergencyMonthsLabel,
   getAssetSummary,
@@ -17,6 +17,7 @@ export type DiagnosisItem = {
   detail: string;
   tone: "good" | "check" | "notice";
   view: ViewKey;
+  suggestedScenarioTag?: ScenarioTag;
 };
 
 export function getLifePlanDiagnosis(plan: LifePlan): DiagnosisItem[] {
@@ -71,8 +72,9 @@ export function getLifePlanDiagnosis(plan: LifePlan): DiagnosisItem[] {
       cashflow.monthlySavings < 0
         ? `毎月${manYen(Math.abs(cashflow.monthlySavings))}の不足です。固定費、変動費、特別支出の入力を確認します。`
         : `通常月の家計余剰は${manYen(cashflow.monthlySavings)}、貯蓄率は${percent(cashflow.savingsRate)}の前提です。`,
-    tone: cashflow.monthlySavings < 0 ? "notice" : "check",
-    view: "household"
+    tone: cashflow.monthlySavings < 0 ? "notice" : "good",
+    view: "household",
+    suggestedScenarioTag: cashflow.monthlySavings < 0 ? "spending" : undefined
   });
 
   if (assets.netAssets < 0) {
@@ -163,7 +165,8 @@ export function getLifePlanDiagnosis(plan: LifePlan): DiagnosisItem[] {
       title: "予算を上回っているカテゴリがあります",
       detail: `${currentMonthKey} は ${overBudgetCategories.slice(0, 3).map((row) => budgetCategoryLabels[row.category]).join("、")} を確認できます。`,
       tone: "check",
-      view: "budget"
+      view: "budget",
+      suggestedScenarioTag: "spending"
     });
   } else {
     items.push({
