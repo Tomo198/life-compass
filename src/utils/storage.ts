@@ -3,6 +3,7 @@ import {
   CURRENT_PLAN_VERSION,
   MAX_MONEY_AMOUNT,
   MAX_PLAN_AGE,
+  MAX_PLAN_REVISIONS,
   MAX_PLAN_YEAR,
   MAX_PROJECTION_YEARS,
   MAX_RATE_PERCENT,
@@ -27,6 +28,9 @@ import type {
   LifeEvent,
   LifeEventCategory,
   LifePlan,
+  PlanRevision,
+  PlanRevisionSnapshot,
+  PlanRevisionSource,
   PlanScenario,
   Priority,
   RecurrenceInterval,
@@ -103,6 +107,7 @@ const cashflowPeriodTargets: CashflowPeriodTarget[] = [
   "annualSpecialCost"
 ];
 const scenarioTags: ScenarioTag[] = ["current", "spending", "career", "sideBusiness", "home", "retirement", "custom"];
+const planRevisionSources: PlanRevisionSource[] = ["manual", "review", "scenarioAdoption", "beforeRestore"];
 const fixedCostCategories: FixedCostCategory[] = [
   "insurance",
   "communication",
@@ -285,6 +290,9 @@ const normalizePlan = (plan: LifePlan): LifePlan => {
     retirementPlan: normalizeRetirementPlan(plan.retirementPlan),
     reviews: Array.isArray(plan.reviews) ? plan.reviews.map(normalizeReview) : [],
     scenarios: Array.isArray(plan.scenarios) ? plan.scenarios.map(normalizeScenario) : [],
+    planRevisions: Array.isArray(plan.planRevisions)
+      ? plan.planRevisions.map(normalizePlanRevision).slice(0, MAX_PLAN_REVISIONS)
+      : [],
     activeScenario: normalizeActiveScenario(plan.activeScenario),
     fixedCostItems: Array.isArray(plan.fixedCostItems) ? plan.fixedCostItems.map(normalizeFixedCostItem) : [],
     budgetItems: Array.isArray(plan.budgetItems) ? plan.budgetItems.map(normalizeBudgetItem) : [],
@@ -533,4 +541,37 @@ const normalizeBudgetItem = (item: BudgetItem): BudgetItem => ({
   budgetAmount: nonNegativeNumber(item?.budgetAmount),
   actuals: normalizeActuals(item?.actuals),
   memo: stringValue(item?.memo)
+});
+
+const normalizePlanRevisionSnapshot = (snapshot: PlanRevisionSnapshot | undefined): PlanRevisionSnapshot => ({
+  profile: normalizeProfile(snapshot?.profile),
+  household: normalizeHousehold(snapshot?.household),
+  cashflowPeriods: Array.isArray(snapshot?.cashflowPeriods)
+    ? snapshot.cashflowPeriods.map(normalizeCashflowPeriod)
+    : [],
+  assets: normalizeAssets(snapshot?.assets),
+  goals: Array.isArray(snapshot?.goals) ? snapshot.goals.map(normalizeGoal) : [],
+  events: Array.isArray(snapshot?.events) ? snapshot.events.map(normalizeEvent) : [],
+  timelineMemos: Array.isArray(snapshot?.timelineMemos) ? snapshot.timelineMemos.map(normalizeTimelineMemo) : [],
+  simulation: normalizeSimulation(snapshot?.simulation),
+  withdrawalPlan: normalizeWithdrawalPlan(snapshot?.withdrawalPlan),
+  retirementPlan: normalizeRetirementPlan(snapshot?.retirementPlan),
+  notes: {
+    general: stringValue(snapshot?.notes?.general),
+    spendingReview: stringValue(snapshot?.notes?.spendingReview)
+  },
+  activeScenario: normalizeActiveScenario(snapshot?.activeScenario),
+  fixedCostItems: Array.isArray(snapshot?.fixedCostItems)
+    ? snapshot.fixedCostItems.map(normalizeFixedCostItem)
+    : [],
+  budgetItems: Array.isArray(snapshot?.budgetItems) ? snapshot.budgetItems.map(normalizeBudgetItem) : []
+});
+
+const normalizePlanRevision = (revision: PlanRevision): PlanRevision => ({
+  id: identifierValue(revision?.id),
+  title: nonEmptyString(revision?.title, "保存した計画"),
+  createdAt: normalizeTimestamp(revision?.createdAt),
+  source: enumValue(revision?.source, planRevisionSources, "manual"),
+  sourceReviewId: stringValue(revision?.sourceReviewId) || undefined,
+  snapshot: normalizePlanRevisionSnapshot(revision?.snapshot)
 });

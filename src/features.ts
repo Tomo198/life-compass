@@ -20,6 +20,7 @@ export type FeatureKey =
   | "encryptedCloudBackup"
   | "scenarioComparison"
   | "reviewHistory"
+  | "planVersionHistory"
   | "fixedCostImpact"
   | "lifePlanDiagnosis"
   | "householdEventOwners"
@@ -32,6 +33,7 @@ export const featureTiers = {
     scenarioLimit: 0,
     scenarioComparison: false,
     reviewHistory: false,
+    planVersionHistory: false,
     fixedCostImpact: false,
     budgetPlanning: true,
     detailedCashflow: false,
@@ -45,6 +47,7 @@ export const featureTiers = {
     scenarioLimit: 20,
     scenarioComparison: true,
     reviewHistory: true,
+    planVersionHistory: true,
     fixedCostImpact: true,
     budgetPlanning: true,
     detailedCashflow: true,
@@ -99,6 +102,7 @@ export const featureComparison: Array<{
   { key: "encryptedCloudBackup", label: "暗号化クラウドバックアップ", free: "JSONで手動保管", pro: "暗号化した手動保存・復元" },
   { key: "scenarioComparison", label: "シナリオ比較", free: "プレビュー", pro: "保存・比較・差分確認" },
   { key: "reviewHistory", label: "レビューセンター", free: "現在のメモ", pro: "計画差・前回差・将来見通し・TODO" },
+  { key: "planVersionHistory", label: "計画の版履歴", free: "JSONで手動保管", pro: "見直し時の自動保存・復元" },
   { key: "fixedCostImpact", label: "固定費見直し", free: "固定費の入力", pro: "年間・10年後・30年後への影響比較" },
   { key: "householdEventOwners", label: "家族・世帯", free: "本人・配偶者・子ども・親ごとの予定整理", pro: "家族の予定を含むシナリオ比較" },
   { key: "lifePlanDiagnosis", label: "ライフプラン診断", free: "入力完了度・未入力ガイド", pro: "見直し候補の横断整理・比較案作成" },

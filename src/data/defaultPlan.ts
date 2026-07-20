@@ -144,6 +144,7 @@ export const defaultPlan: LifePlan = {
   },
   reviews: [],
   scenarios: [],
+  planRevisions: [],
   fixedCostItems: [
     {
       id: createId(),

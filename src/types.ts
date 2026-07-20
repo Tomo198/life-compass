@@ -31,6 +31,7 @@ export type FixedCostCategory =
   | "loan"
   | "other";
 export type ReviewType = "monthly" | "quarterly";
+export type PlanRevisionSource = "manual" | "review" | "scenarioAdoption" | "beforeRestore";
 export type CashflowPeriodTarget =
   | "monthlyIncome"
   | "annualBonus"
@@ -244,6 +245,32 @@ export type PlanNotes = {
   spendingReview: string;
 };
 
+export type PlanRevisionSnapshot = {
+  profile: Profile;
+  household: Household;
+  cashflowPeriods: CashflowPeriod[];
+  assets: Assets;
+  goals: Goal[];
+  events: LifeEvent[];
+  timelineMemos: TimelineMemo[];
+  simulation: SimulationSettings;
+  withdrawalPlan: WithdrawalPlanSettings;
+  retirementPlan: RetirementPlanSettings;
+  notes: PlanNotes;
+  activeScenario?: ActiveScenario;
+  fixedCostItems: FixedCostItem[];
+  budgetItems: BudgetItem[];
+};
+
+export type PlanRevision = {
+  id: string;
+  title: string;
+  createdAt: string;
+  source: PlanRevisionSource;
+  sourceReviewId?: string;
+  snapshot: PlanRevisionSnapshot;
+};
+
 export type LifePlan = {
   version: number;
   profile: Profile;
@@ -259,6 +286,7 @@ export type LifePlan = {
   notes: PlanNotes;
   reviews: ReviewNote[];
   scenarios: PlanScenario[];
+  planRevisions: PlanRevision[];
   activeScenario?: ActiveScenario;
   fixedCostItems: FixedCostItem[];
   budgetItems: BudgetItem[];

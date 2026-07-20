@@ -2836,6 +2836,68 @@ td select {
   min-height: auto;
 }
 
+.plan-revision-list {
+  display: grid;
+  gap: 0.85rem;
+  margin-top: 1rem;
+}
+
+.plan-revision-item {
+  display: grid;
+  gap: 0.85rem;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+
+.plan-revision-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.plan-revision-head > div {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.plan-revision-head span:not(.status-pill) {
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.plan-revision-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.65rem;
+  margin: 0;
+}
+
+.plan-revision-summary > div {
+  min-width: 0;
+  padding: 0.75rem;
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.plan-revision-summary dt {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.plan-revision-summary dd {
+  margin: 0.25rem 0 0;
+  font-weight: 750;
+  overflow-wrap: anywhere;
+}
+
+.plan-revision-actions {
+  justify-content: flex-end;
+  margin: 0;
+}
+
 .status-list {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -4647,6 +4709,23 @@ td select {
   .review-cycle-actions button,
   .review-record-actions button,
   .pro-review-dashboard .button-row button {
+    width: 100%;
+  }
+
+  .plan-revision-head {
+    flex-direction: column;
+  }
+
+  .plan-revision-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .plan-revision-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .plan-revision-actions button {
     width: 100%;
   }
 

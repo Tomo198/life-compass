@@ -105,6 +105,7 @@ Life Compass は、投資を主軸にしない個人向けライフプランナ�
   - 月次の予算・実績がすべて入力済みの場合、その月の実績支出と家計余剰をレビューへ反映する
   - 計画との差、前回レビューとの差、未完了TODOを確認する
   - レビュー内容から編集可能な見直しシナリオを作成し、比較・採用へつなげる
+  - レビュー作成時とシナリオ採用前の計画を版として保存し、以前の前提へ復元できる
 - 積立・取り崩しの1000回ばらつき試算
 - 固定費見直しインパクト
 - 退職後の生活費・年金・社会保険・税金・インフレを置いた老後生活プラン
@@ -127,6 +128,7 @@ Life Compass は、投資を主軸にしない個人向けライフプランナ�
 | 老後生活プラン | 利用不可 | 年金、国民健康保険、介護保険、税金を含む詳細見通し |
 | 生活防衛資金 | 基本チェック | 世帯/働き方別の詳細レビュー |
 | 目標管理 | 目標一覧と進捗 | 達成予定変化、レビューセンターへの記録 |
+| 計画の版履歴 | JSONで手動バックアップ | レビュー・シナリオ採用と連動した版保存、比較用データを残した復元 |
 | ライフイベント | 年表作成 | シナリオごとの差分管理 |
 | 世帯イベント | 本人、配偶者、子ども、親、世帯全体で対象者別に整理 | 対象者別の予定を含むシナリオ比較 |
 | 診断 | 入力完了度の案内 | 家計、資産、目標、イベント、レビューの確認ポイント整理 |
@@ -148,6 +150,7 @@ type LifePlan = {
   retirementPlan: RetirementPlanSettings;
   reviews: ReviewNote[];
   scenarios: PlanScenario[];
+  planRevisions: PlanRevision[];
   activeScenario?: ActiveScenario;
   fixedCostItems: FixedCostItem[];
   budgetItems: BudgetItem[];
@@ -157,6 +160,15 @@ type LifePlan = {
 type ActiveScenario = {
   name: string;
   adoptedAt: string;
+};
+
+type PlanRevision = {
+  id: string;
+  title: string;
+  createdAt: string;
+  source: "manual" | "review" | "scenarioAdoption" | "beforeRestore";
+  sourceReviewId?: string;
+  snapshot: PlanRevisionSnapshot;
 };
 
 type Profile = {
@@ -260,11 +272,13 @@ type RetirementPlanSettings = {
 
 ### 保存形式と復旧
 
-- 現行の保存形式は `version: 6`
+- 現行の保存形式は `version: 7`
 - 旧JSONはインポート時に現行形式へ正規化する
 - 現行アプリより新しい形式のJSONは、項目欠落を防ぐため読み込みを拒否する
 - インポート対象は5MB以下のJSONとする
 - JSONインポート、サンプル復帰、空プラン作成の前に復旧用コピーをブラウザ内へ最大3件保存する
+- Proの計画版はブラウザ内へ最大8件保存し、JSONと暗号化クラウドバックアップにも含める
+- 計画版の復元前に現在の計画を自動保存し、レビュー履歴と比較シナリオは復元後も残す
 - 読み取れない保存データは上書きせず、復旧確認用の生データとしてブラウザ内に保持する
 - ブラウザ保存に失敗した場合は入力内容を画面に保持し、保存失敗とJSONエクスポートの案内を表示する
 

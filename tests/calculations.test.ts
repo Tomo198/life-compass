@@ -4,6 +4,7 @@ import {
   CURRENT_PLAN_VERSION,
   MAX_MONEY_AMOUNT,
   MAX_PLAN_AGE,
+  MAX_PLAN_REVISIONS,
   MAX_PROJECTION_YEARS,
   MAX_RATE_PERCENT,
   RECOVERY_STORAGE_KEY,
@@ -74,6 +75,11 @@ import {
 } from "../src/utils/reviews";
 import { defaultSettings, getAppReminders } from "../src/utils/settings";
 import { getLifePlanDiagnosis } from "../src/utils/diagnosis";
+import {
+  addPlanRevision,
+  createPlanRevision,
+  restorePlanRevision
+} from "../src/utils/planRevisions";
 
 const currentYear = new Date().getFullYear();
 
@@ -116,6 +122,7 @@ test("enforced free access blocks Pro views and capabilities", () => {
   assert.equal(getEffectiveTier(access), "free");
   assert.equal(hasFeatureAccess(access, "fixedCostImpact"), false);
   assert.equal(hasFeatureAccess(access, "budgetPlanning"), true);
+  assert.equal(hasFeatureAccess(access, "planVersionHistory"), false);
   assert.equal(hasFeatureAccess(access, "simulationVariability"), false);
   assert.equal(canOpenView(access, "retirement"), false);
   assert.equal(canOpenView(access, "dashboard"), true);
@@ -125,6 +132,7 @@ test("enforced Pro access unlocks Pro views without preview mode", () => {
   const access: AccessState = { tier: "pro", mode: "enforced", source: "operator" };
   assert.equal(getEffectiveTier(access), "pro");
   assert.equal(hasFeatureAccess(access, "lifePlanDiagnosis"), true);
+  assert.equal(hasFeatureAccess(access, "planVersionHistory"), true);
   assert.equal(canOpenView(access, "diagnosis"), true);
 });
 
@@ -195,6 +203,7 @@ test("empty plan starts without personal data and keeps complete simulation sett
   assert.deepEqual(plan.goals, []);
   assert.deepEqual(plan.events, []);
   assert.deepEqual(plan.budgetItems, []);
+  assert.deepEqual(plan.planRevisions, []);
   assert.equal(plan.withdrawalPlan.years, 101);
   assert.equal(plan.withdrawalPlan.periods.length, 1);
   assert.equal(plan.simulation.years, 30);
@@ -286,6 +295,7 @@ const basePlan: LifePlan = {
   },
   reviews: [],
   scenarios: [],
+  planRevisions: [],
   fixedCostItems: [],
   budgetItems: [],
   updatedAt: new Date().toISOString()
@@ -294,6 +304,76 @@ const basePlan: LifePlan = {
 const assertAlmostEqual = (actual: number, expected: number, tolerance = 0.01) => {
   assert.ok(Math.abs(actual - expected) <= tolerance, `expected ${actual} to be within ${tolerance} of ${expected}`);
 };
+
+test("計画版は保存時点を複製し、上限件数を超えない", () => {
+  const plan = createEmptyPlan();
+  plan.household.monthlyIncome = 300000;
+  plan.budgetItems = [
+    {
+      id: "budget-1",
+      name: "食費",
+      category: "food",
+      frequency: "monthlyVariable",
+      budgetAmount: 50000,
+      actuals: { "2026-07": 48000 },
+      memo: ""
+    }
+  ];
+
+  const saved = createPlanRevision(plan, "revision-1", "保存時点", "manual", "2026-07-01T00:00:00.000Z");
+  plan.household.monthlyIncome = 450000;
+  plan.budgetItems[0].actuals["2026-07"] = 70000;
+
+  assert.equal(saved.snapshot.household.monthlyIncome, 300000);
+  assert.equal(saved.snapshot.budgetItems[0].actuals["2026-07"], 48000);
+
+  let revisions = [];
+  for (let index = 0; index < MAX_PLAN_REVISIONS + 2; index += 1) {
+    revisions = addPlanRevision(
+      revisions,
+      createPlanRevision(plan, `revision-${index + 2}`, `版${index + 2}`, "manual", `2026-07-${String(index + 2).padStart(2, "0")}T00:00:00.000Z`)
+    );
+  }
+
+  assert.equal(revisions.length, MAX_PLAN_REVISIONS);
+  assert.equal(revisions[0].id, `revision-${MAX_PLAN_REVISIONS + 3}`);
+});
+
+test("計画版の復元は現在の計画を退避し、レビューと比較案を残す", () => {
+  const savedPlan = createEmptyPlan();
+  savedPlan.household.monthlyIncome = 300000;
+  const savedRevision = createPlanRevision(
+    savedPlan,
+    "saved-revision",
+    "以前の計画",
+    "manual",
+    "2026-06-01T00:00:00.000Z"
+  );
+
+  const currentPlan = createEmptyPlan();
+  currentPlan.household.monthlyIncome = 500000;
+  const review = createPlanReview(currentPlan, "review-1", "2026-07-01");
+  const scenario = createScenarioFromReview(currentPlan, review, "scenario-1", "2026-07-01T00:00:00.000Z");
+  currentPlan.reviews = [review];
+  currentPlan.scenarios = [scenario];
+  currentPlan.planRevisions = [savedRevision];
+  const beforeRestore = createPlanRevision(
+    currentPlan,
+    "before-restore",
+    "復元前",
+    "beforeRestore",
+    "2026-07-02T00:00:00.000Z"
+  );
+
+  const restored = restorePlanRevision(currentPlan, savedRevision, beforeRestore);
+
+  assert.equal(restored.household.monthlyIncome, 300000);
+  assert.deepEqual(restored.reviews, [review]);
+  assert.deepEqual(restored.scenarios, [scenario]);
+  assert.equal(restored.planRevisions[0].source, "beforeRestore");
+  assert.equal(restored.planRevisions[0].snapshot.household.monthlyIncome, 500000);
+  assert.equal(restored.planRevisions[1].id, "saved-revision");
+});
 
 test("app reminders cover due actuals, reviews, goals, and upcoming events", () => {
   const now = new Date(2026, 6, 26);
@@ -2056,6 +2136,7 @@ test("import validation rejects unrelated JSON and fills optional fields for leg
     notes: undefined,
     reviews: undefined,
     scenarios: undefined,
+    planRevisions: undefined,
     fixedCostItems: undefined,
     budgetItems: undefined
   });
@@ -2084,6 +2165,7 @@ test("import validation rejects unrelated JSON and fills optional fields for leg
   assert.deepEqual(imported.cashflowPeriods, []);
   assert.deepEqual(imported.reviews, []);
   assert.deepEqual(imported.scenarios, []);
+  assert.deepEqual(imported.planRevisions, []);
   assert.deepEqual(imported.fixedCostItems, []);
   assert.deepEqual(imported.budgetItems, []);
 });
@@ -2113,6 +2195,36 @@ test("import validation normalizes future cashflow periods", () => {
   assert.equal(imported.cashflowPeriods[0].startYear, currentYear + 3);
   assert.equal(imported.cashflowPeriods[0].endYear, currentYear + 3);
   assert.equal(imported.cashflowPeriods[0].amount, 0);
+});
+
+test("import validation normalizes and limits plan revisions", () => {
+  const plan = createEmptyPlan();
+  const snapshot = createPlanRevision(
+    plan,
+    "source",
+    "保存元",
+    "manual",
+    "2026-07-01T00:00:00.000Z"
+  ).snapshot;
+  const revisions = Array.from({ length: MAX_PLAN_REVISIONS + 2 }, (_, index) => ({
+    id: "",
+    title: "",
+    createdAt: "invalid",
+    source: "invalid",
+    snapshot: {
+      ...snapshot,
+      household: { ...snapshot.household, monthlyIncome: index === 0 ? -1 : 300000 }
+    }
+  }));
+
+  const imported = validateImportedPlan({ ...basePlan, planRevisions: revisions });
+
+  assert.equal(imported.planRevisions.length, MAX_PLAN_REVISIONS);
+  assert.ok(imported.planRevisions[0].id);
+  assert.equal(imported.planRevisions[0].title, "保存した計画");
+  assert.equal(imported.planRevisions[0].source, "manual");
+  assert.equal(imported.planRevisions[0].snapshot.household.monthlyIncome, 0);
+  assert.ok(Number.isFinite(Date.parse(imported.planRevisions[0].createdAt)));
 });
 
 test("import validation normalizes timeline memos", () => {

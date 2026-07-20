@@ -32,6 +32,11 @@ import {
   createPlanReview,
   createScenarioFromReview
 } from "../utils/reviews";
+import {
+  addPlanRevision,
+  createPlanRevision,
+  restorePlanRevision as restorePlanRevisionSnapshot
+} from "../utils/planRevisions";
 import { createRecoveryBackup, loadPlan, savePlan } from "../utils/storage";
 import { adoptScenarioAsBase } from "../utils/scenarios";
 
@@ -102,6 +107,7 @@ export const createEmptyPlan = (): LifePlan => ({
   },
   reviews: [],
   scenarios: [],
+  planRevisions: [],
   fixedCostItems: [],
   budgetItems: [],
   updatedAt: new Date().toISOString()
@@ -216,8 +222,22 @@ export function useLifePlanEditor() {
   };
 
   const addReview = () => {
-    const nextReview = createPlanReview(plan, createId(), new Date().toISOString().slice(0, 10));
-    commitPlan({ ...plan, reviews: [nextReview, ...(plan.reviews || [])] });
+    const createdAt = new Date().toISOString();
+    const reviewDate = createdAt.slice(0, 10);
+    const nextReview = createPlanReview(plan, createId(), reviewDate);
+    const revision = createPlanRevision(
+      plan,
+      createId(),
+      `${reviewDate.replace(/-/g, "/")} 月次レビュー時点`,
+      "review",
+      createdAt,
+      nextReview.id
+    );
+    commitPlan({
+      ...plan,
+      reviews: [nextReview, ...(plan.reviews || [])],
+      planRevisions: addPlanRevision(plan.planRevisions || [], revision)
+    });
   };
 
   const updateReview = <K extends keyof ReviewNote>(id: string, key: K, value: ReviewNote[K]) => {
@@ -247,6 +267,42 @@ export function useLifePlanEditor() {
     if (!review || (plan.scenarios || []).length >= featureTiers.pro.scenarioLimit) return false;
     const scenario = createScenarioFromReview(plan, review, createId(), new Date().toISOString());
     return commitPlan({ ...plan, scenarios: [...(plan.scenarios || []), scenario] });
+  };
+
+  const saveCurrentPlanRevision = () => {
+    const createdAt = new Date().toISOString();
+    const revision = createPlanRevision(
+      plan,
+      createId(),
+      `${createdAt.slice(0, 10).replace(/-/g, "/")} 現在の計画`,
+      "manual",
+      createdAt
+    );
+    return commitPlan({
+      ...plan,
+      planRevisions: addPlanRevision(plan.planRevisions || [], revision)
+    });
+  };
+
+  const restorePlanRevision = (id: string) => {
+    const revision = (plan.planRevisions || []).find((item) => item.id === id);
+    if (!revision) return false;
+    const createdAt = new Date().toISOString();
+    const beforeRestore = createPlanRevision(
+      plan,
+      createId(),
+      `「${revision.title}」へ戻す前`,
+      "beforeRestore",
+      createdAt
+    );
+    return commitPlan(restorePlanRevisionSnapshot(plan, revision, beforeRestore));
+  };
+
+  const removePlanRevision = (id: string) => {
+    return commitPlan({
+      ...plan,
+      planRevisions: (plan.planRevisions || []).filter((revision) => revision.id !== id)
+    });
   };
 
   const addScenario = (template: ScenarioTemplate) => {
@@ -298,7 +354,19 @@ export function useLifePlanEditor() {
   const adoptScenario = (id: string) => {
     const scenario = (plan.scenarios || []).find((item) => item.id === id);
     if (!scenario) return false;
-    return commitPlan(adoptScenarioAsBase(plan, scenario, createId(), new Date().toISOString()));
+    const adoptedAt = new Date().toISOString();
+    const revision = createPlanRevision(
+      plan,
+      createId(),
+      `「${scenario.name}」採用前`,
+      "scenarioAdoption",
+      adoptedAt
+    );
+    const adopted = adoptScenarioAsBase(plan, scenario, createId(), adoptedAt);
+    return commitPlan({
+      ...adopted,
+      planRevisions: addPlanRevision(plan.planRevisions || [], revision)
+    });
   };
 
   const removeScenario = (id: string) => {
@@ -525,6 +593,9 @@ export function useLifePlanEditor() {
     removeReview,
     applyBudgetActualsToReviewRecord,
     addScenarioFromReview,
+    saveCurrentPlanRevision,
+    restorePlanRevision,
+    removePlanRevision,
     addScenario,
     updateScenario,
     updateScenarioHousehold,

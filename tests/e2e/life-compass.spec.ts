@@ -329,6 +329,9 @@ test("Proレビューで将来見通しを保存し、見直しシナリオへ�
   await expect(page.getByText("基準: 基本プラン", { exact: true })).toBeVisible();
   await expect(page.getByText("10年後見通し", { exact: true })).toBeVisible();
   await expect(page.getByText("30年後見通し", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "計画の版履歴", level: 2 })).toBeVisible();
+  await expect(page.locator(".plan-revision-item")).toHaveCount(1);
+  await expect(page.locator(".plan-revision-item").first()).toContainText("レビュー作成時");
   const reviewOverflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(reviewOverflow).toBeLessThanOrEqual(1);
   await page.getByLabel("実際の純資産").fill("3456789");
@@ -351,6 +354,38 @@ test("Proレビューで将来見通しを保存し、見直しシナリオへ�
   await openView(page, "dashboard");
   await expect(page.getByRole("heading", { name: "計画を見直すタイミング", level: 2 })).toBeVisible();
   await expect(page.getByText("今月確認済み", { exact: true })).toBeVisible();
+});
+
+test("計画を版として保存し、レビューと比較案を残したまま復元できる", async ({ page }) => {
+  await openView(page, "reviews");
+  await page.getByRole("button", { name: "現在の計画を版として保存", exact: true }).click();
+  await expect(page.locator(".plan-revision-item")).toHaveCount(1);
+
+  await openView(page, "household");
+  const incomeInput = page.getByLabel("月収");
+  await incomeInput.fill("555000");
+  await incomeInput.blur();
+  await expect(incomeInput).toHaveValue("555,000");
+
+  await openView(page, "reviews");
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "この版へ戻す", exact: true }).click();
+  await expect(page.locator(".plan-revision-section [role='status']")).toContainText("戻しました");
+  await expect(page.locator(".plan-revision-item")).toHaveCount(2);
+  await expect(page.locator(".plan-revision-item").first()).toContainText("復元前");
+
+  await openView(page, "household");
+  await expect(page.getByLabel("月収")).toHaveValue("320,000");
+  await page.reload();
+  await openView(page, "household");
+  await expect(page.getByLabel("月収")).toHaveValue("320,000");
+
+  const savedPlan = await page.evaluate(() => JSON.parse(localStorage.getItem("life-compass-plan-v1") || "{}"));
+  expect(savedPlan.planRevisions).toHaveLength(2);
+  expect(savedPlan.planRevisions[0].source).toBe("beforeRestore");
+
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect(overflow).toBeLessThanOrEqual(1);
 });
 
 test("基本見通しで家計余剰の振り分けを設定して保存できる", async ({ page }) => {

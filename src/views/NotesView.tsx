@@ -1,18 +1,26 @@
 import { useState } from "react";
 import { LineChart } from "../components/Charts";
 import { EmptyState, Metric, MoneyInput, NumericInput, StepFlowNav, StepTitle } from "../components/CommonUi";
-import { MAX_PLAN_YEAR } from "../config";
+import { MAX_PLAN_REVISIONS, MAX_PLAN_YEAR } from "../config";
 import { eventOwnerLabels, monthLabels } from "../data/labels";
 import { featureTiers } from "../features";
 import type {
   EventOwner,
   LifePlan,
   PlanNotes,
+  PlanRevisionSource,
   ReviewNote,
   TimelineMemo,
   ViewKey
 } from "../types";
-import { getBudgetSummary, manYen } from "../utils/calculations";
+import { getAssetSummary, getBudgetSummary, getCashflowSummary, manYen } from "../utils/calculations";
+
+const planRevisionSourceLabels: Record<PlanRevisionSource, string> = {
+  manual: "手動保存",
+  review: "レビュー作成時",
+  scenarioAdoption: "シナリオ採用前",
+  beforeRestore: "復元前"
+};
 
 export function NotesView({
   mode,
@@ -26,7 +34,10 @@ export function NotesView({
   updateReview,
   removeReview,
   applyBudgetActualsToReviewRecord,
-  addScenarioFromReview
+  addScenarioFromReview,
+  saveCurrentPlanRevision,
+  restorePlanRevision,
+  removePlanRevision
 }: {
   mode: "notes" | "reviews";
   plan: LifePlan;
@@ -40,8 +51,12 @@ export function NotesView({
   removeReview: (id: string) => void;
   applyBudgetActualsToReviewRecord: (id: string) => boolean;
   addScenarioFromReview: (id: string) => boolean;
+  saveCurrentPlanRevision: () => boolean;
+  restorePlanRevision: (id: string) => boolean;
+  removePlanRevision: (id: string) => boolean;
 }) {
   const [reviewMessage, setReviewMessage] = useState("");
+  const [revisionMessage, setRevisionMessage] = useState("");
   const sortedReviews = [...(plan.reviews || [])].sort((a, b) => b.date.localeCompare(a.date));
   const chronologicalReviews = [...(plan.reviews || [])].sort((a, b) => a.date.localeCompare(b.date));
   const previousReviewById = new Map<string, ReviewNote | undefined>();
@@ -56,6 +71,7 @@ export function NotesView({
   );
   const activeScenarioName = plan.activeScenario?.name || latestReview?.scenarioName || "基本プラン";
   const scenarioLimitReached = (plan.scenarios || []).length >= featureTiers.pro.scenarioLimit;
+  const sortedPlanRevisions = [...(plan.planRevisions || [])].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   const reviewTrendPoints = chronologicalReviews
     .filter((review) => review.actualNetAssets !== undefined)
     .map((review, index) => ({
@@ -83,6 +99,32 @@ export function NotesView({
       return;
     }
     setActiveView("scenarios");
+  };
+
+  const handleSaveCurrentRevision = () => {
+    setReviewMessage(
+      saveCurrentPlanRevision()
+        ? "現在の計画を版履歴へ保存しました。"
+        : "計画を保存できませんでした。ブラウザの保存状態を確認してください。"
+    );
+  };
+
+  const handleRestoreRevision = (id: string, title: string) => {
+    if (!window.confirm(`「${title}」へ戻しますか？ 現在の計画も復元前の版として保存します。`)) return;
+    setRevisionMessage(
+      restorePlanRevision(id)
+        ? `「${title}」へ戻しました。レビュー履歴と比較案は残しています。`
+        : "計画を復元できませんでした。ブラウザの保存状態を確認してください。"
+    );
+  };
+
+  const handleRemoveRevision = (id: string, title: string) => {
+    if (!window.confirm(`「${title}」を版履歴から削除しますか？`)) return;
+    setRevisionMessage(
+      removePlanRevision(id)
+        ? "保存した版を削除しました。"
+        : "保存した版を削除できませんでした。"
+    );
   };
 
   return (
@@ -206,6 +248,7 @@ export function NotesView({
           <div className="review-cycle-actions">
             <button type="button" className="secondary" onClick={() => setActiveView("budget")}>予算・実績を確認</button>
             <button type="button" className="secondary" disabled={!latestReview} onClick={handleCreateReviewScenario}>最新レビューから見直し案を作る</button>
+            <button type="button" className="secondary" onClick={handleSaveCurrentRevision}>現在の計画を版として保存</button>
           </div>
           {reviewMessage && <p className="success-text" role="status">{reviewMessage}</p>}
 
@@ -295,6 +338,50 @@ export function NotesView({
                 })}
               </div>
             </>
+          )}
+        </section>
+      )}
+
+      {mode === "reviews" && (
+        <section className="panel plan-revision-section">
+          <div className="section-heading">
+            <div>
+              <h2>計画の版履歴</h2>
+              <p>レビュー作成時とシナリオ採用前の計画を保存します。復元してもレビュー履歴と比較案は残ります。</p>
+            </div>
+            <span className="status-pill recurring">{sortedPlanRevisions.length}/{MAX_PLAN_REVISIONS}件</span>
+          </div>
+          {revisionMessage && <p className="success-text" role="status">{revisionMessage}</p>}
+          {sortedPlanRevisions.length === 0 ? (
+            <EmptyState title="保存した版はありません" detail="今月のレビューを作成するか、現在の計画を手動で保存すると、ここから以前の前提へ戻せます。" />
+          ) : (
+            <div className="plan-revision-list">
+              {sortedPlanRevisions.map((revision) => {
+                const assets = getAssetSummary(revision.snapshot.assets);
+                const cashflow = getCashflowSummary(revision.snapshot.household);
+                return (
+                  <article className="plan-revision-item" key={revision.id}>
+                    <div className="plan-revision-head">
+                      <div>
+                        <strong>{revision.title}</strong>
+                        <span>{new Date(revision.createdAt).toLocaleString("ja-JP")}・{planRevisionSourceLabels[revision.source]}</span>
+                      </div>
+                      <span className="status-pill">{revision.snapshot.activeScenario?.name || "基本プラン"}</span>
+                    </div>
+                    <dl className="plan-revision-summary">
+                      <div><dt>純資産</dt><dd>{manYen(assets.netAssets)}</dd></div>
+                      <div><dt>通常月の家計余剰</dt><dd>{manYen(cashflow.monthlySavings)}</dd></div>
+                      <div><dt>目標</dt><dd>{revision.snapshot.goals.length}件</dd></div>
+                      <div><dt>イベント</dt><dd>{revision.snapshot.events.length}件</dd></div>
+                    </dl>
+                    <div className="button-row plan-revision-actions">
+                      <button type="button" className="secondary" onClick={() => handleRestoreRevision(revision.id, revision.title)}>この版へ戻す</button>
+                      <button type="button" className="text-button danger-text" onClick={() => handleRemoveRevision(revision.id, revision.title)}>削除</button>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
           )}
         </section>
       )}

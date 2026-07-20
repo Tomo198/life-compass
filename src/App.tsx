@@ -68,6 +68,9 @@ function App() {
     removeReview,
     applyBudgetActualsToReviewRecord,
     addScenarioFromReview,
+    saveCurrentPlanRevision,
+    restorePlanRevision,
+    removePlanRevision,
     addScenario,
     updateScenario,
     updateScenarioHousehold,
@@ -326,6 +329,9 @@ function App() {
             removeReview={removeReview}
             applyBudgetActualsToReviewRecord={applyBudgetActualsToReviewRecord}
             addScenarioFromReview={addScenarioFromReview}
+            saveCurrentPlanRevision={saveCurrentPlanRevision}
+            restorePlanRevision={restorePlanRevision}
+            removePlanRevision={removePlanRevision}
           />
         );
       case "reviews":
@@ -343,6 +349,9 @@ function App() {
             removeReview={removeReview}
             applyBudgetActualsToReviewRecord={applyBudgetActualsToReviewRecord}
             addScenarioFromReview={addScenarioFromReview}
+            saveCurrentPlanRevision={saveCurrentPlanRevision}
+            restorePlanRevision={restorePlanRevision}
+            removePlanRevision={removePlanRevision}
           />
         );
       case "data":
