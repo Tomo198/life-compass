@@ -1,8 +1,7 @@
-import { useMemo, useState } from "react";
-import { EmptyState, NumericInput, StepFlowNav, StepTitle } from "../components/CommonUi";
+import { useMemo, useState, type FormEvent } from "react";
+import { EmptyState, MoneyInput, NumericInput, StepFlowNav, StepTitle } from "../components/CommonUi";
 import { YearAgeInput } from "../components/YearAgeInput";
 import { MAX_MONEY_AMOUNT, MAX_PLAN_YEAR } from "../config";
-import { eventTemplates, type EventTemplate } from "../data/eventTemplates";
 import {
   cashflowHelp,
   cashflowLabels,
@@ -14,25 +13,35 @@ import type {
   CashflowType,
   EventOwner,
   LifeEvent,
+  LifeEventDraft,
   LifeEventCategory,
   LifePlan,
   ViewKey
 } from "../types";
 import { getTargetAgeForYear } from "../utils/calculations";
 
+const createEventDraft = (): LifeEventDraft => ({
+  title: "",
+  owner: "household",
+  category: "other",
+  year: new Date().getFullYear() + 1,
+  month: new Date().getMonth() + 1,
+  amount: 0,
+  cashflowType: "neutral",
+  memo: ""
+});
+
 export function EventSettingsView({
   plan,
   setActiveView,
   addEvent,
-  addEventFromTemplate,
   updateEvent,
   updateEventSchedule,
   removeEvent
 }: {
   plan: LifePlan;
   setActiveView: (view: ViewKey) => void;
-  addEvent: () => void;
-  addEventFromTemplate: (template: EventTemplate) => void;
+  addEvent: (draft: LifeEventDraft) => void;
   updateEvent: <K extends keyof LifeEvent>(id: string, key: K, value: LifeEvent[K]) => void;
   updateEventSchedule: (id: string, year: number) => void;
   removeEvent: (id: string) => void;
@@ -41,6 +50,8 @@ export function EventSettingsView({
   const [eventSort, setEventSort] = useState<"yearAsc" | "yearDesc" | "title" | "type">("yearAsc");
   const [eventViewMode, setEventViewMode] = useState<"detail" | "compact">("detail");
   const [eventOwner, setEventOwner] = useState<EventOwner | "all">("all");
+  const [eventDraft, setEventDraft] = useState<LifeEventDraft>(createEventDraft);
+  const [eventFormStatus, setEventFormStatus] = useState("");
   const sortedEvents = useMemo(() => {
     const normalizedSearch = eventSearch.trim().toLowerCase();
     return [...plan.events]
@@ -57,42 +68,112 @@ export function EventSettingsView({
         return a.year - b.year || a.month - b.month || a.title.localeCompare(b.title, "ja");
       });
   }, [eventOwner, eventSearch, eventSort, plan.events]);
+  const updateEventDraft = <K extends keyof LifeEventDraft>(key: K, value: LifeEventDraft[K]) => {
+    setEventDraft((current) => ({ ...current, [key]: value }));
+    setEventFormStatus("");
+  };
+  const handleEventSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const title = eventDraft.title.trim();
+    if (!title) return;
+    addEvent({ ...eventDraft, title });
+    setEventDraft(createEventDraft());
+    setEventFormStatus(`「${title}」を登録しました。`);
+  };
   return (
     <div className="view-stack">
       <section className="panel">
         <div className="section-heading">
           <StepTitle step="7" title="イベント設定" description="予定の時期、対象者、金額、家計への影響を整理します。" />
-          <button type="button" onClick={addEvent}>
-            イベントを追加
-          </button>
         </div>
-        <div className="template-panel" aria-label="ライフイベントテンプレート">
+        <form className="entry-creation-form" data-testid="event-create-form" onSubmit={handleEventSubmit}>
+          <div className="entry-creation-heading">
+            <div>
+              <h2>新しいイベント</h2>
+              <p>予定を入力して登録すると、下の一覧と年表に追加されます。</p>
+            </div>
+            <span>必須: イベント名</span>
+          </div>
+          <div className="entry-creation-grid event-entry-grid">
+            <label className="entry-field-wide">
+              イベント名
+              <input
+                required
+                value={eventDraft.title}
+                onChange={(event) => updateEventDraft("title", event.target.value)}
+                placeholder="例: 住宅購入、転職、家族旅行"
+              />
+            </label>
+            <label>
+              対象者
+              <select value={eventDraft.owner} onChange={(event) => updateEventDraft("owner", event.target.value as EventOwner)}>
+                {Object.entries(eventOwnerLabels).map(([value, label]) => (
+                  <option key={value} value={value}>{label}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              種類
+              <select value={eventDraft.category} onChange={(event) => updateEventDraft("category", event.target.value as LifeEventCategory)}>
+                {Object.entries(eventCategoryLabels).map(([value, label]) => (
+                  <option key={value} value={value}>{label}</option>
+                ))}
+              </select>
+            </label>
+            <div className="entry-field-wide entry-control-field">
+              <span>予定年</span>
+              <YearAgeInput
+                year={eventDraft.year}
+                currentAge={plan.profile.age}
+                ageLabel="予定年齢"
+                onChange={(value) => updateEventDraft("year", value)}
+              />
+            </div>
+            <label>
+              予定月
+              <select value={eventDraft.month} onChange={(event) => updateEventDraft("month", Number(event.target.value))}>
+                {monthLabels.map((label, index) => (
+                  <option value={index + 1} key={label}>{label}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              家計への影響
+              <select value={eventDraft.cashflowType} onChange={(event) => updateEventDraft("cashflowType", event.target.value as CashflowType)}>
+                {Object.entries(cashflowLabels).map(([value, label]) => (
+                  <option key={value} value={value}>{label}</option>
+                ))}
+              </select>
+              <small>{cashflowHelp[eventDraft.cashflowType]}</small>
+            </label>
+            <div className="entry-control-field">
+              <MoneyInput label="金額" value={eventDraft.amount} onChange={(value) => updateEventDraft("amount", value)} />
+            </div>
+            <label className="entry-field-wide">
+              メモ
+              <input value={eventDraft.memo} onChange={(event) => updateEventDraft("memo", event.target.value)} placeholder="前提や検討中のことを残せます" />
+            </label>
+          </div>
+          <details className="entry-help-details">
+            <summary>家計への影響の使い分け</summary>
+            <section className="helper-grid compact">
+              <div><strong>支出として反映</strong><span>住宅購入、車購入、旅行、教育費など、その時期に出る支出に使います。</span></div>
+              <div><strong>収入・資産増として反映</strong><span>退職金、売却益、補助金など、その時期に増える金額に使います。</span></div>
+              <div><strong>記録のみ</strong><span>転職や結婚など、金額をまだ決めない予定を年表に残すときに使います。</span></div>
+            </section>
+          </details>
+          <div className="entry-form-actions">
+            <span role="status" aria-live="polite">{eventFormStatus}</span>
+            <button type="submit">イベントを登録</button>
+          </div>
+        </form>
+        <div className="registered-list-heading">
           <div>
-            <strong>テンプレートから追加</strong>
-            <span>予定年、金額、家計への影響は追加後に変更できます。</span>
+            <h2>登録済みのイベント</h2>
+            <p>登録後も、一覧から時期や金額を変更できます。</p>
           </div>
-          <div className="template-actions">
-            {eventTemplates.map((template) => (
-              <button type="button" className="secondary" key={template.title} onClick={() => addEventFromTemplate(template)}>
-                {template.title}
-              </button>
-            ))}
-          </div>
+          <span>{plan.events.length}件</span>
         </div>
-        <section className="helper-grid compact">
-        <div>
-          <strong>支出として反映</strong>
-          <span>住宅購入、車購入、旅行、教育費など、その年にまとまって出る支出に使います。</span>
-        </div>
-        <div>
-          <strong>収入・資産増として反映</strong>
-          <span>退職金、売却益、補助金など、その年に増える金額を記録するときに使います。</span>
-        </div>
-        <div>
-          <strong>記録のみ</strong>
-          <span>転職や結婚など、金額をまだ決めない予定を年表に残すときに使います。</span>
-        </div>
-        </section>
         <div className="list-toolbar" aria-label="イベントの検索と並び替え">
           <label>
             イベントを検索
@@ -130,7 +211,7 @@ export function EventSettingsView({
         {eventViewMode === "compact" ? (
           <div className="compact-list" aria-label="イベントの短いリスト">
             {plan.events.length === 0 ? (
-              <EmptyState title="まだ年表イベントがありません" detail="転職、引越し、住宅購入などをテンプレートから追加すると、将来見通しに反映できます。" />
+              <EmptyState title="まだイベントがありません" detail="上の入力欄に予定を入力し、「イベントを登録」を押してください。" />
             ) : sortedEvents.length === 0 ? (
               <EmptyState title="条件に合うイベントがありません" detail="検索文字を変えるか、並び替えを戻して確認してください。" />
             ) : (
@@ -200,7 +281,7 @@ export function EventSettingsView({
         ) : (
           <div className="timeline">
         {plan.events.length === 0 ? (
-          <EmptyState title="まだ年表イベントがありません" detail="転職、引越し、住宅購入などをテンプレートから追加すると、将来見通しに反映できます。" />
+          <EmptyState title="まだイベントがありません" detail="上の入力欄に予定を入力し、「イベントを登録」を押してください。" />
         ) : sortedEvents.length === 0 ? (
           <EmptyState title="条件に合うイベントがありません" detail="検索文字を変えるか、並び替えを戻して確認してください。" />
         ) : (

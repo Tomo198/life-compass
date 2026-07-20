@@ -1,10 +1,9 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type FormEvent } from "react";
 import { EmptyState, MoneyInput, NumericInput, StepFlowNav, StepTitle } from "../components/CommonUi";
 import { YearAgeInput } from "../components/YearAgeInput";
 import { MAX_MONEY_AMOUNT } from "../config";
-import { goalTemplates, type GoalTemplate } from "../data/goalTemplates";
 import { monthLabels, priorityLabels } from "../data/labels";
-import type { Goal, LifePlan, Priority, RecurrenceInterval, ViewKey } from "../types";
+import type { Goal, GoalDraft, LifePlan, Priority, RecurrenceInterval, ViewKey } from "../types";
 import {
   getGoalAchievement,
   getGoalAchievements,
@@ -14,24 +13,37 @@ import {
   manYen
 } from "../utils/calculations";
 
+const createGoalDraft = (): GoalDraft => ({
+  title: "",
+  goalType: "oneTime",
+  dueYear: new Date().getFullYear() + 3,
+  dueMonth: 12,
+  requiredAmount: 0,
+  savedAmount: 0,
+  monthlyAllocation: 0,
+  recurrence: "yearly",
+  priority: "medium",
+  memo: ""
+});
+
 export function GoalsView({
   plan,
   setActiveView,
   addGoal,
-  addGoalFromTemplate,
   updateGoal,
   removeGoal
 }: {
   plan: LifePlan;
   setActiveView: (view: ViewKey) => void;
-  addGoal: () => void;
-  addGoalFromTemplate: (template: GoalTemplate) => void;
+  addGoal: (draft: GoalDraft) => void;
   updateGoal: <K extends keyof Goal>(id: string, key: K, value: Goal[K]) => void;
   removeGoal: (id: string) => void;
 }) {
   const [goalSearch, setGoalSearch] = useState("");
   const [goalSort, setGoalSort] = useState<"dueYear" | "priority" | "progress" | "title">("dueYear");
   const [goalViewMode, setGoalViewMode] = useState<"detail" | "compact">("detail");
+  const [goalDraft, setGoalDraft] = useState<GoalDraft>(createGoalDraft);
+  const [goalFormStatus, setGoalFormStatus] = useState("");
   const priorityRank: Record<Priority, number> = { high: 0, medium: 1, low: 2 };
   const goalFunding = useMemo(() => getGoalFundingSummary(plan), [plan]);
   const goalAchievements = useMemo(() => {
@@ -49,28 +61,113 @@ export function GoalsView({
         return a.goal.dueYear - b.goal.dueYear || a.goal.title.localeCompare(b.goal.title, "ja");
       });
   }, [goalSearch, goalSort, plan]);
+  const updateGoalDraft = <K extends keyof GoalDraft>(key: K, value: GoalDraft[K]) => {
+    setGoalDraft((current) => ({ ...current, [key]: value }));
+    setGoalFormStatus("");
+  };
+  const handleGoalSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const title = goalDraft.title.trim();
+    if (!title) return;
+    addGoal({ ...goalDraft, title });
+    setGoalDraft(createGoalDraft());
+    setGoalFormStatus(`「${title}」を登録しました。`);
+  };
 
   return (
     <div className="view-stack">
       <section className="panel">
         <div className="section-heading">
           <StepTitle step="5" title="目標管理" description="期限、目標額、優先度、準備状況を整理します。" />
-          <button type="button" onClick={addGoal}>
-            目標を追加
-          </button>
         </div>
-        <div className="template-panel" aria-label="目標テンプレート">
+        <form className="entry-creation-form" data-testid="goal-create-form" onSubmit={handleGoalSubmit}>
+          <div className="entry-creation-heading">
+            <div>
+              <h2>新しい目標</h2>
+              <p>内容を入力して登録すると、下の一覧と年表に追加されます。</p>
+            </div>
+            <span>必須: 目標名</span>
+          </div>
+          <div className="entry-creation-grid goal-entry-grid">
+            <label className="entry-field-wide">
+              目標名
+              <input
+                required
+                value={goalDraft.title}
+                onChange={(event) => updateGoalDraft("title", event.target.value)}
+                placeholder="例: 5年後に資産500万円"
+              />
+            </label>
+            <label>
+              種類
+              <select value={goalDraft.goalType} onChange={(event) => updateGoalDraft("goalType", event.target.value as Goal["goalType"])}>
+                <option value="oneTime">1回限り</option>
+                <option value="recurring">繰り返し</option>
+              </select>
+            </label>
+            <label>
+              優先度
+              <select value={goalDraft.priority} onChange={(event) => updateGoalDraft("priority", event.target.value as Priority)}>
+                {Object.entries(priorityLabels).map(([value, label]) => (
+                  <option key={value} value={value}>{label}</option>
+                ))}
+              </select>
+            </label>
+            <div className="entry-field-wide entry-control-field">
+              <span>期限</span>
+              <GoalDeadlineInput
+                dueYear={goalDraft.dueYear}
+                dueMonth={goalDraft.dueMonth}
+                currentAge={plan.profile.age}
+                onYearChange={(value) => updateGoalDraft("dueYear", value)}
+                onMonthChange={(value) => updateGoalDraft("dueMonth", value)}
+              />
+            </div>
+            <div className="entry-control-field">
+              <MoneyInput
+                label={goalDraft.goalType === "recurring" ? "1回あたり予算" : "目標額"}
+                value={goalDraft.requiredAmount}
+                onChange={(value) => updateGoalDraft("requiredAmount", value)}
+              />
+            </div>
+            {goalDraft.goalType === "recurring" ? (
+              <label>
+                頻度
+                <select value={goalDraft.recurrence} onChange={(event) => updateGoalDraft("recurrence", event.target.value as RecurrenceInterval)}>
+                  <option value="yearly">年1回</option>
+                  <option value="halfYearly">半年に1回</option>
+                  <option value="quarterly">3ヶ月に1回</option>
+                  <option value="monthly">毎月</option>
+                </select>
+              </label>
+            ) : (
+              <div className="entry-control-field">
+                <MoneyInput label="達成済み額" value={goalDraft.savedAmount} onChange={(value) => updateGoalDraft("savedAmount", value)} />
+              </div>
+            )}
+            <div className="entry-control-field">
+              <MoneyInput
+                label={goalDraft.goalType === "recurring" ? "毎月確保する額" : "毎月この目標に回す額"}
+                value={goalDraft.monthlyAllocation}
+                onChange={(value) => updateGoalDraft("monthlyAllocation", value)}
+              />
+            </div>
+            <label className="entry-field-wide">
+              メモ
+              <input value={goalDraft.memo} onChange={(event) => updateGoalDraft("memo", event.target.value)} placeholder="前提や目的を残せます" />
+            </label>
+          </div>
+          <div className="entry-form-actions">
+            <span role="status" aria-live="polite">{goalFormStatus}</span>
+            <button type="submit">目標を登録</button>
+          </div>
+        </form>
+        <div className="registered-list-heading">
           <div>
-            <strong>テンプレートから追加</strong>
-            <span>あとで金額や期限を自由に変更できます。</span>
+            <h2>登録済みの目標</h2>
+            <p>登録後も、一覧から内容を変更できます。</p>
           </div>
-          <div className="template-actions">
-            {goalTemplates.map((template) => (
-              <button type="button" className="secondary" key={template.title} onClick={() => addGoalFromTemplate(template)}>
-                {template.title}
-              </button>
-            ))}
-          </div>
+          <span>{plan.goals.length}件</span>
         </div>
         {plan.goals.length > 0 && (
           <div className={`notice-band ${goalFunding.overAllocatedAmount > 0 ? "notice" : "check"}`}>
@@ -117,7 +214,7 @@ export function GoalsView({
         {goalViewMode === "compact" ? (
           <div className="compact-list" aria-label="目標の短いリスト">
             {plan.goals.length === 0 ? (
-              <EmptyState title="まだ目標がありません" detail="テンプレートから1つ追加するか、目標を追加ボタンで自由に作れます。" />
+              <EmptyState title="まだ目標がありません" detail="上の入力欄に内容を入力し、「目標を登録」を押してください。" />
             ) : goalAchievements.length === 0 ? (
               <EmptyState title="条件に合う目標がありません" detail="検索文字を変えるか、並び替えを戻して確認してください。" />
             ) : (
@@ -183,7 +280,7 @@ export function GoalsView({
             {plan.goals.length === 0 ? (
               <tr>
                 <td colSpan={9}>
-                  <EmptyState title="まだ目標がありません" detail="テンプレートから1つ追加するか、目標を追加ボタンで自由に作れます。" />
+                  <EmptyState title="まだ目標がありません" detail="上の入力欄に内容を入力し、「目標を登録」を押してください。" />
                 </td>
               </tr>
             ) : goalAchievements.length === 0 ? (
@@ -247,7 +344,7 @@ export function GoalsView({
         </div>
         <div className="mobile-card-list">
         {plan.goals.length === 0 ? (
-          <EmptyState title="まだ目標がありません" detail="テンプレートから1つ追加するか、目標を追加ボタンで自由に作れます。" />
+          <EmptyState title="まだ目標がありません" detail="上の入力欄に内容を入力し、「目標を登録」を押してください。" />
         ) : goalAchievements.length === 0 ? (
           <EmptyState title="条件に合う目標がありません" detail="検索文字を変えるか、並び替えを戻して確認してください。" />
         ) : (

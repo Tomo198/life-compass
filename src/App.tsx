@@ -87,11 +87,9 @@ function App() {
     removeBudgetItem,
     applyBudgetToHousehold,
     addGoal,
-    addGoalFromTemplate,
     updateGoal,
     removeGoal,
     addEvent,
-    addEventFromTemplate,
     updateEvent,
     updateEventSchedule,
     removeEvent,
@@ -261,7 +259,6 @@ function App() {
             plan={plan}
             setActiveView={setActiveView}
             addGoal={addGoal}
-            addGoalFromTemplate={addGoalFromTemplate}
             updateGoal={updateGoal}
             removeGoal={removeGoal}
           />
@@ -272,7 +269,6 @@ function App() {
             plan={plan}
             setActiveView={setActiveView}
             addEvent={addEvent}
-            addEventFromTemplate={addEventFromTemplate}
             updateEvent={updateEvent}
             updateEventSchedule={updateEventSchedule}
             removeEvent={removeEvent}

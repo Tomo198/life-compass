@@ -118,6 +118,12 @@ export type LifeEvent = {
   memo: string;
 };
 
+export type GoalDraft = Omit<Goal, "id" | "progress">;
+
+export type LifeEventDraft = Omit<LifeEvent, "id" | "age" | "owner"> & {
+  owner: EventOwner;
+};
+
 export type SimulationSettings = {
   monthlyInvestmentAmount: number;
   annualBonusInvestmentAmount: number;

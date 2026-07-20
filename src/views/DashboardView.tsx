@@ -283,7 +283,7 @@ export function DashboardView({ plan, reminders, setActiveView, startEmptyPlan, 
           </button>
           <button type="button" onClick={() => setActiveView("goals")}>
             <strong>目標を整える</strong>
-            <span>{plan.goals.length > 0 ? `${plan.goals.length}件の目標` : "テンプレートから追加"}</span>
+            <span>{plan.goals.length > 0 ? `${plan.goals.length}件の目標` : "目標を登録すると表示"}</span>
           </button>
           <button type="button" onClick={() => setActiveView("timeline")}>
             <strong>年表を確認</strong>

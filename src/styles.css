@@ -1559,6 +1559,122 @@ td select {
   padding: 0.55rem 0.75rem;
 }
 
+.entry-creation-form {
+  display: grid;
+  gap: 1rem;
+  margin-bottom: 1.35rem;
+  padding: 1.1rem 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface-soft) 46%, transparent);
+}
+
+.entry-creation-heading,
+.registered-list-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+.entry-creation-heading h2,
+.registered-list-heading h2 {
+  margin: 0;
+}
+
+.entry-creation-heading p,
+.registered-list-heading p {
+  margin: 0.3rem 0 0;
+  color: var(--muted);
+}
+
+.entry-creation-heading > span,
+.registered-list-heading > span {
+  flex: 0 0 auto;
+  padding: 0.38rem 0.62rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.entry-creation-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.85rem;
+  align-items: start;
+}
+
+.entry-creation-grid > label,
+.entry-control-field {
+  display: grid;
+  gap: 0.4rem;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.entry-creation-grid input,
+.entry-creation-grid select {
+  min-width: 0;
+}
+
+.entry-creation-grid small {
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.entry-field-wide {
+  grid-column: span 2;
+}
+
+.entry-creation-grid .year-age-control {
+  min-width: 0;
+}
+
+.entry-help-details {
+  border-top: 1px solid color-mix(in srgb, var(--line) 78%, transparent);
+  padding-top: 0.75rem;
+}
+
+.entry-help-details summary {
+  width: fit-content;
+  cursor: pointer;
+  color: var(--primary-dark);
+  font-weight: 750;
+}
+
+.entry-help-details[open] summary {
+  margin-bottom: 0.8rem;
+}
+
+.entry-help-details .helper-grid {
+  margin-bottom: 0;
+}
+
+.entry-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 1rem;
+  align-items: center;
+  min-height: 2.75rem;
+}
+
+.entry-form-actions > span {
+  color: var(--primary-dark);
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.registered-list-heading {
+  margin-bottom: 0.85rem;
+}
+
 .list-toolbar {
   display: grid;
   grid-template-columns: minmax(18rem, 2fr) repeat(3, minmax(8.5rem, 1fr));
@@ -4151,6 +4267,7 @@ td select {
   }
 
   .form-grid,
+  .entry-creation-grid,
   .list-toolbar,
   .compact-list-row,
   .notes-grid,
@@ -4571,6 +4688,7 @@ td select {
   .summary-grid.compact,
   .calendar-next-list,
   .form-grid,
+  .entry-creation-grid,
   .list-toolbar,
   .compact-list-row,
   .quick-action-grid,
@@ -4649,6 +4767,31 @@ td select {
   .list-toolbar {
     gap: 0.62rem;
     padding: 0.72rem;
+  }
+
+  .entry-creation-form {
+    margin-bottom: 1rem;
+    padding: 0.9rem 0;
+  }
+
+  .entry-creation-heading,
+  .registered-list-heading,
+  .entry-form-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .entry-creation-heading > span,
+  .registered-list-heading > span {
+    align-self: flex-start;
+  }
+
+  .entry-field-wide {
+    grid-column: auto;
+  }
+
+  .entry-form-actions button {
+    width: 100%;
   }
 
   .summary-grid {

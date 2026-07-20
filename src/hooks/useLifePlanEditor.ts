@@ -1,8 +1,6 @@
 import { useState } from "react";
 import { CURRENT_PLAN_VERSION } from "../config";
 import { createId, defaultPlan } from "../data/defaultPlan";
-import type { EventTemplate } from "../data/eventTemplates";
-import type { GoalTemplate } from "../data/goalTemplates";
 import { createScenarioFromTemplate, type ScenarioTemplate } from "../data/scenarios";
 import { featureTiers } from "../features";
 import type {
@@ -11,8 +9,10 @@ import type {
   CashflowPeriod,
   FixedCostItem,
   Goal,
+  GoalDraft,
   Household,
   LifeEvent,
+  LifeEventDraft,
   LifePlan,
   PlanNotes,
   PlanScenario,
@@ -444,38 +444,11 @@ export function useLifePlanEditor() {
     });
   };
 
-  const addGoal = () => {
+  const addGoal = (draft: GoalDraft) => {
     const nextGoal: Goal = {
       id: createId(),
-      title: "新しい目標",
-      goalType: "oneTime",
-      dueYear: new Date().getFullYear() + 3,
-      dueMonth: 12,
-      requiredAmount: 1000000,
-      savedAmount: 0,
-      monthlyAllocation: 30000,
-      recurrence: "yearly",
-      priority: "medium",
+      ...draft,
       progress: 0,
-      memo: ""
-    };
-    commitPlan({ ...plan, goals: [...plan.goals, nextGoal] });
-  };
-
-  const addGoalFromTemplate = (template: GoalTemplate) => {
-    const nextGoal: Goal = {
-      id: createId(),
-      title: template.title,
-      goalType: template.goalType,
-      dueYear: new Date().getFullYear() + template.yearsFromNow,
-      dueMonth: 12,
-      requiredAmount: template.requiredAmount,
-      savedAmount: template.savedAmount,
-      monthlyAllocation: template.monthlyAllocation,
-      recurrence: template.recurrence,
-      priority: template.priority,
-      progress: 0,
-      memo: template.memo
     };
     commitPlan({ ...plan, goals: [...plan.goals, nextGoal] });
   };
@@ -491,36 +464,11 @@ export function useLifePlanEditor() {
     commitPlan({ ...plan, goals: plan.goals.filter((goal) => goal.id !== id) });
   };
 
-  const addEvent = () => {
-    const year = new Date().getFullYear() + 1;
+  const addEvent = (draft: LifeEventDraft) => {
     const nextEvent: LifeEvent = {
       id: createId(),
-      title: "新しいライフイベント",
-      owner: "household",
-      category: "other",
-      year,
-      month: new Date().getMonth() + 1,
-      age: plan.profile.age + 1,
-      amount: 0,
-      cashflowType: "neutral",
-      memo: ""
-    };
-    commitPlan({ ...plan, events: [...plan.events, nextEvent] });
-  };
-
-  const addEventFromTemplate = (template: EventTemplate) => {
-    const year = new Date().getFullYear() + template.yearsFromNow;
-    const nextEvent: LifeEvent = {
-      id: createId(),
-      title: template.title,
-      owner: template.owner,
-      category: template.category,
-      year,
-      month: template.month,
-      age: getTargetAgeForYear(plan.profile.age, year),
-      amount: template.amount,
-      cashflowType: template.cashflowType,
-      memo: template.memo
+      ...draft,
+      age: getTargetAgeForYear(plan.profile.age, draft.year)
     };
     commitPlan({ ...plan, events: [...plan.events, nextEvent] });
   };
@@ -612,11 +560,9 @@ export function useLifePlanEditor() {
     removeBudgetItem,
     applyBudgetToHousehold,
     addGoal,
-    addGoalFromTemplate,
     updateGoal,
     removeGoal,
     addEvent,
-    addEventFromTemplate,
     updateEvent,
     updateEventSchedule,
     removeEvent,

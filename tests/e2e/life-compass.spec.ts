@@ -115,6 +115,44 @@ test("ブラウザ保存に失敗した場合は画面上へ通知する", async
   await expect(page.getByRole("button", { name: "データ管理を開く" })).toBeVisible();
 });
 
+test("目標とイベントは入力後に登録され、再読み込み後も残る", async ({ page }) => {
+  const goalTitle = "E2E住宅購入目標";
+  const eventTitle = "E2E引越し予定";
+
+  await openView(page, "goals");
+  const goalForm = page.getByTestId("goal-create-form");
+  const registeredGoalTitles = page.locator(".goal-table tbody td:first-child input");
+  const initialGoalCount = await registeredGoalTitles.count();
+  await goalForm.getByLabel("目標名").fill(goalTitle);
+  await expect(registeredGoalTitles).toHaveCount(initialGoalCount);
+  await goalForm.getByRole("button", { name: "目標を登録", exact: true }).click();
+  await expect(goalForm.getByRole("status")).toContainText(`${goalTitle}」を登録しました`);
+  await expect(registeredGoalTitles).toHaveCount(initialGoalCount + 1);
+  await expect.poll(() => registeredGoalTitles.evaluateAll((inputs) => inputs.map((input) => (input as HTMLInputElement).value))).toContain(goalTitle);
+  await expect(page.getByText("テンプレートから追加", { exact: true })).toHaveCount(0);
+
+  await openView(page, "events");
+  const eventForm = page.getByTestId("event-create-form");
+  const registeredEventTitles = page.locator(".timeline-row .title-field input");
+  const initialEventCount = await registeredEventTitles.count();
+  await eventForm.getByLabel("イベント名").fill(eventTitle);
+  await expect(registeredEventTitles).toHaveCount(initialEventCount);
+  await eventForm.getByRole("button", { name: "イベントを登録", exact: true }).click();
+  await expect(eventForm.getByRole("status")).toContainText(`${eventTitle}」を登録しました`);
+  await expect(registeredEventTitles).toHaveCount(initialEventCount + 1);
+  await expect.poll(() => registeredEventTitles.evaluateAll((inputs) => inputs.map((input) => (input as HTMLInputElement).value))).toContain(eventTitle);
+  await expect(page.getByText("テンプレートから追加", { exact: true })).toHaveCount(0);
+
+  await page.reload();
+  await openView(page, "goals");
+  await expect.poll(() => registeredGoalTitles.evaluateAll((inputs) => inputs.map((input) => (input as HTMLInputElement).value))).toContain(goalTitle);
+  await openView(page, "events");
+  await expect.poll(() => registeredEventTitles.evaluateAll((inputs) => inputs.map((input) => (input as HTMLInputElement).value))).toContain(eventTitle);
+
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect(overflow).toBeLessThanOrEqual(1);
+});
+
 test("予算実績、イベント設定、月別年表、保存容量を整理して確認できる", async ({ page }) => {
   await openView(page, "budget");
   await expect(page.getByText("月平均予算の全体像", { exact: true })).toBeVisible();
