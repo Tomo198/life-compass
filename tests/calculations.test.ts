@@ -37,6 +37,7 @@ import {
   getBudgetHouseholdInputs,
   getBudgetSummary,
   getCashflowSummary,
+  getCashflowStressYears,
   getEmergencyFundMonths,
   getEmergencyFundResult,
   getFixedCostImpact,
@@ -47,6 +48,7 @@ import {
   getInputCompletion,
   getMonthlyProjectionRows,
   getNextEvent,
+  getHouseholdForYear,
   getTargetAgeForYear,
   projectAssets,
   simulateContributionVariability,
@@ -242,6 +244,7 @@ const basePlan: LifePlan = {
     variableCost: 90000,
     annualSpecialCost: 300000
   },
+  cashflowPeriods: [],
   assets: {
     cash: 1200000,
     investment: 1500000,
@@ -440,6 +443,18 @@ test("adopting a scenario replaces the base assumptions and preserves the previo
     createdAt: "2026-07-18T00:00:00.000Z",
     snapshot: {
       household: { ...basePlan.household, fixedCost: 90000 },
+      cashflowPeriods: [
+        {
+          id: "scenario-income-period",
+          title: "career transition",
+          owner: "self" as const,
+          target: "monthlyIncome" as const,
+          startYear: currentYear + 1,
+          endYear: currentYear + 1,
+          amount: 280000,
+          memo: ""
+        }
+      ],
       assets: { ...basePlan.assets, cash: 2500000 },
       goals: [...basePlan.goals],
       events: [...basePlan.events],
@@ -464,11 +479,13 @@ test("adopting a scenario replaces the base assumptions and preserves the previo
   );
 
   assert.equal(adopted.household.fixedCost, 90000);
+  assert.equal(adopted.cashflowPeriods[0].title, "career transition");
   assert.equal(adopted.assets.cash, 2500000);
   assert.equal(adopted.simulation.monthlyInvestmentAmount, 50000);
   assert.equal(adopted.scenarios[0].id, "scenario-previous");
   assert.equal(adopted.scenarios[0].name, "採用前: test");
   assert.equal(adopted.scenarios[0].snapshot.household.fixedCost, 130000);
+  assert.deepEqual(adopted.scenarios[0].snapshot.cashflowPeriods, []);
   assert.deepEqual(adopted.scenarios.map((scenario) => scenario.id), ["scenario-previous", "scenario-other"]);
   assert.deepEqual(adopted.activeScenario, {
     name: "spending review",
@@ -741,6 +758,104 @@ test("asset projection applies monthly savings and life event impact by year", (
   assert.equal(projection[0].value, 1000000);
   assert.equal(projection[1].value, 1000000);
   assert.equal(projection[2].value, 1120000);
+});
+
+test("future cashflow periods replace only the selected household field during the selected years", () => {
+  const plan: LifePlan = {
+    ...basePlan,
+    cashflowPeriods: [
+      {
+        id: "income-period",
+        title: "career break",
+        owner: "self",
+        target: "monthlyIncome",
+        startYear: currentYear + 1,
+        endYear: currentYear + 2,
+        amount: 180000,
+        memo: ""
+      },
+      {
+        id: "later-income-period",
+        title: "new job",
+        owner: "self",
+        target: "monthlyIncome",
+        startYear: currentYear + 2,
+        endYear: currentYear + 3,
+        amount: 400000,
+        memo: ""
+      }
+    ]
+  };
+
+  assert.equal(getHouseholdForYear(plan, currentYear).monthlyIncome, basePlan.household.monthlyIncome);
+  assert.equal(getHouseholdForYear(plan, currentYear + 1).monthlyIncome, 180000);
+  assert.equal(getHouseholdForYear(plan, currentYear + 2).monthlyIncome, 400000);
+  assert.equal(getHouseholdForYear(plan, currentYear + 4).monthlyIncome, basePlan.household.monthlyIncome);
+  assert.equal(getHouseholdForYear(plan, currentYear + 2).fixedCost, basePlan.household.fixedCost);
+});
+
+test("annual cashflow rows expose income, expenses, events, and balances from one projection", () => {
+  const plan: LifePlan = {
+    ...basePlan,
+    household: {
+      monthlyIncome: 200000,
+      annualBonus: 0,
+      sideIncome: 0,
+      fixedCost: 100000,
+      variableCost: 0,
+      annualSpecialCost: 0
+    },
+    cashflowPeriods: [
+      {
+        id: "income-period",
+        title: "income change",
+        owner: "self",
+        target: "monthlyIncome",
+        startYear: currentYear,
+        endYear: currentYear + 2,
+        amount: 250000,
+        memo: ""
+      }
+    ],
+    assets: { cash: 0, investment: 0, other: 0, debt: 0 },
+    events: [],
+    simulation: { ...basePlan.simulation, annualReturnRate: 0 }
+  };
+
+  const row = getAnnualProjectionRows(plan, 1)[1];
+
+  assert.equal(row.annualIncome, 3000000);
+  assert.equal(row.annualLivingCost, 1200000);
+  assert.equal(row.annualSavings, 1800000);
+  assert.equal(row.eventIncome, 0);
+  assert.equal(row.eventExpense, 0);
+  assert.equal(row.netCashflow, 1800000);
+  assert.equal(row.cashBalance + row.investmentBalance, row.value);
+});
+
+test("cashflow stress years explain annual deficits and emergency-fund shortfalls", () => {
+  const plan: LifePlan = {
+    ...basePlan,
+    household: {
+      monthlyIncome: 100000,
+      annualBonus: 0,
+      sideIncome: 0,
+      fixedCost: 150000,
+      variableCost: 0,
+      annualSpecialCost: 0
+    },
+    cashflowPeriods: [],
+    assets: { cash: 0, investment: 0, other: 0, debt: 0 },
+    events: [],
+    simulation: { ...basePlan.simulation, annualReturnRate: 0 }
+  };
+  const rows = getAnnualProjectionRows(plan, 2);
+  const stressYears = getCashflowStressYears(plan, rows);
+
+  assert.ok(stressYears.length > 0);
+  assert.equal(stressYears[0].year, rows[2].year);
+  assert.ok(stressYears[0].reasons.some((reason) => reason.includes("年間収支")));
+  assert.ok(stressYears[0].reasons.some((reason) => reason.includes("生活防衛資金")));
 });
 
 test("asset projection combines expense, income, and neutral events in the same year", () => {
@@ -1966,10 +2081,38 @@ test("import validation rejects unrelated JSON and fills optional fields for leg
   assert.equal(imported.events[0].owner, "household");
   assert.equal(imported.goals[0].dueMonth, 12);
   assert.deepEqual(imported.timelineMemos, []);
+  assert.deepEqual(imported.cashflowPeriods, []);
   assert.deepEqual(imported.reviews, []);
   assert.deepEqual(imported.scenarios, []);
   assert.deepEqual(imported.fixedCostItems, []);
   assert.deepEqual(imported.budgetItems, []);
+});
+
+test("import validation normalizes future cashflow periods", () => {
+  const imported = validateImportedPlan({
+    ...basePlan,
+    cashflowPeriods: [
+      {
+        id: "",
+        title: "",
+        owner: "invalid",
+        target: "invalid",
+        startYear: currentYear + 3,
+        endYear: currentYear + 1,
+        amount: -100,
+        memo: undefined
+      }
+    ]
+  });
+
+  assert.equal(imported.cashflowPeriods.length, 1);
+  assert.ok(imported.cashflowPeriods[0].id);
+  assert.equal(imported.cashflowPeriods[0].title, "将来の収支変更");
+  assert.equal(imported.cashflowPeriods[0].owner, "household");
+  assert.equal(imported.cashflowPeriods[0].target, "monthlyIncome");
+  assert.equal(imported.cashflowPeriods[0].startYear, currentYear + 3);
+  assert.equal(imported.cashflowPeriods[0].endYear, currentYear + 3);
+  assert.equal(imported.cashflowPeriods[0].amount, 0);
 });
 
 test("import validation normalizes timeline memos", () => {

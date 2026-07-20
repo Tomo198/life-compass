@@ -8,6 +8,7 @@ import { featureTiers } from "../features";
 import type {
   Assets,
   BudgetItem,
+  CashflowPeriod,
   FixedCostItem,
   Goal,
   Household,
@@ -53,6 +54,7 @@ export const createEmptyPlan = (): LifePlan => ({
     variableCost: 0,
     annualSpecialCost: 0
   },
+  cashflowPeriods: [],
   assets: {
     cash: 0,
     investment: 0,
@@ -129,6 +131,39 @@ export function useLifePlanEditor() {
 
   const updateHousehold = <K extends keyof Household>(key: K, value: Household[K]) => {
     commitPlan({ ...plan, household: { ...plan.household, [key]: value } });
+  };
+
+  const addCashflowPeriod = () => {
+    const startYear = new Date().getFullYear() + 1;
+    const nextPeriod: CashflowPeriod = {
+      id: createId(),
+      title: "将来の収支変更",
+      owner: "household",
+      target: "monthlyIncome",
+      startYear,
+      endYear: startYear,
+      amount: plan.household.monthlyIncome,
+      memo: ""
+    };
+    commitPlan({ ...plan, cashflowPeriods: [...(plan.cashflowPeriods || []), nextPeriod] });
+  };
+
+  const updateCashflowPeriod = <K extends keyof CashflowPeriod>(id: string, key: K, value: CashflowPeriod[K]) => {
+    commitPlan({
+      ...plan,
+      cashflowPeriods: (plan.cashflowPeriods || []).map((period) => {
+        if (period.id !== id) return period;
+        if (key === "startYear") {
+          const startYear = value as number;
+          return { ...period, startYear, endYear: Math.max(startYear, period.endYear) };
+        }
+        return { ...period, [key]: value };
+      })
+    });
+  };
+
+  const removeCashflowPeriod = (id: string) => {
+    commitPlan({ ...plan, cashflowPeriods: (plan.cashflowPeriods || []).filter((period) => period.id !== id) });
   };
 
   const updateAssets = <K extends keyof Assets>(key: K, value: Assets[K]) => {
@@ -473,6 +508,9 @@ export function useLifePlanEditor() {
     storageError,
     updateProfile,
     updateHousehold,
+    addCashflowPeriod,
+    updateCashflowPeriod,
+    removeCashflowPeriod,
     updateAssets,
     updateSimulation,
     updateWithdrawalPlan,

@@ -14,6 +14,8 @@ import type {
   BudgetCategory,
   BudgetFrequency,
   BudgetItem,
+  CashflowPeriod,
+  CashflowPeriodTarget,
   CashflowType,
   EventOwner,
   FamilyType,
@@ -92,6 +94,14 @@ const eventCategories: LifeEventCategory[] = [
   "other"
 ];
 const cashflowTypes: CashflowType[] = ["expense", "income", "neutral"];
+const cashflowPeriodTargets: CashflowPeriodTarget[] = [
+  "monthlyIncome",
+  "annualBonus",
+  "sideIncome",
+  "fixedCost",
+  "variableCost",
+  "annualSpecialCost"
+];
 const scenarioTags: ScenarioTag[] = ["current", "spending", "career", "sideBusiness", "home", "retirement", "custom"];
 const fixedCostCategories: FixedCostCategory[] = [
   "insurance",
@@ -261,6 +271,7 @@ const normalizePlan = (plan: LifePlan): LifePlan => {
     version: CURRENT_PLAN_VERSION,
     profile: normalizeProfile(plan.profile),
     household: normalizeHousehold(plan.household),
+    cashflowPeriods: Array.isArray(plan.cashflowPeriods) ? plan.cashflowPeriods.map(normalizeCashflowPeriod) : [],
     assets: normalizeAssets(plan.assets),
     goals: Array.isArray(plan.goals) ? plan.goals.map(normalizeGoal) : [],
     events: Array.isArray(plan.events) ? plan.events.map(normalizeEvent) : [],
@@ -297,6 +308,20 @@ const preserveUnreadablePlan = (raw: string) => {
 const normalizeMonth = (value: unknown) => {
   if (typeof value !== "number" || !Number.isFinite(value)) return 1;
   return Math.max(1, Math.min(12, Math.round(value)));
+};
+
+const normalizeCashflowPeriod = (period: CashflowPeriod | null | undefined): CashflowPeriod => {
+  const startYear = integerInRange(period?.startYear, new Date().getFullYear(), 1900, MAX_PLAN_YEAR);
+  return {
+    id: identifierValue(period?.id),
+    title: nonEmptyString(period?.title, "将来の収支変更"),
+    owner: enumValue(period?.owner, eventOwners, "household"),
+    target: enumValue(period?.target, cashflowPeriodTargets, "monthlyIncome"),
+    startYear,
+    endYear: integerInRange(period?.endYear, startYear, startYear, MAX_PLAN_YEAR),
+    amount: nonNegativeNumber(period?.amount),
+    memo: stringValue(period?.memo)
+  };
 };
 
 const normalizeEvent = (event: LifeEvent | null | undefined): LifeEvent => ({
@@ -447,6 +472,9 @@ const normalizeReview = (review: ReviewNote): ReviewNote => ({
 
 const normalizeScenarioSnapshot = (snapshot: ScenarioSnapshot | undefined): ScenarioSnapshot => ({
   household: normalizeHousehold(snapshot?.household),
+  cashflowPeriods: Array.isArray(snapshot?.cashflowPeriods)
+    ? snapshot.cashflowPeriods.map(normalizeCashflowPeriod)
+    : [],
   assets: normalizeAssets(snapshot?.assets),
   goals: Array.isArray(snapshot?.goals) ? snapshot.goals.map(normalizeGoal) : [],
   events: Array.isArray(snapshot?.events) ? snapshot.events.map(normalizeEvent) : [],

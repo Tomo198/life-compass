@@ -26,6 +26,7 @@ export type ScenarioTemplate = {
 
 export const createScenarioSnapshot = (plan: LifePlan): ScenarioSnapshot => ({
   household: { ...plan.household },
+  cashflowPeriods: (plan.cashflowPeriods || []).map((period) => ({ ...period })),
   assets: { ...plan.assets },
   goals: plan.goals.map((goal) => ({ ...goal })),
   events: plan.events.map((event) => ({ ...event })),

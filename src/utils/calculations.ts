@@ -2,6 +2,7 @@ import type {
   Assets,
   BudgetCategory,
   BudgetItem,
+  CashflowPeriodTarget,
   FixedCostItem,
   Goal,
   Household,
@@ -56,10 +57,26 @@ export type ProjectionPoint = {
 };
 
 export type AnnualProjectionRow = ProjectionPoint & {
+  annualIncome: number;
+  annualLivingCost: number;
   annualSavings: number;
+  eventIncome: number;
+  eventExpense: number;
   eventImpact: number;
+  netCashflow: number;
   returnImpact: number;
+  cashBalance: number;
+  investmentBalance: number;
   eventTitles: string[];
+};
+
+export type CashflowStressYear = {
+  year: number;
+  age: number;
+  score: number;
+  netCashflow: number;
+  cashBalance: number;
+  reasons: string[];
 };
 
 export type MonthlyProjectionRow = ProjectionPoint & {
@@ -68,11 +85,15 @@ export type MonthlyProjectionRow = ProjectionPoint & {
   label: string;
   cashBalance: number;
   investmentBalance: number;
+  monthlyIncome: number;
+  monthlyLivingCost: number;
   monthlySavings: number;
   monthlyInvestmentContribution: number;
   bonusSavings: number;
   bonusInvestmentContribution: number;
   eventImpact: number;
+  eventIncome: number;
+  eventExpense: number;
   returnImpact: number;
   eventTitles: string[];
 };
@@ -308,11 +329,37 @@ export const getAssetSummary = (assets: Assets) => {
 export const buildPlanFromScenario = (basePlan: LifePlan, scenario: PlanScenario): LifePlan => ({
   ...basePlan,
   household: scenario.snapshot.household,
+  cashflowPeriods: scenario.snapshot.cashflowPeriods || [],
   assets: scenario.snapshot.assets,
   goals: scenario.snapshot.goals,
   events: scenario.snapshot.events,
   simulation: scenario.snapshot.simulation
 });
+
+const cashflowPeriodTargets: CashflowPeriodTarget[] = [
+  "monthlyIncome",
+  "annualBonus",
+  "sideIncome",
+  "fixedCost",
+  "variableCost",
+  "annualSpecialCost"
+];
+
+export const getHouseholdForYear = (plan: LifePlan, year: number): Household => {
+  const household = { ...plan.household };
+  const periods = plan.cashflowPeriods || [];
+
+  cashflowPeriodTargets.forEach((target) => {
+    const candidates = periods
+      .map((period, index) => ({ period, index }))
+      .filter(({ period }) => period.target === target && period.startYear <= year && year <= period.endYear)
+      .sort((a, b) => a.period.startYear - b.period.startYear || a.index - b.index);
+    const selected = candidates[candidates.length - 1]?.period;
+    if (selected) household[target] = selected.amount;
+  });
+
+  return household;
+};
 
 export const getFixedCostImpact = (items: FixedCostItem[]): FixedCostImpact => {
   const monthlyImprovement = items.reduce(
@@ -450,6 +497,16 @@ const eventImpactForMonth = (events: LifeEvent[], year: number, month: number) =
 const eventsForMonth = (events: LifeEvent[], year: number, month: number) =>
   events.filter((event) => event.year === year && event.month === month);
 
+const eventAmountsForMonth = (events: LifeEvent[], year: number, month: number) =>
+  eventsForMonth(events, year, month).reduce(
+    (summary, event) => {
+      if (event.cashflowType === "income") summary.income += event.amount;
+      if (event.cashflowType === "expense") summary.expense += event.amount;
+      return summary;
+    },
+    { income: 0, expense: 0 }
+  );
+
 type ProjectionBalances = {
   cash: number;
   investment: number;
@@ -489,24 +546,33 @@ export const getAnnualProjectionRows = (plan: LifePlan, years: number): AnnualPr
   return Array.from({ length: normalizedYears + 1 }, (_, index) => {
     const point = monthlyRows[index * 12];
     const periodRows = index === 0 ? [] : monthlyRows.slice((index - 1) * 12 + 1, index * 12 + 1);
-    const annualSavings = periodRows.reduce((total, row) => total + row.monthlySavings + row.bonusSavings, 0);
+    const annualIncome = periodRows.reduce((total, row) => total + row.monthlyIncome + row.bonusSavings, 0);
+    const annualLivingCost = periodRows.reduce((total, row) => total + row.monthlyLivingCost, 0);
+    const annualSavings = annualIncome - annualLivingCost;
+    const eventIncome = periodRows.reduce((total, row) => total + row.eventIncome, 0);
+    const eventExpense = periodRows.reduce((total, row) => total + row.eventExpense, 0);
     const eventImpact = periodRows.reduce((total, row) => total + row.eventImpact, 0);
     const returnImpact = periodRows.reduce((total, row) => total + row.returnImpact, 0);
     return {
       year: point.year,
       age: point.age,
       value: point.value,
+      annualIncome,
+      annualLivingCost,
       annualSavings,
+      eventIncome,
+      eventExpense,
       eventImpact,
+      netCashflow: annualSavings + eventImpact,
       returnImpact,
+      cashBalance: point.cashBalance,
+      investmentBalance: point.investmentBalance,
       eventTitles: periodRows.flatMap((row) => row.eventTitles)
     };
   });
 };
 
 export const getMonthlyProjectionRows = (plan: LifePlan, months: number): MonthlyProjectionRow[] => {
-  const cashflow = getCashflowSummary(plan.household);
-  const allocation = getBasicProjectionAllocation(plan);
   const monthlyRate = plan.simulation.annualReturnRate / 100 / 12;
   const startDate = new Date();
   const balances = createProjectionBalances(plan.assets);
@@ -518,12 +584,18 @@ export const getMonthlyProjectionRows = (plan: LifePlan, months: number): Monthl
     const year = targetDate.getFullYear();
     const month = targetDate.getMonth() + 1;
     const age = plan.profile.age + Math.floor(monthOffset / 12);
+    const effectiveHousehold = getHouseholdForYear(plan, year);
+    const cashflow = getCashflowSummary(effectiveHousehold);
+    const allocation = getBasicProjectionAllocation({ ...plan, household: effectiveHousehold });
     const previousValue = rows[monthOffset - 1]?.value ?? getProjectionValue(balances);
     const eventImpact = monthOffset === 0 ? 0 : eventImpactForMonth(plan.events, year, month);
+    const eventAmounts = monthOffset === 0 ? { income: 0, expense: 0 } : eventAmountsForMonth(plan.events, year, month);
     const monthEvents = monthOffset === 0 ? [] : eventsForMonth(plan.events, year, month);
+    const monthlyIncome = monthOffset === 0 ? 0 : cashflow.monthlyIncome;
+    const monthlyLivingCost = monthOffset === 0 ? 0 : cashflow.monthlyLivingCost;
     const monthlySavings = monthOffset === 0 ? 0 : cashflow.monthlySavings;
     const monthlyInvestmentContribution = monthOffset === 0 ? 0 : allocation.monthlyInvestment;
-    const bonusSavings = monthOffset > 0 && monthOffset % 12 === 0 ? plan.household.annualBonus : 0;
+    const bonusSavings = monthOffset > 0 && monthOffset % 12 === 0 ? effectiveHousehold.annualBonus : 0;
     const bonusInvestmentContribution = bonusSavings ? allocation.annualBonusInvestment : 0;
 
     if (monthOffset > 0) {
@@ -547,17 +619,55 @@ export const getMonthlyProjectionRows = (plan: LifePlan, months: number): Monthl
       value,
       cashBalance: balances.cash,
       investmentBalance: balances.investment,
+      monthlyIncome,
+      monthlyLivingCost,
       monthlySavings,
       monthlyInvestmentContribution,
       bonusSavings,
       bonusInvestmentContribution,
       eventImpact,
+      eventIncome: eventAmounts.income,
+      eventExpense: eventAmounts.expense,
       returnImpact: monthOffset === 0 ? 0 : value - previousValue - monthlySavings - bonusSavings - eventImpact,
       eventTitles: monthEvents.map((event) => event.title)
     });
   }
 
   return rows;
+};
+
+export const getCashflowStressYears = (
+  plan: LifePlan,
+  rows: AnnualProjectionRow[],
+  limit = 3
+): CashflowStressYear[] => {
+  const emergencyMonths = getEmergencyFundMonths(plan.profile).lower;
+
+  return rows
+    .slice(1)
+    .map((row) => {
+      const emergencyAmount = (row.annualLivingCost / 12) * emergencyMonths;
+      const emergencyShortfall = Math.max(0, emergencyAmount - row.cashBalance);
+      const deficit = Math.max(0, -row.netCashflow);
+      const largeEventThreshold = Math.max(row.annualIncome * 0.2, 500000);
+      const reasons: string[] = [];
+
+      if (deficit > 0) reasons.push(`年間収支が${manYen(deficit)}のマイナス`);
+      if (emergencyShortfall > 0) reasons.push(`現金が生活防衛資金の目安を${manYen(emergencyShortfall)}下回る`);
+      if (row.eventExpense >= largeEventThreshold) reasons.push(`大きな支出イベントが${manYen(row.eventExpense)}`);
+
+      return {
+        year: row.year,
+        age: row.age,
+        score: deficit + emergencyShortfall + Math.max(0, row.eventExpense - largeEventThreshold),
+        netCashflow: row.netCashflow,
+        cashBalance: row.cashBalance,
+        reasons
+      };
+    })
+    .filter((row) => row.reasons.length > 0)
+    .sort((a, b) => b.score - a.score || a.year - b.year)
+    .slice(0, Math.max(0, limit));
 };
 
 const clampPercent = (value: number) => Math.max(0, Math.min(100, Math.round(value)));

@@ -1,12 +1,21 @@
 import { FixedCostItemList } from "../components/FixedCostItemList";
-import { Metric, MoneyInput, StepFlowNav, StepTitle } from "../components/CommonUi";
+import { EmptyState, Metric, MoneyInput, NumericInput, StepFlowNav, StepTitle } from "../components/CommonUi";
+import { MAX_PLAN_YEAR } from "../config";
+import {
+  cashflowPeriodTargetLabels,
+  cashflowPeriodTargetUnits,
+  eventOwnerLabels
+} from "../data/labels";
 import { hasFeatureAccess, type AccessState } from "../features";
-import type { FixedCostItem, Household, LifePlan, ViewKey } from "../types";
+import type { CashflowPeriod, FixedCostItem, Household, LifePlan, ViewKey } from "../types";
 import { getCashflowSummary, getFixedCostImpact, manYen, percent } from "../utils/calculations";
 
 type HouseholdViewProps = {
   plan: LifePlan;
   updateHousehold: <K extends keyof Household>(key: K, value: Household[K]) => void;
+  addCashflowPeriod: () => void;
+  updateCashflowPeriod: <K extends keyof CashflowPeriod>(id: string, key: K, value: CashflowPeriod[K]) => void;
+  removeCashflowPeriod: (id: string) => void;
   addFixedCostItem: () => void;
   updateFixedCostItem: <K extends keyof FixedCostItem>(id: string, key: K, value: FixedCostItem[K]) => void;
   removeFixedCostItem: (id: string) => void;
@@ -17,6 +26,9 @@ type HouseholdViewProps = {
 export function HouseholdView({
   plan,
   updateHousehold,
+  addCashflowPeriod,
+  updateCashflowPeriod,
+  removeCashflowPeriod,
   addFixedCostItem,
   updateFixedCostItem,
   removeFixedCostItem,
@@ -27,6 +39,9 @@ export function HouseholdView({
   const fixedCostItems = plan.fixedCostItems || [];
   const fixedCostImpact = getFixedCostImpact(fixedCostItems);
   const canUseFixedCostImpact = hasFeatureAccess(accessState, "fixedCostImpact");
+  const canUseDetailedCashflow = hasFeatureAccess(accessState, "detailedCashflow");
+  const cashflowPeriods = plan.cashflowPeriods || [];
+  const currentYear = new Date().getFullYear();
   const monthlySavingsTone =
     cashflow.monthlySavings < 0 ? "notice" : cashflow.savingsRate >= 20 ? "good" : cashflow.monthlySavings > 0 ? "check" : "neutral";
 
@@ -86,6 +101,82 @@ export function HouseholdView({
           <span>旅行、家電、帰省、税金、車検など年に数回ある支出を年額で入れます。</span>
         </div>
       </section>
+      {canUseDetailedCashflow ? (
+        <section className="panel">
+          <div className="section-heading">
+            <div>
+              <div className="title-with-badge">
+                <h2>時期別の収入・支出</h2>
+                <span className="pro-inline-badge">Proプレビュー</span>
+              </div>
+              <p>育休、転職、教育費、住宅費など、期間中だけ変わる金額を設定します。対象期間は基本収支の金額から置き換えて試算します。</p>
+            </div>
+            <button type="button" onClick={addCashflowPeriod}>期間を追加</button>
+          </div>
+          {cashflowPeriods.length === 0 ? (
+            <EmptyState title="時期別の変更はありません" detail="現在の基本収支が将来も続く前提で試算しています。" />
+          ) : (
+            <div className="cashflow-period-list">
+              {cashflowPeriods.map((period) => {
+                const startAge = plan.profile.age + Math.max(0, period.startYear - currentYear);
+                const endAge = plan.profile.age + Math.max(0, period.endYear - currentYear);
+                return (
+                  <div className="cashflow-period-row" key={period.id}>
+                    <div className="cashflow-period-heading">
+                      <label>
+                        変更名
+                        <input value={period.title} onChange={(event) => updateCashflowPeriod(period.id, "title", event.target.value)} />
+                      </label>
+                      <button type="button" className="text-button danger-text" onClick={() => removeCashflowPeriod(period.id)}>削除</button>
+                    </div>
+                    <div className="form-grid cashflow-period-fields">
+                      <label>
+                        対象者
+                        <select value={period.owner} onChange={(event) => updateCashflowPeriod(period.id, "owner", event.target.value as CashflowPeriod["owner"])}>
+                          {Object.entries(eventOwnerLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}
+                        </select>
+                      </label>
+                      <label>
+                        変更する項目
+                        <select value={period.target} onChange={(event) => updateCashflowPeriod(period.id, "target", event.target.value as CashflowPeriod["target"])}>
+                          {Object.entries(cashflowPeriodTargetLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}
+                        </select>
+                      </label>
+                      <label>
+                        開始年
+                        <NumericInput value={period.startYear} min={currentYear} max={MAX_PLAN_YEAR} onChange={(value) => updateCashflowPeriod(period.id, "startYear", value)} />
+                      </label>
+                      <label>
+                        終了年
+                        <NumericInput value={period.endYear} min={period.startYear} max={MAX_PLAN_YEAR} onChange={(value) => updateCashflowPeriod(period.id, "endYear", value)} />
+                      </label>
+                      <MoneyInput label={`期間中の金額（${cashflowPeriodTargetUnits[period.target]}）`} value={period.amount} onChange={(value) => updateCashflowPeriod(period.id, "amount", value)} />
+                      <label>
+                        メモ
+                        <input value={period.memo} onChange={(event) => updateCashflowPeriod(period.id, "memo", event.target.value)} placeholder="例: 育休中、大学在学中" />
+                      </label>
+                    </div>
+                    <p className="cashflow-period-summary">{period.startYear}年（{startAge}歳）から{period.endYear}年（{endAge}歳）まで、{cashflowPeriodTargetLabels[period.target]}を{manYen(period.amount)}として試算します。</p>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          <div className="notice-band check cashflow-period-note">
+            <strong>同じ項目の期間が重なった場合</strong>
+            <span>開始年が新しい設定を優先します。同じ開始年の場合は、一覧の下にある設定を優先します。</span>
+          </div>
+        </section>
+      ) : (
+        <section className="panel pro-locked-panel">
+          <div className="title-with-badge">
+            <h2>時期別の収入・支出</h2>
+            <span className="pro-inline-badge">Pro</span>
+          </div>
+          <p>育休、転職、教育費、住宅費など、期間による変化を年次見通しへ反映できます。</p>
+          <button type="button" className="secondary" onClick={() => setActiveView("pricing")}>Pro機能・料金を見る</button>
+        </section>
+      )}
       {canUseFixedCostImpact ? (
         <section className="panel">
           <div className="section-heading">

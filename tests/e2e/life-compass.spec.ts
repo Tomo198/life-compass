@@ -154,7 +154,7 @@ test("無料版とPro版の境界が表示され、横方向にはみ出さな�
   await expect(page.getByTestId("app-shell")).toHaveAttribute("data-access-mode", "preview");
   await expect(page.getByTestId("app-shell")).toHaveAttribute("data-access-tier", "free");
   await openView(page, "household");
-  await expect(page.getByText("Proプレビュー", { exact: true })).toBeVisible();
+  await expect(page.getByText("Proプレビュー", { exact: true }).first()).toBeVisible();
   await openView(page, "simulation");
   await expect(page.getByRole("button", { name: "積立試算" })).toBeVisible();
   await expect(page.getByRole("button", { name: "取り崩し試算" })).toBeVisible();
@@ -378,6 +378,33 @@ test("基本見通しで家計余剰の振り分けを設定して保存でき�
   await openView(page, "simulation");
   await expect(page.getByLabel("毎月、投資へ回す額")).toHaveValue("40,000");
   await expect(page.getByLabel("ボーナスから投資へ回す年額")).toHaveValue("200,000");
+});
+
+test("時期別の収支を年次見通しへ反映して保存できる", async ({ page }) => {
+  const periodYear = new Date().getFullYear() + 1;
+
+  await openView(page, "household");
+  await page.getByRole("button", { name: "期間を追加", exact: true }).click();
+
+  const periodRow = page.locator(".cashflow-period-row");
+  await periodRow.getByLabel("変更名").fill("育休中の収入");
+  await periodRow.getByLabel("期間中の金額（月額）").fill("200000");
+  await periodRow.getByLabel("期間中の金額（月額）").blur();
+  await expect(periodRow.getByText(`${periodYear}年`)).toBeVisible();
+
+  await openView(page, "simulation");
+  await expect(page.getByRole("heading", { name: "年次キャッシュフロー", level: 3 })).toBeVisible();
+  await page.getByRole("button", { name: new RegExp(`^${periodYear}年 収入`) }).click();
+  const cashflowDetails = page.locator(".annual-cashflow-chart .chart-selection-panel");
+  await expect(cashflowDetails).toContainText(`${periodYear}年`);
+  await expect(cashflowDetails).toContainText("年間収入");
+  await expect(cashflowDetails).toContainText("年間支出");
+  await expect(cashflowDetails).toContainText("年間収支");
+
+  await page.reload();
+  await openView(page, "household");
+  await expect(page.locator(".cashflow-period-row").getByLabel("変更名")).toHaveValue("育休中の収入");
+  await expect(page.locator(".cashflow-period-row").getByLabel("期間中の金額（月額）")).toHaveValue("200,000");
 });
 
 test("詳細シミュレーションのグラフを操作して試算値を確認できる", async ({ page }) => {

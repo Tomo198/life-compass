@@ -1106,6 +1106,42 @@ td select {
   background: #d97706;
 }
 
+.cashflow-bar.income {
+  fill: var(--primary);
+  opacity: 0.78;
+}
+
+.cashflow-bar.expense {
+  fill: var(--accent);
+  opacity: 0.72;
+}
+
+.cashflow-bar.selected {
+  opacity: 1;
+  stroke: var(--ink);
+  stroke-width: 1.5;
+}
+
+.cashflow-stress-dot {
+  fill: var(--danger);
+  stroke: var(--surface-strong);
+  stroke-width: 2;
+}
+
+.legend-cashflow-income {
+  background: var(--primary);
+}
+
+.legend-cashflow-expense {
+  background: var(--accent);
+}
+
+.legend-cashflow-stress {
+  width: 0.65rem !important;
+  height: 0.65rem !important;
+  background: var(--danger);
+}
+
 .chart-section-heading {
   margin-top: 1.3rem;
 }
@@ -2656,6 +2692,67 @@ td select {
 .review-list {
   display: grid;
   gap: 1rem;
+}
+
+.cashflow-period-list {
+  margin-top: 1rem;
+  border-top: 1px solid var(--line);
+}
+
+.cashflow-period-row {
+  display: grid;
+  gap: 0.85rem;
+  padding: 1rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.cashflow-period-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 0.8rem;
+}
+
+.cashflow-period-heading label {
+  width: min(32rem, 100%);
+}
+
+.cashflow-period-summary {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.cashflow-period-note {
+  margin-top: 1rem;
+}
+
+.cashflow-stress-summary {
+  margin-top: 1.25rem;
+  padding-top: 1.1rem;
+  border-top: 1px solid var(--line);
+}
+
+.cashflow-stress-list {
+  display: grid;
+  border-top: 1px solid var(--line);
+}
+
+.cashflow-stress-item {
+  display: grid;
+  grid-template-columns: minmax(8rem, 0.3fr) 1fr;
+  gap: 1rem;
+  padding: 0.8rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.cashflow-stress-item span {
+  color: var(--muted);
+}
+
+.negative-value {
+  color: var(--danger);
+  font-weight: 750;
 }
 
 .review-center .calculation-band {
@@ -4684,6 +4781,21 @@ td select {
   .mobile-record dl,
   .chart-selection-panel {
     grid-template-columns: 1fr;
+  }
+
+  .cashflow-period-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .cashflow-period-heading label,
+  .cashflow-period-heading button {
+    width: 100%;
+  }
+
+  .cashflow-stress-item {
+    grid-template-columns: 1fr;
+    gap: 0.3rem;
   }
 
   .mobile-record-head {

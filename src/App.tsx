@@ -51,6 +51,9 @@ function App() {
     storageError,
     updateProfile,
     updateHousehold,
+    addCashflowPeriod,
+    updateCashflowPeriod,
+    removeCashflowPeriod,
     updateAssets,
     updateSimulation,
     updateWithdrawalPlan,
@@ -225,6 +228,9 @@ function App() {
           <HouseholdView
             plan={plan}
             updateHousehold={updateHousehold}
+            addCashflowPeriod={addCashflowPeriod}
+            updateCashflowPeriod={updateCashflowPeriod}
+            removeCashflowPeriod={removeCashflowPeriod}
             addFixedCostItem={addFixedCostItem}
             updateFixedCostItem={updateFixedCostItem}
             removeFixedCostItem={removeFixedCostItem}

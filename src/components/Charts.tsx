@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { manYen, type VariabilityResult } from "../utils/calculations";
+import { manYen, type AnnualProjectionRow, type VariabilityResult } from "../utils/calculations";
 
 export type ChartPoint = {
   year: number;
@@ -37,7 +37,6 @@ export function VariabilityBandChart({ rows }: { rows: VariabilityResult["rows"]
   });
   const upperPoints = rows.map((row, index) => pointFor(row, index, "upper"));
   const lowerPoints = rows.map((row, index) => pointFor(row, index, "lower"));
-  const modePoints = rows.map((row, index) => pointFor(row, index, "mode"));
   const medianPoints = rows.map((row, index) => pointFor(row, index, "median"));
   const bandPath = [
     ...upperPoints.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`),
@@ -45,7 +44,6 @@ export function VariabilityBandChart({ rows }: { rows: VariabilityResult["rows"]
     "Z"
   ].join(" ");
   const medianPath = medianPoints.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ");
-  const modePath = modePoints.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ");
   const labelStep = rows.length > 20 ? 5 : rows.length > 12 ? 3 : 1;
 
   return (
@@ -58,7 +56,6 @@ export function VariabilityBandChart({ rows }: { rows: VariabilityResult["rows"]
           <text x={padding.left - 10} y={height - padding.bottom + 4} textAnchor="end" className="axis-label">{manYen(minValue)}</text>
           <path d={bandPath} className="range-band" />
           <path d={medianPath} className="range-median-line" />
-          <path d={modePath} className="range-mode-line" />
           {medianPoints.map((point, index) => {
             const row = rows[index];
             const showLabel = index % labelStep === 0 || index === rows.length - 1;
@@ -74,7 +71,113 @@ export function VariabilityBandChart({ rows }: { rows: VariabilityResult["rows"]
       <div className="chart-legend" aria-label="グラフ凡例">
         <span><i className="legend-band" />下位10%〜上位10%</span>
         <span><i className="legend-median" />中央値</span>
-        <span><i className="legend-mode" />最頻帯</span>
+      </div>
+    </div>
+  );
+}
+
+export function AnnualCashflowChart({ rows }: { rows: AnnualProjectionRow[] }) {
+  const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (selectedIndex !== null && selectedIndex >= rows.length) setSelectedIndex(null);
+  }, [rows.length, selectedIndex]);
+
+  if (rows.length === 0) return null;
+
+  const width = 900;
+  const height = 330;
+  const padding = { top: 46, right: 42, bottom: 52, left: 76 };
+  const chartWidth = width - padding.left - padding.right;
+  const chartHeight = height - padding.top - padding.bottom;
+  const xStep = chartWidth / Math.max(rows.length, 1);
+  const maxValue = Math.max(
+    ...rows.map((row) => row.annualIncome + row.eventIncome),
+    ...rows.map((row) => row.annualLivingCost + row.eventExpense),
+    1
+  );
+  const barWidth = Math.max(4, Math.min(16, xStep * 0.32));
+  const labelStep = rows.length > 20 ? 5 : rows.length > 12 ? 3 : 1;
+  const selected = selectedIndex === null ? null : rows[selectedIndex];
+  const yFor = (value: number) => height - padding.bottom - (value / maxValue) * chartHeight;
+
+  return (
+    <div className="chart-block annual-cashflow-chart">
+      <div className="chart-wrap">
+        <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="年間収入と年間支出の比較グラフ">
+          <line x1={padding.left} y1={height - padding.bottom} x2={width - padding.right} y2={height - padding.bottom} className="axis" />
+          <line x1={padding.left} y1={padding.top} x2={padding.left} y2={height - padding.bottom} className="axis" />
+          <text x={padding.left - 10} y={padding.top + 4} textAnchor="end" className="axis-label">{manYen(maxValue)}</text>
+          <text x={padding.left - 10} y={height - padding.bottom + 4} textAnchor="end" className="axis-label">0円</text>
+          {rows.map((row, index) => {
+            const centerX = padding.left + xStep * index + xStep / 2;
+            const income = row.annualIncome + row.eventIncome;
+            const expense = row.annualLivingCost + row.eventExpense;
+            const incomeY = yFor(income);
+            const expenseY = yFor(expense);
+            const isSelected = selectedIndex === index;
+            const showLabel = isSelected || index % labelStep === 0 || index === rows.length - 1;
+            const label = `${row.year}年`;
+            return (
+              <g key={`${row.year}-${index}`}>
+                {isSelected && <line x1={centerX} y1={padding.top} x2={centerX} y2={height - padding.bottom} className="chart-selected-guide" />}
+                <rect
+                  x={centerX - barWidth - 2}
+                  y={incomeY}
+                  width={barWidth}
+                  height={height - padding.bottom - incomeY}
+                  rx="2"
+                  className={`cashflow-bar income${isSelected ? " selected" : ""}`}
+                />
+                <rect
+                  x={centerX + 2}
+                  y={expenseY}
+                  width={barWidth}
+                  height={height - padding.bottom - expenseY}
+                  rx="2"
+                  className={`cashflow-bar expense${isSelected ? " selected" : ""}`}
+                />
+                {row.netCashflow < 0 && <circle cx={centerX} cy={padding.top - 12} r="5" className="cashflow-stress-dot" />}
+                <g
+                  role="button"
+                  tabIndex={0}
+                  className="chart-hit-button"
+                  aria-label={`${label} 収入${manYen(income)} 支出${manYen(expense)}`}
+                  onClick={() => setSelectedIndex(index)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      setSelectedIndex(index);
+                    }
+                  }}
+                >
+                  <rect x={centerX - xStep / 2} y={padding.top - 20} width={xStep} height={chartHeight + 20} className="chart-hit-area" />
+                </g>
+                {showLabel && <text x={centerX} y={height - 17} textAnchor="middle" className="year-label">{row.year}</text>}
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+      <div className="chart-legend" aria-label="グラフの凡例">
+        <span><i className="legend-cashflow-income" />年間収入</span>
+        <span><i className="legend-cashflow-expense" />年間支出</span>
+        <span><i className="legend-cashflow-stress" />年間収支がマイナス</span>
+      </div>
+      <div className="chart-selection-panel" aria-live="polite">
+        {selected ? (
+          <>
+            <div><span>{selected.year}年 / {selected.age}歳</span><strong>{manYen(selected.value)}</strong></div>
+            <div><span>年間収入</span><strong>{manYen(selected.annualIncome + selected.eventIncome)}</strong></div>
+            <div><span>年間支出</span><strong>{manYen(selected.annualLivingCost + selected.eventExpense)}</strong></div>
+            <div><span>年間収支</span><strong>{manYen(selected.netCashflow)}</strong></div>
+            <div><span>現金残高</span><strong>{manYen(selected.cashBalance)}</strong></div>
+            <div><span>投資資産</span><strong>{manYen(selected.investmentBalance)}</strong></div>
+            {selected.eventTitles.length > 0 && <div className="chart-selection-wide"><span>イベント</span><strong>{selected.eventTitles.join(" / ")}</strong></div>}
+          </>
+        ) : (
+          <p>棒をタップすると、その年の収入、支出、現金、資産見通しを確認できます。</p>
+        )}
       </div>
     </div>
   );
@@ -118,7 +221,6 @@ export function LineChart({
   });
   const upperRangePoints = rangeRows.map((row, index) => rangePointFor(row, index, "upper"));
   const lowerRangePoints = rangeRows.map((row, index) => rangePointFor(row, index, "lower"));
-  const modeRangePoints = rangeRows.map((row, index) => rangePointFor(row, index, "mode"));
   const medianRangePoints = rangeRows.map((row, index) => rangePointFor(row, index, "median"));
   const bandPath = rangeRows.length > 0
     ? [
@@ -128,9 +230,6 @@ export function LineChart({
       ].join(" ")
     : "";
   const medianRangePath = medianRangePoints.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ");
-  const modeRangePath = modeRangePoints.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ");
-  const upperRangePath = upperRangePoints.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ");
-  const lowerRangePath = lowerRangePoints.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ");
   const path = coordinates.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ");
   const selectedPoint = selectedIndex === null ? null : coordinates[selectedIndex];
   const selectedRange = selectedIndex === null ? null : rangeRows[selectedIndex] ?? null;
@@ -138,8 +237,6 @@ export function LineChart({
   const selectedRangeCoordinates = selectedIndex !== null && selectedRange
     ? {
         lower: rangePointFor(selectedRange, selectedIndex, "lower"),
-        mode: rangePointFor(selectedRange, selectedIndex, "mode"),
-        median: rangePointFor(selectedRange, selectedIndex, "median"),
         upper: rangePointFor(selectedRange, selectedIndex, "upper")
       }
     : null;
@@ -161,10 +258,7 @@ export function LineChart({
           {rangeRows.length > 0 && (
             <>
               <path d={bandPath} className="range-band" />
-              <path d={upperRangePath} className="range-upper-line" />
-              <path d={lowerRangePath} className="range-lower-line" />
               <path d={medianRangePath} className="range-median-line" />
-              <path d={modeRangePath} className="range-mode-line" />
             </>
           )}
           {rangeRows.length === 0 && <path d={path} className="chart-line" />}
@@ -173,7 +267,6 @@ export function LineChart({
               <line x1={selectedPoint.x} y1={padding.top} x2={selectedPoint.x} y2={height - padding.bottom} className="chart-selected-guide" />
               <circle cx={selectedRangeCoordinates.upper.x} cy={selectedRangeCoordinates.upper.y} r="5" className="selected-range-dot upper" />
               <circle cx={selectedRangeCoordinates.lower.x} cy={selectedRangeCoordinates.lower.y} r="5" className="selected-range-dot lower" />
-              <circle cx={selectedRangeCoordinates.mode.x} cy={selectedRangeCoordinates.mode.y} r="5" className="selected-range-dot mode" />
             </>
           )}
           {coordinates.map((point, index) => {
@@ -215,10 +308,8 @@ export function LineChart({
       </div>
       {rangeRows.length > 0 && (
         <div className="chart-legend" aria-label="グラフの凡例">
-          <span><i className="legend-upper" />上位10%</span>
-          <span><i className="legend-lower" />下位10%</span>
+          <span><i className="legend-band" />下位10%〜上位10%</span>
           <span><i className="legend-median" />中央値</span>
-          <span><i className="legend-mode" />最頻帯</span>
         </div>
       )}
       <div className="chart-selection-panel" aria-live="polite">

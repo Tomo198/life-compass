@@ -1,11 +1,30 @@
 import type {
   BudgetCategory,
   BudgetFrequency,
+  CashflowPeriodTarget,
   CashflowType,
   EventOwner,
   LifeEventCategory,
   Priority
 } from "../types";
+
+export const cashflowPeriodTargetLabels: Record<CashflowPeriodTarget, string> = {
+  monthlyIncome: "月収",
+  annualBonus: "ボーナス年額",
+  sideIncome: "副業収入 月額",
+  fixedCost: "固定費 月額",
+  variableCost: "変動費 月額",
+  annualSpecialCost: "年間特別支出"
+};
+
+export const cashflowPeriodTargetUnits: Record<CashflowPeriodTarget, string> = {
+  monthlyIncome: "月額",
+  annualBonus: "年額",
+  sideIncome: "月額",
+  fixedCost: "月額",
+  variableCost: "月額",
+  annualSpecialCost: "年額"
+};
 
 export const priorityLabels: Record<Priority, string> = {
   high: "高",

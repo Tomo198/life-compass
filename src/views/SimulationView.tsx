@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { LineChart } from "../components/Charts";
+import { AnnualCashflowChart, LineChart } from "../components/Charts";
 import { Metric, MoneyInput, NumericInput, StepFlowNav, StepTitle } from "../components/CommonUi";
 import {
   MAX_PLAN_AGE,
@@ -18,6 +18,7 @@ import {
   emergencyMonthsLabel,
   getAnnualProjectionRows,
   getBasicProjectionAllocation,
+  getCashflowStressYears,
   getCashflowSummary,
   getContributionProjectionRows,
   getEmergencyFundResult,
@@ -105,6 +106,8 @@ export function SimulationView({
   const projection10 = useMemo(() => projectAssets(plan, 10), [plan]);
   const projection30 = useMemo(() => projectAssets(plan, 30), [plan]);
   const annualRows = useMemo(() => getAnnualProjectionRows(plan, projectionYears), [plan, projectionYears]);
+  const annualCashflowRows = annualRows.slice(1);
+  const cashflowStressYears = useMemo(() => getCashflowStressYears(plan, annualRows), [annualRows, plan]);
   const monthlyRows = useMemo(() => getMonthlyProjectionRows(plan, projectionMonths), [plan, projectionMonths]);
   const basicAllocation = useMemo(() => getBasicProjectionAllocation(plan), [plan]);
   const emergency = getEmergencyFundResult(plan);
@@ -296,6 +299,73 @@ export function SimulationView({
           )}
         </div>
         <LineChart points={chartRows} />
+        {projectionMode === "annual" && (
+          <>
+            <div className="section-heading chart-section-heading">
+              <div>
+                <h3>年次キャッシュフロー</h3>
+                <p>収入と支出を年ごとに比較します。棒をタップすると、その年の内訳を確認できます。</p>
+              </div>
+            </div>
+            <AnnualCashflowChart rows={annualCashflowRows} />
+            <section className="cashflow-stress-summary" aria-label="家計の山場">
+              <div className="section-heading">
+                <div>
+                  <h3>家計の山場</h3>
+                  <p>年間収支、生活防衛資金、大きな支出イベントが重なる年を整理します。</p>
+                </div>
+              </div>
+              {cashflowStressYears.length > 0 ? (
+                <div className="cashflow-stress-list">
+                  {cashflowStressYears.map((item) => (
+                    <div className="cashflow-stress-item" key={item.year}>
+                      <strong>{item.year}年 / {item.age}歳</strong>
+                      <span>{item.reasons.join("。")}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="notice-band good">
+                  <strong>大きな山場は見つかりませんでした</strong>
+                  <span>現在の入力条件で、年間赤字や生活防衛資金の不足につながる年は表示期間内に見つかりませんでした。</span>
+                </div>
+              )}
+            </section>
+            <details className="projection-details">
+              <summary>年次キャッシュフロー表を確認</summary>
+              <div className="table-wrap projection-detail-table">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>年 / 年齢</th>
+                      <th>年間収入</th>
+                      <th>年間支出</th>
+                      <th>イベント収支</th>
+                      <th>年間収支</th>
+                      <th>現金</th>
+                      <th>投資資産</th>
+                      <th>純資産見通し</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {annualCashflowRows.map((row) => (
+                      <tr key={`${row.year}-${row.age}`}>
+                        <td>{row.year}年<small>{row.age}歳</small></td>
+                        <td>{manYen(row.annualIncome + row.eventIncome)}</td>
+                        <td>{manYen(row.annualLivingCost + row.eventExpense)}</td>
+                        <td>{row.eventImpact ? manYen(row.eventImpact) : "-"}<small>{row.eventTitles.join(" / ")}</small></td>
+                        <td className={row.netCashflow < 0 ? "negative-value" : ""}>{manYen(row.netCashflow)}</td>
+                        <td>{manYen(row.cashBalance)}</td>
+                        <td>{manYen(row.investmentBalance)}</td>
+                        <td>{manYen(row.value)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </details>
+          </>
+        )}
         <div className="calculation-band compact">
           <Metric label="10年後" value={manYen(projection10[10]?.value ?? 0)} helper="前提条件に基づく試算" />
           <Metric label="30年後" value={manYen(projection30[30]?.value ?? 0)} helper="前提条件に基づく試算" />

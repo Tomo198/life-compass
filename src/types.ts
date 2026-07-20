@@ -31,6 +31,13 @@ export type FixedCostCategory =
   | "loan"
   | "other";
 export type ReviewType = "monthly" | "quarterly";
+export type CashflowPeriodTarget =
+  | "monthlyIncome"
+  | "annualBonus"
+  | "sideIncome"
+  | "fixedCost"
+  | "variableCost"
+  | "annualSpecialCost";
 
 export type LifeEventCategory =
   | "career"
@@ -62,6 +69,17 @@ export type Household = {
   fixedCost: number;
   variableCost: number;
   annualSpecialCost: number;
+};
+
+export type CashflowPeriod = {
+  id: string;
+  title: string;
+  owner: EventOwner;
+  target: CashflowPeriodTarget;
+  startYear: number;
+  endYear: number;
+  amount: number;
+  memo: string;
 };
 
 export type Assets = {
@@ -186,6 +204,7 @@ export type ActiveScenario = {
 
 export type ScenarioSnapshot = {
   household: Household;
+  cashflowPeriods: CashflowPeriod[];
   assets: Assets;
   goals: Goal[];
   events: LifeEvent[];
@@ -229,6 +248,7 @@ export type LifePlan = {
   version: number;
   profile: Profile;
   household: Household;
+  cashflowPeriods: CashflowPeriod[];
   assets: Assets;
   goals: Goal[];
   events: LifeEvent[];
