@@ -328,6 +328,7 @@ export const getAssetSummary = (assets: Assets) => {
 
 export const buildPlanFromScenario = (basePlan: LifePlan, scenario: PlanScenario): LifePlan => ({
   ...basePlan,
+  householdMembers: scenario.snapshot.householdMembers || basePlan.householdMembers,
   household: scenario.snapshot.household,
   cashflowPeriods: scenario.snapshot.cashflowPeriods || [],
   assets: scenario.snapshot.assets,

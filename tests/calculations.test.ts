@@ -5,6 +5,7 @@ import {
   MAX_MONEY_AMOUNT,
   MAX_PLAN_AGE,
   MAX_PLAN_REVISIONS,
+  MAX_PLAN_YEAR,
   MAX_PROJECTION_YEARS,
   MAX_RATE_PERCENT,
   RECOVERY_STORAGE_KEY,
@@ -200,6 +201,9 @@ test("empty plan starts without personal data and keeps complete simulation sett
 
   assert.equal(plan.version, CURRENT_PLAN_VERSION);
   assert.equal(plan.profile.name, "新しいプラン");
+  assert.equal(plan.householdMembers.length, 1);
+  assert.equal(plan.householdMembers[0].relationship, "self");
+  assert.equal(plan.householdMembers[0].birthYear, null);
   assert.deepEqual(plan.goals, []);
   assert.deepEqual(plan.events, []);
   assert.deepEqual(plan.budgetItems, []);
@@ -245,6 +249,15 @@ const basePlan: LifePlan = {
     workStyle: "employee",
     housing: "rent"
   },
+  householdMembers: [
+    {
+      id: "member-self",
+      displayName: "本人",
+      relationship: "self",
+      birthYear: currentYear - 35,
+      birthMonth: null
+    }
+  ],
   household: {
     monthlyIncome: 320000,
     annualBonus: 600000,
@@ -322,9 +335,11 @@ test("計画版は保存時点を複製し、上限件数を超えない", () =>
 
   const saved = createPlanRevision(plan, "revision-1", "保存時点", "manual", "2026-07-01T00:00:00.000Z");
   plan.household.monthlyIncome = 450000;
+  plan.householdMembers[0].displayName = "変更後";
   plan.budgetItems[0].actuals["2026-07"] = 70000;
 
   assert.equal(saved.snapshot.household.monthlyIncome, 300000);
+  assert.equal(saved.snapshot.householdMembers[0].displayName, "本人");
   assert.equal(saved.snapshot.budgetItems[0].actuals["2026-07"], 48000);
 
   let revisions = [];
@@ -502,6 +517,7 @@ test("scenario snapshots can be compared without mutating the base plan", () => 
     tag: "spending",
     createdAt: new Date().toISOString(),
     snapshot: {
+      householdMembers: basePlan.householdMembers.map((member) => ({ ...member })),
       household: { ...basePlan.household, fixedCost: basePlan.household.fixedCost - 30000 },
       assets: { ...basePlan.assets },
       goals: [],
@@ -522,6 +538,16 @@ test("adopting a scenario replaces the base assumptions and preserves the previo
     tag: "spending" as const,
     createdAt: "2026-07-18T00:00:00.000Z",
     snapshot: {
+      householdMembers: [
+        ...basePlan.householdMembers.map((member) => ({ ...member })),
+        {
+          id: "member-spouse",
+          displayName: "配偶者",
+          relationship: "spouse" as const,
+          birthYear: currentYear - 34,
+          birthMonth: 6
+        }
+      ],
       household: { ...basePlan.household, fixedCost: 90000 },
       cashflowPeriods: [
         {
@@ -565,6 +591,8 @@ test("adopting a scenario replaces the base assumptions and preserves the previo
   );
 
   assert.equal(adopted.household.fixedCost, 90000);
+  assert.equal(adopted.householdMembers.length, 2);
+  assert.equal(adopted.householdMembers[1].displayName, "配偶者");
   assert.equal(adopted.cashflowPeriods[0].title, "career transition");
   assert.equal(adopted.assets.cash, 2500000);
   assert.equal(adopted.goals.some((goal) => goal.id === "scenario-goal"), true);
@@ -573,6 +601,7 @@ test("adopting a scenario replaces the base assumptions and preserves the previo
   assert.equal(adopted.scenarios[0].id, "scenario-previous");
   assert.equal(adopted.scenarios[0].name, "採用前: test");
   assert.equal(adopted.scenarios[0].snapshot.household.fixedCost, 130000);
+  assert.equal(adopted.scenarios[0].snapshot.householdMembers.length, 1);
   assert.deepEqual(adopted.scenarios[0].snapshot.cashflowPeriods, []);
   assert.deepEqual(adopted.scenarios.map((scenario) => scenario.id), ["scenario-previous", "scenario-other"]);
   assert.deepEqual(adopted.activeScenario, {
@@ -2142,6 +2171,8 @@ test("import validation rejects unrelated JSON and fills optional fields for leg
   const imported = validateImportedPlan({
     ...basePlan,
     version: 0,
+    profile: { ...basePlan.profile, familyType: "children" },
+    householdMembers: undefined,
     events: [
       {
         id: "legacy-event",
@@ -2182,6 +2213,11 @@ test("import validation rejects unrelated JSON and fills optional fields for leg
   });
 
   assert.equal(imported.version, CURRENT_PLAN_VERSION);
+  assert.deepEqual(
+    imported.householdMembers.map((member) => member.relationship),
+    ["self", "child"]
+  );
+  assert.equal(imported.householdMembers[0].birthYear, currentYear - basePlan.profile.age);
   assert.deepEqual(imported.simulation, {
     monthlyInvestmentAmount: 0,
     annualBonusInvestmentAmount: 0,
@@ -2208,6 +2244,96 @@ test("import validation rejects unrelated JSON and fills optional fields for leg
   assert.deepEqual(imported.planRevisions, []);
   assert.deepEqual(imported.fixedCostItems, []);
   assert.deepEqual(imported.budgetItems, []);
+});
+
+test("import validation normalizes household members and keeps one primary member", () => {
+  const imported = validateImportedPlan({
+    ...basePlan,
+    householdMembers: [
+      {
+        id: "duplicate-member",
+        displayName: "",
+        relationship: "self",
+        birthYear: 9999,
+        birthMonth: 0
+      },
+      {
+        id: "duplicate-member",
+        displayName: "",
+        relationship: "self",
+        birthYear: null,
+        birthMonth: null
+      }
+    ]
+  });
+
+  assert.equal(imported.householdMembers.length, 2);
+  assert.equal(imported.householdMembers[0].displayName, "本人");
+  assert.equal(imported.householdMembers[0].relationship, "self");
+  assert.equal(imported.householdMembers[0].birthYear, MAX_PLAN_YEAR);
+  assert.equal(imported.householdMembers[0].birthMonth, 1);
+  assert.equal(imported.householdMembers[1].relationship, "other");
+  assert.notEqual(imported.householdMembers[0].id, imported.householdMembers[1].id);
+});
+
+test("import validation adds a primary member when a custom list omits one", () => {
+  const imported = validateImportedPlan({
+    ...basePlan,
+    householdMembers: [
+      {
+        id: "member-spouse-custom",
+        displayName: "パートナー",
+        relationship: "spouse",
+        birthYear: 1992,
+        birthMonth: 4
+      }
+    ]
+  });
+
+  assert.equal(imported.householdMembers[0].relationship, "self");
+  assert.equal(imported.householdMembers[1].displayName, "パートナー");
+});
+
+test("legacy scenarios and plan revisions inherit normalized household members", () => {
+  const revisionSource = createEmptyPlan();
+  revisionSource.householdMembers = basePlan.householdMembers.map((member) => ({ ...member }));
+  const revision = createPlanRevision(
+    revisionSource,
+    "legacy-revision",
+    "旧計画版",
+    "manual",
+    "2026-07-01T00:00:00.000Z"
+  );
+  const scenario = {
+    id: "legacy-scenario",
+    name: "旧シナリオ",
+    description: "",
+    tag: "custom" as const,
+    createdAt: "2026-07-01T00:00:00.000Z",
+    snapshot: {
+      ...createScenarioFromReview(
+        basePlan,
+        createPlanReview(basePlan, "legacy-review", "2026-07-01"),
+        "temporary-scenario",
+        "2026-07-01T00:00:00.000Z"
+      ).snapshot,
+      householdMembers: undefined
+    }
+  };
+
+  const imported = validateImportedPlan({
+    ...basePlan,
+    scenarios: [scenario],
+    planRevisions: [
+      {
+        ...revision,
+        snapshot: { ...revision.snapshot, householdMembers: undefined }
+      }
+    ]
+  });
+
+  assert.deepEqual(imported.scenarios[0].snapshot.householdMembers, imported.householdMembers);
+  assert.deepEqual(imported.planRevisions[0].snapshot.householdMembers, imported.householdMembers);
 });
 
 test("import validation normalizes future cashflow periods", () => {
@@ -2550,6 +2676,7 @@ test("cloud backup encryption round-trips without exposing plan contents", async
   const restored = await decryptCloudBackup(envelope, password);
 
   assert.equal(restored.profile.name, basePlan.profile.name);
+  assert.deepEqual(restored.householdMembers, basePlan.householdMembers);
   assert.equal(restored.household.monthlyIncome, basePlan.household.monthlyIncome);
   assert.equal(JSON.stringify(envelope).includes(basePlan.profile.name), false);
   assert.equal(envelope.encryption.name, "AES-GCM");

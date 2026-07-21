@@ -7,6 +7,7 @@ export type GoalType = "oneTime" | "recurring";
 export type RecurrenceInterval = "monthly" | "quarterly" | "halfYearly" | "yearly";
 export type ScenarioTag = "current" | "spending" | "career" | "sideBusiness" | "home" | "retirement" | "custom";
 export type EventOwner = "self" | "spouse" | "child" | "parent" | "household" | "other";
+export type HouseholdMemberRelationship = "self" | "spouse" | "child" | "parent" | "other";
 export type BudgetCategory =
   | "food"
   | "daily"
@@ -70,6 +71,14 @@ export type Household = {
   fixedCost: number;
   variableCost: number;
   annualSpecialCost: number;
+};
+
+export type HouseholdMember = {
+  id: string;
+  displayName: string;
+  relationship: HouseholdMemberRelationship;
+  birthYear: number | null;
+  birthMonth: number | null;
 };
 
 export type CashflowPeriod = {
@@ -212,6 +221,7 @@ export type ActiveScenario = {
 };
 
 export type ScenarioSnapshot = {
+  householdMembers: HouseholdMember[];
   household: Household;
   cashflowPeriods: CashflowPeriod[];
   assets: Assets;
@@ -255,6 +265,7 @@ export type PlanNotes = {
 
 export type PlanRevisionSnapshot = {
   profile: Profile;
+  householdMembers: HouseholdMember[];
   household: Household;
   cashflowPeriods: CashflowPeriod[];
   assets: Assets;
@@ -282,6 +293,7 @@ export type PlanRevision = {
 export type LifePlan = {
   version: number;
   profile: Profile;
+  householdMembers: HouseholdMember[];
   household: Household;
   cashflowPeriods: CashflowPeriod[];
   assets: Assets;

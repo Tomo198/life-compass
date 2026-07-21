@@ -142,6 +142,7 @@ Life Compass は、投資を主軸にしない個人向けライフプランナ�
 type LifePlan = {
   version: number;
   profile: Profile;
+  householdMembers: HouseholdMember[];
   household: Household;
   cashflowPeriods: CashflowPeriod[];
   assets: Assets;
@@ -156,6 +157,14 @@ type LifePlan = {
   fixedCostItems: FixedCostItem[];
   budgetItems: BudgetItem[];
   updatedAt: string;
+};
+
+type HouseholdMember = {
+  id: string;
+  displayName: string;
+  relationship: "self" | "spouse" | "child" | "parent" | "other";
+  birthYear: number | null;
+  birthMonth: number | null;
 };
 
 type ActiveScenario = {
@@ -270,11 +279,15 @@ type RetirementPlanSettings = {
 - `scenarioId` を各入力データに追加すると、複数シナリオ保存へ移行できる
 - `scenarioId` や履歴IDを追加しても、ブラウザ内保存とJSONバックアップで扱える構造にする
 - `subscriptionTier` を追加すると、課金状態に応じた機能制御へ移行できる
+- `householdMembers` は計画上の本人、配偶者、子ども、親などを表し、Googleログイン利用者や共有権限とは分離する
+- シナリオと計画版は世帯メンバーを複製し、採用・復元時にも対象者を維持する
+- 夫婦共有では別途、世帯データへのアクセス権と計画上のメンバーとの任意の関連付けを管理する
 
 ### 保存形式と復旧
 
-- 現行の保存形式は `version: 7`
+- 現行の保存形式は `version: 8`
 - 旧JSONはインポート時に現行形式へ正規化する
+- `version: 7`以前のデータには、基本プロフィールの家族構成をもとに世帯メンバーを補う
 - 現行アプリより新しい形式のJSONは、項目欠落を防ぐため読み込みを拒否する
 - インポート対象は5MB以下のJSONとする
 - JSONインポート、サンプル復帰、空プラン作成の前に復旧用コピーをブラウザ内へ最大3件保存する

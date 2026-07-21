@@ -1,4 +1,5 @@
 import { createId } from "./defaultPlan";
+import { createSuggestedHouseholdMembers } from "./householdMembers";
 import type {
   LifePlan,
   PlanScenario,
@@ -25,6 +26,9 @@ export type ScenarioTemplate = {
 };
 
 export const createScenarioSnapshot = (plan: LifePlan): ScenarioSnapshot => ({
+  householdMembers: (plan.householdMembers || createSuggestedHouseholdMembers(plan.profile)).map((member) => ({
+    ...member
+  })),
   household: { ...plan.household },
   cashflowPeriods: (plan.cashflowPeriods || []).map((period) => ({ ...period })),
   assets: { ...plan.assets },

@@ -1,6 +1,11 @@
 import { defaultPlan } from "../data/defaultPlan";
 import {
+  createSuggestedHouseholdMembers,
+  householdMemberRelationshipLabels
+} from "../data/householdMembers";
+import {
   CURRENT_PLAN_VERSION,
+  MAX_HOUSEHOLD_MEMBERS,
   MAX_MONEY_AMOUNT,
   MAX_PLAN_AGE,
   MAX_PLAN_REVISIONS,
@@ -24,6 +29,8 @@ import type {
   FixedCostItem,
   Goal,
   GoalType,
+  HouseholdMember,
+  HouseholdMemberRelationship,
   Housing,
   LifeEvent,
   LifeEventCategory,
@@ -82,6 +89,7 @@ const goalTypes: GoalType[] = ["oneTime", "recurring"];
 const recurrenceIntervals: RecurrenceInterval[] = ["monthly", "quarterly", "halfYearly", "yearly"];
 const priorities: Priority[] = ["high", "medium", "low"];
 const eventOwners: EventOwner[] = ["self", "spouse", "child", "parent", "household", "other"];
+const householdMemberRelationships: HouseholdMemberRelationship[] = ["self", "spouse", "child", "parent", "other"];
 const eventCategories: LifeEventCategory[] = [
   "career",
   "move",
@@ -154,6 +162,57 @@ const normalizeProfile = (profile: LifePlan["profile"] | undefined): LifePlan["p
   workStyle: enumValue(profile?.workStyle, workStyles, defaultPlan.profile.workStyle),
   housing: enumValue(profile?.housing, housingTypes, defaultPlan.profile.housing)
 });
+
+const normalizeHouseholdMembers = (
+  value: HouseholdMember[] | undefined,
+  profile: LifePlan["profile"],
+  fallbackMembers: HouseholdMember[] = []
+): HouseholdMember[] => {
+  const source = Array.isArray(value) && value.length > 0
+    ? value
+    : fallbackMembers.length > 0
+      ? fallbackMembers
+      : createSuggestedHouseholdMembers(profile);
+  const usedIds = new Set<string>();
+  let hasPrimaryMember = false;
+
+  const members = source.slice(0, MAX_HOUSEHOLD_MEMBERS).map((member) => {
+    const relationship = enumValue(member?.relationship, householdMemberRelationships, "other");
+    const normalizedRelationship = relationship === "self" && hasPrimaryMember ? "other" : relationship;
+    if (normalizedRelationship === "self") hasPrimaryMember = true;
+
+    let id = identifierValue(member?.id);
+    if (usedIds.has(id)) id = createStorageId();
+    usedIds.add(id);
+
+    return {
+      id,
+      displayName: nonEmptyString(
+        member?.displayName,
+        householdMemberRelationshipLabels[normalizedRelationship]
+      ),
+      relationship: normalizedRelationship,
+      birthYear:
+        member?.birthYear === null || member?.birthYear === undefined
+          ? null
+          : integerInRange(member.birthYear, new Date().getFullYear(), 1900, MAX_PLAN_YEAR),
+      birthMonth:
+        member?.birthMonth === null || member?.birthMonth === undefined
+          ? null
+          : integerInRange(member.birthMonth, 1, 1, 12)
+    };
+  });
+
+  if (!hasPrimaryMember) {
+    const primary = createSuggestedHouseholdMembers(profile)[0];
+    members.unshift({
+      ...primary,
+      id: usedIds.has(primary.id) ? createStorageId() : primary.id
+    });
+  }
+
+  return members.slice(0, MAX_HOUSEHOLD_MEMBERS);
+};
 
 const normalizeHousehold = (household: LifePlan["household"] | undefined): LifePlan["household"] => ({
   monthlyIncome: nonNegativeNumber(household?.monthlyIncome),
@@ -272,9 +331,13 @@ export const validateImportedPlan = (value: unknown): LifePlan => {
 };
 
 const normalizePlan = (plan: LifePlan): LifePlan => {
+  const profile = normalizeProfile(plan.profile);
+  const householdMembers = normalizeHouseholdMembers(plan.householdMembers, profile);
+
   return {
     version: CURRENT_PLAN_VERSION,
-    profile: normalizeProfile(plan.profile),
+    profile,
+    householdMembers,
     household: normalizeHousehold(plan.household),
     cashflowPeriods: Array.isArray(plan.cashflowPeriods) ? plan.cashflowPeriods.map(normalizeCashflowPeriod) : [],
     assets: normalizeAssets(plan.assets),
@@ -289,9 +352,13 @@ const normalizePlan = (plan: LifePlan): LifePlan => {
     },
     retirementPlan: normalizeRetirementPlan(plan.retirementPlan),
     reviews: Array.isArray(plan.reviews) ? plan.reviews.map(normalizeReview) : [],
-    scenarios: Array.isArray(plan.scenarios) ? plan.scenarios.map(normalizeScenario) : [],
+    scenarios: Array.isArray(plan.scenarios)
+      ? plan.scenarios.map((scenario) => normalizeScenario(scenario, householdMembers))
+      : [],
     planRevisions: Array.isArray(plan.planRevisions)
-      ? plan.planRevisions.map(normalizePlanRevision).slice(0, MAX_PLAN_REVISIONS)
+      ? plan.planRevisions
+          .map((revision) => normalizePlanRevision(revision, householdMembers))
+          .slice(0, MAX_PLAN_REVISIONS)
       : [],
     activeScenario: normalizeActiveScenario(plan.activeScenario),
     fixedCostItems: Array.isArray(plan.fixedCostItems) ? plan.fixedCostItems.map(normalizeFixedCostItem) : [],
@@ -478,7 +545,11 @@ const normalizeReview = (review: ReviewNote): ReviewNote => ({
   memo: stringValue(review?.memo)
 });
 
-const normalizeScenarioSnapshot = (snapshot: ScenarioSnapshot | undefined): ScenarioSnapshot => ({
+const normalizeScenarioSnapshot = (
+  snapshot: ScenarioSnapshot | undefined,
+  fallbackMembers: HouseholdMember[]
+): ScenarioSnapshot => ({
+  householdMembers: normalizeHouseholdMembers(snapshot?.householdMembers, defaultPlan.profile, fallbackMembers),
   household: normalizeHousehold(snapshot?.household),
   cashflowPeriods: Array.isArray(snapshot?.cashflowPeriods)
     ? snapshot.cashflowPeriods.map(normalizeCashflowPeriod)
@@ -489,13 +560,13 @@ const normalizeScenarioSnapshot = (snapshot: ScenarioSnapshot | undefined): Scen
   simulation: normalizeSimulation(snapshot?.simulation)
 });
 
-const normalizeScenario = (scenario: PlanScenario): PlanScenario => ({
+const normalizeScenario = (scenario: PlanScenario, fallbackMembers: HouseholdMember[]): PlanScenario => ({
   id: identifierValue(scenario?.id),
   name: nonEmptyString(scenario?.name, "シナリオ"),
   description: stringValue(scenario?.description),
   tag: enumValue(scenario?.tag, scenarioTags, "custom"),
   createdAt: stringValue(scenario?.createdAt, new Date().toISOString()),
-  snapshot: normalizeScenarioSnapshot(scenario?.snapshot)
+  snapshot: normalizeScenarioSnapshot(scenario?.snapshot, fallbackMembers)
 });
 
 const normalizeActiveScenario = (activeScenario: LifePlan["activeScenario"]): LifePlan["activeScenario"] => {
@@ -543,35 +614,43 @@ const normalizeBudgetItem = (item: BudgetItem): BudgetItem => ({
   memo: stringValue(item?.memo)
 });
 
-const normalizePlanRevisionSnapshot = (snapshot: PlanRevisionSnapshot | undefined): PlanRevisionSnapshot => ({
-  profile: normalizeProfile(snapshot?.profile),
-  household: normalizeHousehold(snapshot?.household),
-  cashflowPeriods: Array.isArray(snapshot?.cashflowPeriods)
-    ? snapshot.cashflowPeriods.map(normalizeCashflowPeriod)
-    : [],
-  assets: normalizeAssets(snapshot?.assets),
-  goals: Array.isArray(snapshot?.goals) ? snapshot.goals.map(normalizeGoal) : [],
-  events: Array.isArray(snapshot?.events) ? snapshot.events.map(normalizeEvent) : [],
-  timelineMemos: Array.isArray(snapshot?.timelineMemos) ? snapshot.timelineMemos.map(normalizeTimelineMemo) : [],
-  simulation: normalizeSimulation(snapshot?.simulation),
-  withdrawalPlan: normalizeWithdrawalPlan(snapshot?.withdrawalPlan),
-  retirementPlan: normalizeRetirementPlan(snapshot?.retirementPlan),
-  notes: {
-    general: stringValue(snapshot?.notes?.general),
-    spendingReview: stringValue(snapshot?.notes?.spendingReview)
-  },
-  activeScenario: normalizeActiveScenario(snapshot?.activeScenario),
-  fixedCostItems: Array.isArray(snapshot?.fixedCostItems)
-    ? snapshot.fixedCostItems.map(normalizeFixedCostItem)
-    : [],
-  budgetItems: Array.isArray(snapshot?.budgetItems) ? snapshot.budgetItems.map(normalizeBudgetItem) : []
-});
+const normalizePlanRevisionSnapshot = (
+  snapshot: PlanRevisionSnapshot | undefined,
+  fallbackMembers: HouseholdMember[]
+): PlanRevisionSnapshot => {
+  const profile = normalizeProfile(snapshot?.profile);
 
-const normalizePlanRevision = (revision: PlanRevision): PlanRevision => ({
+  return {
+    profile,
+    householdMembers: normalizeHouseholdMembers(snapshot?.householdMembers, profile, fallbackMembers),
+    household: normalizeHousehold(snapshot?.household),
+    cashflowPeriods: Array.isArray(snapshot?.cashflowPeriods)
+      ? snapshot.cashflowPeriods.map(normalizeCashflowPeriod)
+      : [],
+    assets: normalizeAssets(snapshot?.assets),
+    goals: Array.isArray(snapshot?.goals) ? snapshot.goals.map(normalizeGoal) : [],
+    events: Array.isArray(snapshot?.events) ? snapshot.events.map(normalizeEvent) : [],
+    timelineMemos: Array.isArray(snapshot?.timelineMemos) ? snapshot.timelineMemos.map(normalizeTimelineMemo) : [],
+    simulation: normalizeSimulation(snapshot?.simulation),
+    withdrawalPlan: normalizeWithdrawalPlan(snapshot?.withdrawalPlan),
+    retirementPlan: normalizeRetirementPlan(snapshot?.retirementPlan),
+    notes: {
+      general: stringValue(snapshot?.notes?.general),
+      spendingReview: stringValue(snapshot?.notes?.spendingReview)
+    },
+    activeScenario: normalizeActiveScenario(snapshot?.activeScenario),
+    fixedCostItems: Array.isArray(snapshot?.fixedCostItems)
+      ? snapshot.fixedCostItems.map(normalizeFixedCostItem)
+      : [],
+    budgetItems: Array.isArray(snapshot?.budgetItems) ? snapshot.budgetItems.map(normalizeBudgetItem) : []
+  };
+};
+
+const normalizePlanRevision = (revision: PlanRevision, fallbackMembers: HouseholdMember[]): PlanRevision => ({
   id: identifierValue(revision?.id),
   title: nonEmptyString(revision?.title, "保存した計画"),
   createdAt: normalizeTimestamp(revision?.createdAt),
   source: enumValue(revision?.source, planRevisionSources, "manual"),
   sourceReviewId: stringValue(revision?.sourceReviewId) || undefined,
-  snapshot: normalizePlanRevisionSnapshot(revision?.snapshot)
+  snapshot: normalizePlanRevisionSnapshot(revision?.snapshot, fallbackMembers)
 });

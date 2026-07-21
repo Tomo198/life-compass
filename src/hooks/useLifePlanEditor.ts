@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { CURRENT_PLAN_VERSION } from "../config";
 import { createId, defaultPlan } from "../data/defaultPlan";
+import { createSuggestedHouseholdMembers } from "../data/householdMembers";
 import { createScenarioFromTemplate, type ScenarioTemplate } from "../data/scenarios";
 import { featureTiers } from "../features";
 import type {
@@ -54,6 +55,7 @@ export const createEmptyPlan = (): LifePlan => ({
     workStyle: "employee",
     housing: "rent"
   },
+  householdMembers: createSuggestedHouseholdMembers({ age: 0, familyType: "single" }),
   household: {
     monthlyIncome: 0,
     annualBonus: 0,

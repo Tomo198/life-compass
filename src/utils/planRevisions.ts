@@ -1,4 +1,5 @@
 import { MAX_PLAN_REVISIONS } from "../config";
+import { createSuggestedHouseholdMembers } from "../data/householdMembers";
 import type {
   LifePlan,
   PlanRevision,
@@ -8,6 +9,9 @@ import type {
 
 const cloneSnapshot = (snapshot: PlanRevisionSnapshot): PlanRevisionSnapshot => ({
   profile: { ...snapshot.profile },
+  householdMembers: (snapshot.householdMembers || createSuggestedHouseholdMembers(snapshot.profile)).map((member) => ({
+    ...member
+  })),
   household: { ...snapshot.household },
   cashflowPeriods: snapshot.cashflowPeriods.map((period) => ({ ...period })),
   assets: { ...snapshot.assets },
@@ -32,6 +36,7 @@ const cloneSnapshot = (snapshot: PlanRevisionSnapshot): PlanRevisionSnapshot => 
 export const createPlanRevisionSnapshot = (plan: LifePlan): PlanRevisionSnapshot =>
   cloneSnapshot({
     profile: plan.profile,
+    householdMembers: plan.householdMembers || createSuggestedHouseholdMembers(plan.profile),
     household: plan.household,
     cashflowPeriods: plan.cashflowPeriods || [],
     assets: plan.assets,

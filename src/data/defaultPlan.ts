@@ -1,5 +1,6 @@
 import type { LifePlan } from "../types";
 import { CURRENT_PLAN_VERSION } from "../config";
+import { createSuggestedHouseholdMembers } from "./householdMembers";
 
 const currentYear = new Date().getFullYear();
 
@@ -19,6 +20,7 @@ export const defaultPlan: LifePlan = {
     workStyle: "employee",
     housing: "rent"
   },
+  householdMembers: createSuggestedHouseholdMembers({ age: 35, familyType: "single" }),
   household: {
     monthlyIncome: 320000,
     annualBonus: 600000,
