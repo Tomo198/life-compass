@@ -25,6 +25,7 @@ export function BudgetView({
   const defaultMonthKey = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, "0")}`;
   const [monthKey, setMonthKey] = useState(defaultMonthKey);
   const [budgetMode, setBudgetMode] = useState<"input" | "compare" | "history">("input");
+  const usesDetailedCashflow = plan.cashflowMode === "detailed";
   const [budgetSearch, setBudgetSearch] = useState("");
   const [budgetCategoryFilter, setBudgetCategoryFilter] = useState<BudgetCategory | "all">("all");
   const budgetItems = plan.budgetItems || [];
@@ -70,6 +71,7 @@ export function BudgetView({
   };
 
   const handleApplyBudget = () => {
+    if (usesDetailedCashflow) return;
     if (window.confirm("予算・実績の年間換算をもとに、家計入力の固定費・変動費・年間特別支出を更新します。")) {
       applyBudgetToHousehold();
     }
@@ -85,7 +87,13 @@ export function BudgetView({
             description="予算を決め、月末にカテゴリごとの大まかな実績を記録します。"
           />
           <div className="button-row">
-            <button type="button" className="secondary" onClick={handleApplyBudget}>
+            <button
+              type="button"
+              className="secondary"
+              onClick={handleApplyBudget}
+              disabled={usesDetailedCashflow}
+              title={usesDetailedCashflow ? "詳細収支方式では、家計入力の詳細収支を編集してください。" : undefined}
+            >
               家計入力に反映
             </button>
             <button type="button" onClick={addBudgetItem}>
@@ -93,6 +101,12 @@ export function BudgetView({
             </button>
           </div>
         </div>
+        {usesDetailedCashflow ? (
+          <div className="notice-band check budget-detail-mode-note">
+            <strong>世帯別の詳細収支を使用中です</strong>
+            <span>予算は実績比較に使用します。将来見通しへ反映する金額は、家計入力の詳細収支で編集してください。</span>
+          </div>
+        ) : null}
         <div className="notice-band check">
           <strong>家計簿ではなく、ライフプランの前提を整えるための月次管理です</strong>
           <span>細かい日別入力は扱わず、カテゴリごとの月額予算・実績・差額をレビューとシミュレーションに使います。</span>

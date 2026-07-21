@@ -1,5 +1,9 @@
 import { useState } from "react";
-import { CURRENT_PLAN_VERSION, MAX_HOUSEHOLD_MEMBERS } from "../config";
+import {
+  CURRENT_PLAN_VERSION,
+  MAX_DETAILED_CASHFLOW_ITEMS,
+  MAX_HOUSEHOLD_MEMBERS
+} from "../config";
 import { createId, defaultPlan } from "../data/defaultPlan";
 import { createSuggestedHouseholdMembers } from "../data/householdMembers";
 import { createScenarioFromTemplate, type ScenarioTemplate } from "../data/scenarios";
@@ -9,6 +13,8 @@ import type {
   BudgetItem,
   CashflowPeriod,
   CashflowPeriodDraft,
+  DetailedCashflowItem,
+  DetailedCashflowItemDraft,
   FixedCostItem,
   Goal,
   GoalDraft,
@@ -32,6 +38,7 @@ import {
   getBudgetHouseholdInputs,
   getTargetAgeForYear
 } from "../utils/calculations";
+import { convertBasicCashflowToDetailedItems } from "../utils/detailedCashflow";
 import {
   applyBudgetActualsToReview,
   createPlanReview,
@@ -189,12 +196,64 @@ export function useLifePlanEditor() {
     if (!member || member.relationship === "self") return false;
     return commitPlan({
       ...plan,
-      householdMembers: plan.householdMembers.filter((item) => item.id !== id)
+      householdMembers: plan.householdMembers.filter((item) => item.id !== id),
+      detailedCashflowItems: (plan.detailedCashflowItems || []).map((item) =>
+        item.memberId === id ? { ...item, memberId: null } : item
+      )
     });
   };
 
   const updateHousehold = <K extends keyof Household>(key: K, value: Household[K]) => {
     commitPlan({ ...plan, household: { ...plan.household, [key]: value } });
+  };
+
+  const enableDetailedCashflow = () => {
+    const currentItems = plan.detailedCashflowItems || [];
+    const detailedCashflowItems = currentItems.length > 0
+      ? currentItems
+      : convertBasicCashflowToDetailedItems(plan, createId);
+    if (detailedCashflowItems.length > MAX_DETAILED_CASHFLOW_ITEMS) return false;
+    return commitPlan({ ...plan, cashflowMode: "detailed", detailedCashflowItems });
+  };
+
+  const useBasicCashflow = () => commitPlan({ ...plan, cashflowMode: "basic" });
+
+  const addDetailedCashflowItem = (draft: DetailedCashflowItemDraft) => {
+    if ((plan.detailedCashflowItems || []).length >= MAX_DETAILED_CASHFLOW_ITEMS) return false;
+    const nextItem: DetailedCashflowItem = { id: createId(), ...draft };
+    return commitPlan({
+      ...plan,
+      detailedCashflowItems: [...(plan.detailedCashflowItems || []), nextItem]
+    });
+  };
+
+  const updateDetailedCashflowItem = <K extends keyof DetailedCashflowItem>(
+    id: string,
+    key: K,
+    value: DetailedCashflowItem[K]
+  ) => {
+    commitPlan({
+      ...plan,
+      detailedCashflowItems: (plan.detailedCashflowItems || []).map((item) => {
+        if (item.id !== id) return item;
+        if (key === "startYear") {
+          const startYear = value as number;
+          return { ...item, startYear, endYear: Math.max(startYear, item.endYear) };
+        }
+        if (key === "target") {
+          const target = value as DetailedCashflowItem["target"];
+          return { ...item, target };
+        }
+        return { ...item, [key]: value };
+      })
+    });
+  };
+
+  const removeDetailedCashflowItem = (id: string) => {
+    commitPlan({
+      ...plan,
+      detailedCashflowItems: (plan.detailedCashflowItems || []).filter((item) => item.id !== id)
+    });
   };
 
   const addCashflowPeriod = () => {
@@ -377,7 +436,7 @@ export function useLifePlanEditor() {
   };
 
   const updateScenarioSnapshot = (id: string, update: (snapshot: ScenarioSnapshot) => ScenarioSnapshot) => {
-    commitPlan({
+    return commitPlan({
       ...plan,
       scenarios: (plan.scenarios || []).map((scenario) =>
         scenario.id === id ? { ...scenario, snapshot: update(scenario.snapshot) } : scenario
@@ -449,6 +508,42 @@ export function useLifePlanEditor() {
     updateScenarioSnapshot(scenarioId, (snapshot) => ({
       ...snapshot,
       cashflowPeriods: (snapshot.cashflowPeriods || []).filter((period) => period.id !== periodId)
+    }));
+  };
+
+  const addScenarioDetailedCashflowItem = (scenarioId: string, draft: DetailedCashflowItemDraft) => {
+    const scenario = (plan.scenarios || []).find((item) => item.id === scenarioId);
+    if (!scenario || scenario.snapshot.detailedCashflowItems.length >= MAX_DETAILED_CASHFLOW_ITEMS) return false;
+    const nextItem: DetailedCashflowItem = { id: createId(), ...draft };
+    return updateScenarioSnapshot(scenarioId, (snapshot) => ({
+      ...snapshot,
+      detailedCashflowItems: [...snapshot.detailedCashflowItems, nextItem]
+    }));
+  };
+
+  const updateScenarioDetailedCashflowItem = <K extends keyof DetailedCashflowItem>(
+    scenarioId: string,
+    itemId: string,
+    key: K,
+    value: DetailedCashflowItem[K]
+  ) => {
+    updateScenarioSnapshot(scenarioId, (snapshot) => ({
+      ...snapshot,
+      detailedCashflowItems: snapshot.detailedCashflowItems.map((item) => {
+        if (item.id !== itemId) return item;
+        if (key === "startYear") {
+          const startYear = value as number;
+          return { ...item, startYear, endYear: Math.max(startYear, item.endYear) };
+        }
+        return { ...item, [key]: value };
+      })
+    }));
+  };
+
+  const removeScenarioDetailedCashflowItem = (scenarioId: string, itemId: string) => {
+    updateScenarioSnapshot(scenarioId, (snapshot) => ({
+      ...snapshot,
+      detailedCashflowItems: snapshot.detailedCashflowItems.filter((item) => item.id !== itemId)
     }));
   };
 
@@ -690,6 +785,11 @@ export function useLifePlanEditor() {
     updateHouseholdMember,
     removeHouseholdMember,
     updateHousehold,
+    enableDetailedCashflow,
+    useBasicCashflow,
+    addDetailedCashflowItem,
+    updateDetailedCashflowItem,
+    removeDetailedCashflowItem,
     addCashflowPeriod,
     updateCashflowPeriod,
     removeCashflowPeriod,
@@ -718,6 +818,9 @@ export function useLifePlanEditor() {
     addScenarioCashflowPeriod,
     updateScenarioCashflowPeriod,
     removeScenarioCashflowPeriod,
+    addScenarioDetailedCashflowItem,
+    updateScenarioDetailedCashflowItem,
+    removeScenarioDetailedCashflowItem,
     addScenarioGoal,
     updateScenarioGoal,
     removeScenarioGoal,

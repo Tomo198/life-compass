@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { LineChart } from "../components/Charts";
-import { EmptyState, MoneyInput, NumericInput } from "../components/CommonUi";
+import { EmptyState, Metric, MoneyInput, NumericInput } from "../components/CommonUi";
+import { DetailedCashflowEditor } from "../components/DetailedCashflowEditor";
 import { ScenarioCashflowEditor } from "../components/scenarios/ScenarioCashflowEditor";
 import { ScenarioEventsEditor } from "../components/scenarios/ScenarioEventsEditor";
 import { ScenarioGoalsEditor } from "../components/scenarios/ScenarioGoalsEditor";
@@ -15,6 +16,8 @@ import type {
   Assets,
   CashflowPeriod,
   CashflowPeriodDraft,
+  DetailedCashflowItem,
+  DetailedCashflowItemDraft,
   Goal,
   GoalDraft,
   Household,
@@ -28,6 +31,7 @@ import type {
 import {
   buildPlanFromScenario,
   getAnnualProjectionRows,
+  getCurrentCashflowSummary,
   manYen
 } from "../utils/calculations";
 import { getScenarioComparisonMetrics } from "../utils/scenarios";
@@ -42,6 +46,9 @@ type ScenarioComparisonViewProps = {
   addScenarioCashflowPeriod: (id: string, draft: CashflowPeriodDraft) => void;
   updateScenarioCashflowPeriod: <K extends keyof CashflowPeriod>(scenarioId: string, periodId: string, key: K, value: CashflowPeriod[K]) => void;
   removeScenarioCashflowPeriod: (scenarioId: string, periodId: string) => void;
+  addScenarioDetailedCashflowItem: (scenarioId: string, draft: DetailedCashflowItemDraft) => boolean;
+  updateScenarioDetailedCashflowItem: <K extends keyof DetailedCashflowItem>(scenarioId: string, itemId: string, key: K, value: DetailedCashflowItem[K]) => void;
+  removeScenarioDetailedCashflowItem: (scenarioId: string, itemId: string) => void;
   addScenarioGoal: (scenarioId: string, draft: GoalDraft) => void;
   updateScenarioGoal: <K extends keyof Goal>(scenarioId: string, goalId: string, key: K, value: Goal[K]) => void;
   removeScenarioGoal: (scenarioId: string, goalId: string) => void;
@@ -63,6 +70,9 @@ export function ScenarioComparisonView({
   addScenarioCashflowPeriod,
   updateScenarioCashflowPeriod,
   removeScenarioCashflowPeriod,
+  addScenarioDetailedCashflowItem,
+  updateScenarioDetailedCashflowItem,
+  removeScenarioDetailedCashflowItem,
   addScenarioGoal,
   updateScenarioGoal,
   removeScenarioGoal,
@@ -89,6 +99,7 @@ export function ScenarioComparisonView({
   const selectedScenario = scenarioOptions.find((item) => item.id === selectedScenarioId) || scenarioOptions[0];
   const selectedPlanScenario = scenarios.find((scenario) => scenario.id === selectedScenarioId) || null;
   const selectedScenarioRows = getAnnualProjectionRows(selectedScenario.plan, 30);
+  const selectedScenarioCashflow = getCurrentCashflowSummary(selectedScenario.plan);
   const scenarioLimitReached = scenarios.length >= featureTiers.pro.scenarioLimit;
 
   const handleAddScenario = (template: ScenarioTemplate) => {
@@ -232,7 +243,12 @@ export function ScenarioComparisonView({
           <div className="segmented-control scenario-editor-tabs" aria-label="シナリオ編集項目">
             {[
               { id: "assumptions", label: "基本条件" },
-              { id: "cashflow", label: `時期別収支 ${selectedPlanScenario.snapshot.cashflowPeriods.length}` },
+              {
+                id: "cashflow",
+                label: selectedPlanScenario.snapshot.cashflowMode === "detailed"
+                  ? `詳細収支 ${selectedPlanScenario.snapshot.detailedCashflowItems.length}`
+                  : `時期別収支 ${selectedPlanScenario.snapshot.cashflowPeriods.length}`
+              },
               { id: "goals", label: `目標 ${selectedPlanScenario.snapshot.goals.length}` },
               { id: "events", label: `イベント ${selectedPlanScenario.snapshot.events.length}` }
             ].map((tab) => (
@@ -250,14 +266,28 @@ export function ScenarioComparisonView({
           {editorTab === "assumptions" && (
             <div className="scenario-editor-content">
               <h3>家計</h3>
-              <div className="form-grid">
-                <MoneyInput label="シナリオの月収" value={selectedPlanScenario.snapshot.household.monthlyIncome} onChange={(value) => updateScenarioHousehold(selectedPlanScenario.id, "monthlyIncome", value)} />
-                <MoneyInput label="シナリオのボーナス年額" value={selectedPlanScenario.snapshot.household.annualBonus} onChange={(value) => updateScenarioHousehold(selectedPlanScenario.id, "annualBonus", value)} />
-                <MoneyInput label="シナリオの副業収入 月額" value={selectedPlanScenario.snapshot.household.sideIncome} onChange={(value) => updateScenarioHousehold(selectedPlanScenario.id, "sideIncome", value)} />
-                <MoneyInput label="シナリオの固定費 月額" value={selectedPlanScenario.snapshot.household.fixedCost} onChange={(value) => updateScenarioHousehold(selectedPlanScenario.id, "fixedCost", value)} />
-                <MoneyInput label="シナリオの変動費 月額" value={selectedPlanScenario.snapshot.household.variableCost} onChange={(value) => updateScenarioHousehold(selectedPlanScenario.id, "variableCost", value)} />
-                <MoneyInput label="シナリオの年間特別支出" value={selectedPlanScenario.snapshot.household.annualSpecialCost} onChange={(value) => updateScenarioHousehold(selectedPlanScenario.id, "annualSpecialCost", value)} />
-              </div>
+              {selectedPlanScenario.snapshot.cashflowMode === "detailed" ? (
+                <>
+                  <div className="calculation-band compact scenario-cashflow-summary">
+                    <Metric label="月間収入" value={manYen(selectedScenarioCashflow.monthlyIncome)} helper="詳細収支の現在年合計" />
+                    <Metric label="月間支出" value={manYen(selectedScenarioCashflow.monthlyLivingCost)} helper="年間特別支出の月割りを含む" />
+                    <Metric label="通常月の家計余剰" value={manYen(selectedScenarioCashflow.monthlySavings)} helper="月間収入 - 月間支出" />
+                  </div>
+                  <div className="notice-band check">
+                    <strong>家計は詳細収支から計算します</strong>
+                    <span>収入・支出の変更は「詳細収支」タブで対象者と期間を指定してください。</span>
+                  </div>
+                </>
+              ) : (
+                <div className="form-grid">
+                  <MoneyInput label="シナリオの月収" value={selectedPlanScenario.snapshot.household.monthlyIncome} onChange={(value) => updateScenarioHousehold(selectedPlanScenario.id, "monthlyIncome", value)} />
+                  <MoneyInput label="シナリオのボーナス年額" value={selectedPlanScenario.snapshot.household.annualBonus} onChange={(value) => updateScenarioHousehold(selectedPlanScenario.id, "annualBonus", value)} />
+                  <MoneyInput label="シナリオの副業収入 月額" value={selectedPlanScenario.snapshot.household.sideIncome} onChange={(value) => updateScenarioHousehold(selectedPlanScenario.id, "sideIncome", value)} />
+                  <MoneyInput label="シナリオの固定費 月額" value={selectedPlanScenario.snapshot.household.fixedCost} onChange={(value) => updateScenarioHousehold(selectedPlanScenario.id, "fixedCost", value)} />
+                  <MoneyInput label="シナリオの変動費 月額" value={selectedPlanScenario.snapshot.household.variableCost} onChange={(value) => updateScenarioHousehold(selectedPlanScenario.id, "variableCost", value)} />
+                  <MoneyInput label="シナリオの年間特別支出" value={selectedPlanScenario.snapshot.household.annualSpecialCost} onChange={(value) => updateScenarioHousehold(selectedPlanScenario.id, "annualSpecialCost", value)} />
+                </div>
+              )}
               <h3>資産</h3>
               <div className="form-grid">
                 <MoneyInput label="シナリオの現金" value={selectedPlanScenario.snapshot.assets.cash} onChange={(value) => updateScenarioAssets(selectedPlanScenario.id, "cash", value)} />
@@ -277,15 +307,27 @@ export function ScenarioComparisonView({
             </div>
           )}
           {editorTab === "cashflow" && (
-            <ScenarioCashflowEditor
-              key={`cashflow-${selectedPlanScenario.id}`}
-              household={selectedPlanScenario.snapshot.household}
-              periods={selectedPlanScenario.snapshot.cashflowPeriods}
-              currentAge={plan.profile.age}
-              onAdd={(draft) => addScenarioCashflowPeriod(selectedPlanScenario.id, draft)}
-              onUpdate={(periodId, key, value) => updateScenarioCashflowPeriod(selectedPlanScenario.id, periodId, key, value)}
-              onRemove={(periodId) => removeScenarioCashflowPeriod(selectedPlanScenario.id, periodId)}
-            />
+            selectedPlanScenario.snapshot.cashflowMode === "detailed" ? (
+              <DetailedCashflowEditor
+                key={`detailed-cashflow-${selectedPlanScenario.id}`}
+                items={selectedPlanScenario.snapshot.detailedCashflowItems}
+                members={selectedPlanScenario.snapshot.householdMembers}
+                currentAge={plan.profile.age}
+                onAdd={(draft) => addScenarioDetailedCashflowItem(selectedPlanScenario.id, draft)}
+                onUpdate={(itemId, key, value) => updateScenarioDetailedCashflowItem(selectedPlanScenario.id, itemId, key, value)}
+                onRemove={(itemId) => removeScenarioDetailedCashflowItem(selectedPlanScenario.id, itemId)}
+              />
+            ) : (
+              <ScenarioCashflowEditor
+                key={`cashflow-${selectedPlanScenario.id}`}
+                household={selectedPlanScenario.snapshot.household}
+                periods={selectedPlanScenario.snapshot.cashflowPeriods}
+                currentAge={plan.profile.age}
+                onAdd={(draft) => addScenarioCashflowPeriod(selectedPlanScenario.id, draft)}
+                onUpdate={(periodId, key, value) => updateScenarioCashflowPeriod(selectedPlanScenario.id, periodId, key, value)}
+                onRemove={(periodId) => removeScenarioCashflowPeriod(selectedPlanScenario.id, periodId)}
+              />
+            )
           )}
           {editorTab === "goals" && (
             <ScenarioGoalsEditor

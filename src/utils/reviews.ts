@@ -1,13 +1,16 @@
+import { createId } from "../data/defaultPlan";
 import { createScenarioSnapshot } from "../data/scenarios";
 import type { Assets, Household, LifePlan, PlanScenario, ReviewNote, ScenarioSnapshot } from "../types";
 import {
   getAssetSummary,
   getBudgetSummary,
   getCurrentCashflowSummary,
+  getHouseholdForYear,
   getGoalAchievement,
   getPrimaryGoal,
   projectAssets
 } from "./calculations";
+import { setDetailedCashflowTargetAmount } from "./detailedCashflow";
 
 export type ReviewScenarioOptions = {
   applyActualNetAssets: boolean;
@@ -75,7 +78,25 @@ export const createReviewScenarioSnapshot = (
     snapshot.assets = applyActualNetAssets(snapshot.assets, review.actualNetAssets);
   }
   if (options.applyActualMonthlyExpenses && review.actualMonthlyExpenses !== undefined) {
-    snapshot.household = applyActualMonthlyExpenses(snapshot.household, review.actualMonthlyExpenses);
+    if (snapshot.cashflowMode === "detailed") {
+      const currentYear = new Date().getFullYear();
+      const adjustedHousehold = applyActualMonthlyExpenses(
+        getHouseholdForYear(snapshot, currentYear),
+        review.actualMonthlyExpenses
+      );
+      (["fixedCost", "variableCost", "annualSpecialCost"] as const).forEach((target) => {
+        snapshot.detailedCashflowItems = setDetailedCashflowTargetAmount(
+          snapshot.detailedCashflowItems,
+          target,
+          adjustedHousehold[target],
+          currentYear,
+          createId,
+          `実績反映後の${target === "fixedCost" ? "固定費" : target === "variableCost" ? "変動費" : "年間特別支出"}`
+        );
+      });
+    } else {
+      snapshot.household = applyActualMonthlyExpenses(snapshot.household, review.actualMonthlyExpenses);
+    }
   }
 
   return snapshot;

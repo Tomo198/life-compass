@@ -1,3 +1,5 @@
+import { useState } from "react";
+import { DetailedCashflowEditor } from "../components/DetailedCashflowEditor";
 import { FixedCostItemList } from "../components/FixedCostItemList";
 import { EmptyState, Metric, MoneyInput, NumericInput, StepFlowNav, StepTitle } from "../components/CommonUi";
 import { MAX_PLAN_YEAR } from "../config";
@@ -7,12 +9,29 @@ import {
   eventOwnerLabels
 } from "../data/labels";
 import { hasFeatureAccess, type AccessState } from "../features";
-import type { CashflowPeriod, FixedCostItem, Household, LifePlan, ViewKey } from "../types";
+import type {
+  CashflowPeriod,
+  DetailedCashflowItem,
+  DetailedCashflowItemDraft,
+  FixedCostItem,
+  Household,
+  LifePlan,
+  ViewKey
+} from "../types";
 import { getCurrentCashflowSummary, getFixedCostImpact, manYen, percent } from "../utils/calculations";
 
 type HouseholdViewProps = {
   plan: LifePlan;
   updateHousehold: <K extends keyof Household>(key: K, value: Household[K]) => void;
+  enableDetailedCashflow: () => boolean;
+  useBasicCashflow: () => boolean;
+  addDetailedCashflowItem: (draft: DetailedCashflowItemDraft) => boolean;
+  updateDetailedCashflowItem: <K extends keyof DetailedCashflowItem>(
+    id: string,
+    key: K,
+    value: DetailedCashflowItem[K]
+  ) => void;
+  removeDetailedCashflowItem: (id: string) => void;
   addCashflowPeriod: () => void;
   updateCashflowPeriod: <K extends keyof CashflowPeriod>(id: string, key: K, value: CashflowPeriod[K]) => void;
   removeCashflowPeriod: (id: string) => void;
@@ -26,6 +45,11 @@ type HouseholdViewProps = {
 export function HouseholdView({
   plan,
   updateHousehold,
+  enableDetailedCashflow,
+  useBasicCashflow,
+  addDetailedCashflowItem,
+  updateDetailedCashflowItem,
+  removeDetailedCashflowItem,
   addCashflowPeriod,
   updateCashflowPeriod,
   removeCashflowPeriod,
@@ -40,27 +64,78 @@ export function HouseholdView({
   const fixedCostImpact = getFixedCostImpact(fixedCostItems);
   const canUseFixedCostImpact = hasFeatureAccess(accessState, "fixedCostImpact");
   const canUseDetailedCashflow = hasFeatureAccess(accessState, "detailedCashflow");
+  const isDetailedCashflow = plan.cashflowMode === "detailed";
+  const [cashflowModeMessage, setCashflowModeMessage] = useState("");
   const cashflowPeriods = plan.cashflowPeriods || [];
   const currentYear = new Date().getFullYear();
   const monthlySavingsTone =
     cashflow.monthlySavings < 0 ? "notice" : cashflow.savingsRate >= 20 ? "good" : cashflow.monthlySavings > 0 ? "check" : "neutral";
+  const handleEnableDetailedCashflow = () => {
+    const switched = enableDetailedCashflow();
+    setCashflowModeMessage(
+      switched
+        ? "詳細収支を計算に使用します。基本収支と時期別変更は保持されています。"
+        : "詳細収支へ変換できる項目数の上限を超えています。時期別変更を整理してから再度お試しください。"
+    );
+  };
+  const handleUseBasicCashflow = () => {
+    useBasicCashflow();
+    setCashflowModeMessage("基本収支と時期別変更を計算に使用します。詳細収支は保持されています。");
+  };
 
   return (
     <div className="view-stack">
       <section className="panel form-panel">
         <StepTitle step="3" title="基本収支" description="月単位の収支と年間特別支出を整理します。" />
-        <div className="form-grid">
-          <MoneyInput label="月収" value={plan.household.monthlyIncome} onChange={(value) => updateHousehold("monthlyIncome", value)} />
-          <MoneyInput label="ボーナス年額" value={plan.household.annualBonus} onChange={(value) => updateHousehold("annualBonus", value)} />
-          <MoneyInput label="副業収入 月額" value={plan.household.sideIncome} onChange={(value) => updateHousehold("sideIncome", value)} />
-          <MoneyInput label="固定費 月額" value={plan.household.fixedCost} onChange={(value) => updateHousehold("fixedCost", value)} />
-          <MoneyInput label="変動費 月額" value={plan.household.variableCost} onChange={(value) => updateHousehold("variableCost", value)} />
-          <MoneyInput
-            label="年間特別支出"
-            value={plan.household.annualSpecialCost}
-            onChange={(value) => updateHousehold("annualSpecialCost", value)}
-          />
-        </div>
+        {canUseDetailedCashflow || isDetailedCashflow ? (
+          <div className="cashflow-mode-control">
+            <div>
+              <strong>計算に使う収支</strong>
+              <span>{isDetailedCashflow ? "世帯別の詳細収支" : "基本収支と時期別変更"}</span>
+            </div>
+            <div className="segmented-control" aria-label="収支の入力方式">
+              <button
+                type="button"
+                className={!isDetailedCashflow ? "active" : ""}
+                aria-pressed={!isDetailedCashflow}
+                onClick={handleUseBasicCashflow}
+              >
+                基本方式
+              </button>
+              <button
+                type="button"
+                className={isDetailedCashflow ? "active" : ""}
+                aria-pressed={isDetailedCashflow}
+                onClick={handleEnableDetailedCashflow}
+                disabled={!canUseDetailedCashflow}
+                title={!canUseDetailedCashflow ? "世帯別の詳細方式はPro版で利用できます。" : undefined}
+              >
+                世帯別の詳細方式
+              </button>
+            </div>
+            <span className="cashflow-mode-message" role="status" aria-live="polite">{cashflowModeMessage}</span>
+          </div>
+        ) : null}
+        <fieldset className="cashflow-basic-fields" disabled={isDetailedCashflow}>
+          <div className="form-grid">
+            <MoneyInput label="月収" value={plan.household.monthlyIncome} onChange={(value) => updateHousehold("monthlyIncome", value)} />
+            <MoneyInput label="ボーナス年額" value={plan.household.annualBonus} onChange={(value) => updateHousehold("annualBonus", value)} />
+            <MoneyInput label="副業収入 月額" value={plan.household.sideIncome} onChange={(value) => updateHousehold("sideIncome", value)} />
+            <MoneyInput label="固定費 月額" value={plan.household.fixedCost} onChange={(value) => updateHousehold("fixedCost", value)} />
+            <MoneyInput label="変動費 月額" value={plan.household.variableCost} onChange={(value) => updateHousehold("variableCost", value)} />
+            <MoneyInput
+              label="年間特別支出"
+              value={plan.household.annualSpecialCost}
+              onChange={(value) => updateHousehold("annualSpecialCost", value)}
+            />
+          </div>
+        </fieldset>
+        {isDetailedCashflow ? (
+          <div className="notice-band check cashflow-mode-note">
+            <strong>基本収支は保持されています</strong>
+            <span>現在の計算には、下の世帯別・期間別の詳細収支を使用しています。</span>
+          </div>
+        ) : null}
       </section>
       <section className="calculation-band">
         <Metric label="月間生活費" value={manYen(cashflow.monthlyLivingCost)} helper={`年間 ${manYen(cashflow.annualLivingCost)}`} />
@@ -102,6 +177,27 @@ export function HouseholdView({
         </div>
       </section>
       {canUseDetailedCashflow ? (
+        isDetailedCashflow ? (
+          <section className="panel">
+            <div className="section-heading">
+              <div>
+                <div className="title-with-badge">
+                  <h2>世帯別・期間別の詳細収支</h2>
+                  <span className="pro-inline-badge">Pro</span>
+                </div>
+                <p>本人、配偶者、子ども、親、世帯共通の収入と支出を期間ごとに整理します。</p>
+              </div>
+            </div>
+            <DetailedCashflowEditor
+              items={plan.detailedCashflowItems || []}
+              members={plan.householdMembers}
+              currentAge={plan.profile.age}
+              onAdd={addDetailedCashflowItem}
+              onUpdate={updateDetailedCashflowItem}
+              onRemove={removeDetailedCashflowItem}
+            />
+          </section>
+        ) : (
         <section className="panel">
           <div className="section-heading">
             <div>
@@ -167,6 +263,7 @@ export function HouseholdView({
             <span>開始年が新しい設定を優先します。同じ開始年の場合は、一覧の下にある設定を優先します。</span>
           </div>
         </section>
+        )
       ) : (
         <section className="panel pro-locked-panel">
           <div className="title-with-badge">

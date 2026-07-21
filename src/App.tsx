@@ -59,6 +59,11 @@ function App() {
     updateHouseholdMember,
     removeHouseholdMember,
     updateHousehold,
+    enableDetailedCashflow,
+    useBasicCashflow,
+    addDetailedCashflowItem,
+    updateDetailedCashflowItem,
+    removeDetailedCashflowItem,
     addCashflowPeriod,
     updateCashflowPeriod,
     removeCashflowPeriod,
@@ -87,6 +92,9 @@ function App() {
     addScenarioCashflowPeriod,
     updateScenarioCashflowPeriod,
     removeScenarioCashflowPeriod,
+    addScenarioDetailedCashflowItem,
+    updateScenarioDetailedCashflowItem,
+    removeScenarioDetailedCashflowItem,
     addScenarioGoal,
     updateScenarioGoal,
     removeScenarioGoal,
@@ -258,6 +266,11 @@ function App() {
           <HouseholdView
             plan={plan}
             updateHousehold={updateHousehold}
+            enableDetailedCashflow={enableDetailedCashflow}
+            useBasicCashflow={useBasicCashflow}
+            addDetailedCashflowItem={addDetailedCashflowItem}
+            updateDetailedCashflowItem={updateDetailedCashflowItem}
+            removeDetailedCashflowItem={removeDetailedCashflowItem}
             addCashflowPeriod={addCashflowPeriod}
             updateCashflowPeriod={updateCashflowPeriod}
             removeCashflowPeriod={removeCashflowPeriod}
@@ -338,6 +351,9 @@ function App() {
             addScenarioCashflowPeriod={addScenarioCashflowPeriod}
             updateScenarioCashflowPeriod={updateScenarioCashflowPeriod}
             removeScenarioCashflowPeriod={removeScenarioCashflowPeriod}
+            addScenarioDetailedCashflowItem={addScenarioDetailedCashflowItem}
+            updateScenarioDetailedCashflowItem={updateScenarioDetailedCashflowItem}
+            removeScenarioDetailedCashflowItem={removeScenarioDetailedCashflowItem}
             addScenarioGoal={addScenarioGoal}
             updateScenarioGoal={updateScenarioGoal}
             removeScenarioGoal={removeScenarioGoal}

@@ -28,8 +28,10 @@ import {
   isLegalDocumentView
 } from "../src/navigation";
 import { createEmptyPlan } from "../src/hooks/useLifePlanEditor";
+import { createScenarioFromTemplate, scenarioTemplates } from "../src/data/scenarios";
 import type { LifePlan } from "../src/types";
 import { decryptCloudBackup, encryptCloudBackup } from "../src/utils/cloudBackupCrypto";
+import { convertBasicCashflowToDetailedItems } from "../src/utils/detailedCashflow";
 import {
   buildPlanFromScenario,
   emergencyMonthsLabel,
@@ -739,6 +741,108 @@ test("a review scenario reflects only the selected actual values", () => {
   assert.equal(getCashflowSummary(expensesOnly.snapshot.household).monthlyLivingCost, review.actualMonthlyExpenses);
 });
 
+test("scenario templates update the active detailed cashflow instead of ignored basic values", () => {
+  const plan = createEmptyPlan();
+  plan.cashflowMode = "detailed";
+  plan.detailedCashflowItems = [
+    {
+      id: "detailed-income",
+      title: "本人の給与",
+      memberId: plan.householdMembers[0].id,
+      target: "monthlyIncome",
+      startYear: currentYear,
+      endYear: currentYear + 20,
+      amount: 350000,
+      memo: ""
+    },
+    {
+      id: "detailed-fixed",
+      title: "固定費",
+      memberId: null,
+      target: "fixedCost",
+      startYear: currentYear,
+      endYear: currentYear + 20,
+      amount: 120000,
+      memo: ""
+    }
+  ];
+  const template = scenarioTemplates.find((item) => item.tag === "spending");
+  assert.ok(template);
+
+  const scenario = createScenarioFromTemplate(plan, template);
+  const scenarioPlan = buildPlanFromScenario(plan, scenario);
+
+  assert.equal(scenario.snapshot.cashflowMode, "detailed");
+  assert.equal(getHouseholdForYear(scenarioPlan, currentYear).fixedCost, 90000);
+  assert.equal(getHouseholdForYear(plan, currentYear).fixedCost, 120000);
+});
+
+test("review expenses update detailed cashflow totals and preserve future-only items", () => {
+  const plan = createEmptyPlan();
+  plan.cashflowMode = "detailed";
+  plan.detailedCashflowItems = [
+    {
+      id: "review-fixed",
+      title: "住居費など",
+      memberId: null,
+      target: "fixedCost",
+      startYear: currentYear,
+      endYear: currentYear + 20,
+      amount: 100000,
+      memo: ""
+    },
+    {
+      id: "review-variable",
+      title: "生活費",
+      memberId: null,
+      target: "variableCost",
+      startYear: currentYear,
+      endYear: currentYear + 20,
+      amount: 80000,
+      memo: ""
+    },
+    {
+      id: "review-special",
+      title: "年間特別支出",
+      memberId: null,
+      target: "annualSpecialCost",
+      startYear: currentYear,
+      endYear: currentYear + 20,
+      amount: 240000,
+      memo: ""
+    },
+    {
+      id: "future-education",
+      title: "将来の教育費",
+      memberId: null,
+      target: "variableCost",
+      startYear: currentYear + 5,
+      endYear: currentYear + 8,
+      amount: 50000,
+      memo: ""
+    }
+  ];
+  const review = {
+    ...createPlanReview(plan, "review-detailed", `${currentYear}-07-19`),
+    actualMonthlyExpenses: 230000
+  };
+
+  const scenario = createScenarioFromReview(
+    plan,
+    review,
+    "scenario-detailed-review",
+    `${currentYear}-07-19T01:00:00.000Z`,
+    { applyActualNetAssets: false, applyActualMonthlyExpenses: true }
+  );
+
+  assert.equal(scenario.snapshot.cashflowMode, "detailed");
+  assert.equal(getCurrentCashflowSummary(scenario.snapshot).monthlyLivingCost, 230000);
+  assert.equal(
+    scenario.snapshot.detailedCashflowItems.find((item) => item.id === "future-education")?.amount,
+    50000
+  );
+});
+
 test("budget summary converts frequency to monthly average and selected actuals", () => {
   const summary = getBudgetSummary(
     [
@@ -1113,6 +1217,79 @@ test("detailed cashflow mode sums active items and never adds basic household va
   assert.equal(annualRow.annualSavings, 2280000);
   assert.ok(annualRow.cashflowChangeTitles.includes("本人収入"));
   assert.ok(!annualRow.cashflowChangeTitles.includes("詳細方式では無視"));
+});
+
+test("basic cashflow conversion preserves overlapping period assumptions and annual projections", () => {
+  const basicPlan: LifePlan = {
+    ...basePlan,
+    cashflowMode: "basic",
+    cashflowPeriods: [
+      {
+        id: "leave-income",
+        title: "育休中の収入",
+        owner: "self",
+        target: "monthlyIncome",
+        startYear: currentYear + 1,
+        endYear: currentYear + 2,
+        amount: 180000,
+        memo: ""
+      },
+      {
+        id: "new-job-income",
+        title: "転職後の収入",
+        owner: "self",
+        target: "monthlyIncome",
+        startYear: currentYear + 2,
+        endYear: currentYear + 6,
+        amount: 400000,
+        memo: ""
+      },
+      {
+        id: "education-cost",
+        title: "教育費",
+        owner: "child",
+        target: "annualSpecialCost",
+        startYear: currentYear + 3,
+        endYear: currentYear + 5,
+        amount: 900000,
+        memo: ""
+      }
+    ],
+    assets: { cash: 1000000, investment: 0, other: 0, debt: 0 },
+    events: [],
+    simulation: { ...basePlan.simulation, annualReturnRate: 0 }
+  };
+  let id = 0;
+  const detailedItems = convertBasicCashflowToDetailedItems(basicPlan, () => `converted-${id += 1}`);
+  const detailedPlan: LifePlan = {
+    ...basicPlan,
+    cashflowMode: "detailed",
+    detailedCashflowItems: detailedItems
+  };
+
+  for (let offset = 0; offset <= 8; offset += 1) {
+    assert.deepEqual(
+      getHouseholdForYear(detailedPlan, currentYear + offset),
+      getHouseholdForYear(basicPlan, currentYear + offset)
+    );
+  }
+
+  const basicRows = getAnnualProjectionRows(basicPlan, 8);
+  const detailedRows = getAnnualProjectionRows(detailedPlan, 8);
+  assert.deepEqual(
+    detailedRows.map((row) => ({
+      value: row.value,
+      annualIncome: row.annualIncome,
+      annualLivingCost: row.annualLivingCost,
+      annualSavings: row.annualSavings
+    })),
+    basicRows.map((row) => ({
+      value: row.value,
+      annualIncome: row.annualIncome,
+      annualLivingCost: row.annualLivingCost,
+      annualSavings: row.annualSavings
+    }))
+  );
 });
 
 test("annual cashflow rows expose income, expenses, events, and balances from one projection", () => {

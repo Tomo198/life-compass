@@ -108,6 +108,8 @@ export type DetailedCashflowItem = {
   memo: string;
 };
 
+export type DetailedCashflowItemDraft = Omit<DetailedCashflowItem, "id">;
+
 export type Assets = {
   cash: number;
   investment: number;

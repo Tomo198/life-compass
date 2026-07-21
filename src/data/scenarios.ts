@@ -6,7 +6,8 @@ import type {
   ScenarioSnapshot,
   ScenarioTag
 } from "../types";
-import { getTargetAgeForYear } from "../utils/calculations";
+import { getHouseholdForYear, getTargetAgeForYear } from "../utils/calculations";
+import { setDetailedCashflowTargetAmount } from "../utils/detailedCashflow";
 
 export const scenarioTagLabels: Record<ScenarioTag, string> = {
   current: "現状維持",
@@ -48,6 +49,40 @@ export const createScenarioFromTemplate = (plan: LifePlan, template: ScenarioTem
   snapshot: template.apply(createScenarioSnapshot(plan), plan)
 });
 
+const updateScenarioCashflowTarget = (
+  snapshot: ScenarioSnapshot,
+  target: keyof ScenarioSnapshot["household"],
+  updateAmount: (currentAmount: number) => number
+): ScenarioSnapshot => {
+  if (snapshot.cashflowMode !== "detailed") {
+    return {
+      ...snapshot,
+      household: {
+        ...snapshot.household,
+        [target]: updateAmount(snapshot.household[target])
+      }
+    };
+  }
+
+  const currentYear = new Date().getFullYear();
+  const currentAmount = getHouseholdForYear(snapshot, currentYear)[target];
+  const memberId = target === "monthlyIncome" || target === "annualBonus" || target === "sideIncome"
+    ? snapshot.householdMembers.find((member) => member.relationship === "self")?.id ?? null
+    : null;
+  return {
+    ...snapshot,
+    detailedCashflowItems: setDetailedCashflowTargetAmount(
+      snapshot.detailedCashflowItems,
+      target,
+      updateAmount(currentAmount),
+      currentYear,
+      createId,
+      undefined,
+      memberId
+    )
+  };
+};
+
 export const scenarioTemplates: ScenarioTemplate[] = [
   {
     tag: "current",
@@ -59,28 +94,23 @@ export const scenarioTemplates: ScenarioTemplate[] = [
     tag: "spending",
     name: "支出見直し",
     description: "固定費を月3万円下げた場合の仮シナリオです。",
-    apply: (snapshot) => ({
-      ...snapshot,
-      household: { ...snapshot.household, fixedCost: Math.max(0, snapshot.household.fixedCost - 30000) }
-    })
+    apply: (snapshot) => updateScenarioCashflowTarget(
+      snapshot,
+      "fixedCost",
+      (amount) => Math.max(0, amount - 30000)
+    )
   },
   {
     tag: "career",
     name: "転職",
     description: "月収が5万円変わる前提の仮シナリオです。",
-    apply: (snapshot) => ({
-      ...snapshot,
-      household: { ...snapshot.household, monthlyIncome: snapshot.household.monthlyIncome + 50000 }
-    })
+    apply: (snapshot) => updateScenarioCashflowTarget(snapshot, "monthlyIncome", (amount) => amount + 50000)
   },
   {
     tag: "sideBusiness",
     name: "副業開始",
     description: "副業収入を月5万円として置いた仮シナリオです。",
-    apply: (snapshot) => ({
-      ...snapshot,
-      household: { ...snapshot.household, sideIncome: snapshot.household.sideIncome + 50000 }
-    })
+    apply: (snapshot) => updateScenarioCashflowTarget(snapshot, "sideIncome", (amount) => amount + 50000)
   },
   {
     tag: "home",
@@ -112,13 +142,17 @@ export const scenarioTemplates: ScenarioTemplate[] = [
     tag: "retirement",
     name: "早期退職",
     description: "収入と生活費を退職前提で見直すための仮シナリオです。",
-    apply: (snapshot) => ({
-      ...snapshot,
-      household: {
-        ...snapshot.household,
-        monthlyIncome: Math.max(0, snapshot.household.monthlyIncome - 100000),
-        fixedCost: Math.max(0, snapshot.household.fixedCost - 20000)
-      }
-    })
+    apply: (snapshot) => {
+      const incomeAdjusted = updateScenarioCashflowTarget(
+        snapshot,
+        "monthlyIncome",
+        (amount) => Math.max(0, amount - 100000)
+      );
+      return updateScenarioCashflowTarget(
+        incomeAdjusted,
+        "fixedCost",
+        (amount) => Math.max(0, amount - 20000)
+      );
+    }
   }
 ];

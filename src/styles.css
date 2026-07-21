@@ -3142,6 +3142,69 @@ td select {
   margin-top: 1rem;
 }
 
+.cashflow-mode-control {
+  display: grid;
+  grid-template-columns: minmax(12rem, 1fr) auto;
+  gap: 0.8rem 1rem;
+  align-items: center;
+  margin: 1rem 0 1.2rem;
+  padding: 0.9rem 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.cashflow-mode-control > div:first-child {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.cashflow-mode-control > div:first-child span,
+.cashflow-mode-message {
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.cashflow-mode-message {
+  grid-column: 1 / -1;
+  min-height: 1.2em;
+}
+
+.cashflow-basic-fields {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.cashflow-basic-fields:disabled {
+  opacity: 0.56;
+}
+
+.cashflow-mode-note,
+.budget-detail-mode-note {
+  margin-top: 1rem;
+}
+
+.detailed-cashflow-editor {
+  margin-top: 1rem;
+}
+
+.detailed-cashflow-editor > .entry-creation-form {
+  margin-top: 0;
+}
+
+.detailed-cashflow-toolbar {
+  display: grid;
+  grid-template-columns: minmax(14rem, 1fr) minmax(12rem, 0.4fr);
+  gap: 0.8rem;
+  margin-top: 1rem;
+}
+
+.detailed-cashflow-list summary strong,
+.detailed-cashflow-list summary small {
+  overflow-wrap: anywhere;
+}
+
 .cashflow-stress-summary {
   margin-top: 1.25rem;
   padding-top: 1.1rem;
@@ -5213,6 +5276,26 @@ td select {
   .scenario-record-fields,
   .scenario-deadline-fields {
     grid-template-columns: 1fr;
+  }
+
+  .cashflow-mode-control,
+  .detailed-cashflow-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .cashflow-mode-control .segmented-control {
+    display: grid;
+    grid-template-columns: 1fr;
+    width: 100%;
+  }
+
+  .cashflow-mode-control .segmented-control button {
+    width: 100%;
+    border-left: 0;
+  }
+
+  .cashflow-mode-control .segmented-control button + button {
+    border-top: 1px solid var(--line);
   }
 
   .scenario-record-fields .entry-field-wide {

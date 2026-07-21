@@ -70,6 +70,93 @@ test("基本入力が画面移動と再読み込み後も保存される", async
   await expect(page.getByLabel("月収")).toHaveValue("450,000");
 });
 
+test("基本収支を世帯別の詳細収支へ同値変換し、追加項目と方式を保存できる", async ({ page }) => {
+  await openView(page, "household");
+  await page.getByRole("button", { name: "世帯別の詳細方式", exact: true }).click();
+
+  const converted = await page.evaluate(() => {
+    const plan = JSON.parse(localStorage.getItem("life-compass-plan-v1") || "{}");
+    const currentYear = new Date().getFullYear();
+    const totals = Object.fromEntries([
+      "monthlyIncome",
+      "annualBonus",
+      "sideIncome",
+      "fixedCost",
+      "variableCost",
+      "annualSpecialCost"
+    ].map((target) => [
+      target,
+      (plan.detailedCashflowItems || [])
+        .filter((item: { target: string; startYear: number; endYear: number }) =>
+          item.target === target && item.startYear <= currentYear && currentYear <= item.endYear
+        )
+        .reduce((total: number, item: { amount: number }) => total + item.amount, 0)
+    ]));
+    return { mode: plan.cashflowMode, household: plan.household, totals };
+  });
+  expect(converted.mode).toBe("detailed");
+  expect(converted.totals).toEqual(converted.household);
+  await expect(page.getByRole("textbox", { name: "月収", exact: true })).toBeDisabled();
+
+  const form = page.getByTestId("detailed-cashflow-create-form");
+  await form.getByLabel("項目名").fill("配偶者の収入");
+  await form.getByLabel("金額（月額）").fill("50000");
+  await form.getByRole("button", { name: "収支項目を登録", exact: true }).click();
+  await expect(form.getByRole("status")).toContainText("配偶者の収入");
+  await expect(page.locator(".detailed-cashflow-list")).toContainText("配偶者の収入");
+
+  await page.reload();
+  await openView(page, "household");
+  await expect(page.getByRole("button", { name: "世帯別の詳細方式", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(".detailed-cashflow-list")).toContainText("配偶者の収入");
+
+  await page.getByRole("button", { name: "基本方式", exact: true }).click();
+  await expect(page.getByLabel("月収")).toBeEnabled();
+  await expect(page.getByText("時期別の収入・支出", { exact: true })).toBeVisible();
+});
+
+test("詳細収支のシナリオを基本プランと分けて編集・保存できる", async ({ page }) => {
+  await openView(page, "household");
+  await page.getByRole("button", { name: "世帯別の詳細方式", exact: true }).click();
+  const baseCount = await page.evaluate(() => {
+    const plan = JSON.parse(localStorage.getItem("life-compass-plan-v1") || "{}");
+    return plan.detailedCashflowItems.length;
+  });
+
+  await openView(page, "scenarios");
+  await page.getByRole("button", { name: "現状維持", exact: true }).click();
+  await page.getByLabel("表示シナリオ").selectOption({ label: "現状維持" });
+  const scenarioTabs = page.locator(".scenario-editor-tabs");
+  await scenarioTabs.getByRole("button", { name: /詳細収支/ }).click();
+
+  const form = page.getByTestId("detailed-cashflow-create-form");
+  await form.getByLabel("項目名").fill("シナリオ内の副業収入");
+  await form.getByLabel("収支の種類").selectOption("sideIncome");
+  await form.getByLabel("金額（月額）").fill("40000");
+  await form.getByRole("button", { name: "収支項目を登録", exact: true }).click();
+  await expect(form.getByRole("status")).toContainText("シナリオ内の副業収入");
+
+  const saved = await page.evaluate(() => {
+    const plan = JSON.parse(localStorage.getItem("life-compass-plan-v1") || "{}");
+    return {
+      baseCount: plan.detailedCashflowItems.length,
+      scenarioCount: plan.scenarios[0].snapshot.detailedCashflowItems.length,
+      hasScenarioItem: plan.scenarios[0].snapshot.detailedCashflowItems.some(
+        (item: { title: string }) => item.title === "シナリオ内の副業収入"
+      )
+    };
+  });
+  expect(saved.baseCount).toBe(baseCount);
+  expect(saved.scenarioCount).toBe(baseCount + 1);
+  expect(saved.hasScenarioItem).toBe(true);
+
+  await page.reload();
+  await openView(page, "scenarios");
+  await page.getByLabel("表示シナリオ").selectOption({ label: "現状維持" });
+  await page.locator(".scenario-editor-tabs").getByRole("button", { name: /詳細収支/ }).click();
+  await expect(page.locator(".detailed-cashflow-list")).toContainText("シナリオ内の副業収入");
+});
+
 test("世帯メンバーを追加・編集・削除して再読み込み後も確認できる", async ({ page }) => {
   await openView(page, "profile");
   const memberForm = page.getByTestId("household-member-create-form");
@@ -291,6 +378,40 @@ test("無料版でも一定利回りの積立・取り崩し試算を利用で�
   await page.reload();
 
   await expect(page.getByTestId("app-shell")).toHaveAttribute("data-access-mode", "enforced");
+  await openView(page, "household");
+  const storedMonthlyIncome = page.getByRole("textbox", { name: "月収", exact: true });
+  await storedMonthlyIncome.fill("320001");
+  await storedMonthlyIncome.blur();
+  await expect.poll(() => page.evaluate(() => Boolean(localStorage.getItem("life-compass-plan-v1")))).toBe(true);
+  const expiredProPlan = await page.evaluate(() => JSON.parse(localStorage.getItem("life-compass-plan-v1") || "{}"));
+  const currentYear = new Date().getFullYear();
+  expiredProPlan.cashflowMode = "detailed";
+  expiredProPlan.detailedCashflowItems = [{
+      id: "expired-pro-cashflow",
+      title: "保持される月収",
+      memberId: expiredProPlan.householdMembers?.[0]?.id ?? null,
+      target: "monthlyIncome",
+      startYear: currentYear,
+      endYear: currentYear + 1,
+      amount: 320000,
+      memo: ""
+  }];
+  await page.addInitScript((plan) => {
+    localStorage.setItem("life-compass-plan-v1", JSON.stringify(plan));
+  }, expiredProPlan);
+  await page.reload();
+  await openView(page, "household");
+  await expect(page.getByRole("button", { name: "世帯別の詳細方式", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "基本方式", exact: true })).toBeEnabled();
+  await expect(page.getByRole("textbox", { name: "月収", exact: true })).toBeDisabled();
+  await page.getByRole("button", { name: "基本方式", exact: true }).click();
+  await expect(page.getByRole("textbox", { name: "月収", exact: true })).toBeEnabled();
+  const retainedDetailedCashflow = await page.evaluate(() => {
+    const plan = JSON.parse(localStorage.getItem("life-compass-plan-v1") || "{}");
+    return { mode: plan.cashflowMode, count: plan.detailedCashflowItems?.length ?? 0 };
+  });
+  expect(retainedDetailedCashflow).toEqual({ mode: "basic", count: 1 });
+
   await openView(page, "simulation");
   await page.getByRole("button", { name: "積立試算" }).click();
   await expect(page.getByRole("heading", { name: "積立シミュレーション" })).toBeVisible();
