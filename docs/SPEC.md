@@ -144,6 +144,8 @@ type LifePlan = {
   profile: Profile;
   householdMembers: HouseholdMember[];
   household: Household;
+  cashflowMode: "basic" | "detailed";
+  detailedCashflowItems: DetailedCashflowItem[];
   cashflowPeriods: CashflowPeriod[];
   assets: Assets;
   goals: Goal[];
@@ -202,6 +204,17 @@ type CashflowPeriod = {
   id: string;
   title: string;
   owner: "self" | "spouse" | "child" | "parent" | "household" | "other";
+  target: "monthlyIncome" | "annualBonus" | "sideIncome" | "fixedCost" | "variableCost" | "annualSpecialCost";
+  startYear: number;
+  endYear: number;
+  amount: number;
+  memo: string;
+};
+
+type DetailedCashflowItem = {
+  id: string;
+  title: string;
+  memberId: string | null;
   target: "monthlyIncome" | "annualBonus" | "sideIncome" | "fixedCost" | "variableCost" | "annualSpecialCost";
   startYear: number;
   endYear: number;
@@ -285,8 +298,9 @@ type RetirementPlanSettings = {
 
 ### 保存形式と復旧
 
-- 現行の保存形式は `version: 8`
+- 現行の保存形式は `version: 9`
 - 旧JSONはインポート時に現行形式へ正規化する
+- `version: 8`以前のデータは基本収支方式として読み込み、詳細収支項目は空で補う
 - `version: 7`以前のデータには、基本プロフィールの家族構成をもとに世帯メンバーを補う
 - 現行アプリより新しい形式のJSONは、項目欠落を防ぐため読み込みを拒否する
 - インポート対象は5MB以下のJSONとする
@@ -307,8 +321,11 @@ type RetirementPlanSettings = {
 
 ### 時期別の収支と年次キャッシュフロー
 
-- 時期別の収支は、指定した開始年から終了年まで、基本収支の対象項目を入力額へ置き換える
+- 基本収支方式では、指定した開始年から終了年まで、基本収支の対象項目を入力額へ置き換える
 - 同じ項目の期間が重なる場合は開始年が新しい設定を優先し、開始年も同じ場合は一覧の下にある設定を優先する
+- 詳細収支方式では、本人・配偶者・子ども・親・世帯にひもづく有効期間内の収支項目を対象項目ごとに合計する
+- 基本収支方式と詳細収支方式は同時加算せず、選択中の一方だけを年次計算へ使用する
+- ライフイベントの一時収入・一時支出は、どちらの収支方式でも別途加減する
 - 年間収入 = 月収 × 12 + 副業収入 × 12 + ボーナス年額 + 収入イベント
 - 年間支出 = 固定費 × 12 + 変動費 × 12 + 年間特別支出 + 支出イベント
 - 年間収支 = 年間収入 - 年間支出

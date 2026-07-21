@@ -5,6 +5,7 @@ import {
 } from "../data/householdMembers";
 import {
   CURRENT_PLAN_VERSION,
+  MAX_DETAILED_CASHFLOW_ITEMS,
   MAX_HOUSEHOLD_MEMBERS,
   MAX_MONEY_AMOUNT,
   MAX_PLAN_AGE,
@@ -20,9 +21,11 @@ import type {
   BudgetCategory,
   BudgetFrequency,
   BudgetItem,
+  CashflowMode,
   CashflowPeriod,
   CashflowPeriodTarget,
   CashflowType,
+  DetailedCashflowItem,
   EventOwner,
   FamilyType,
   FixedCostCategory,
@@ -106,6 +109,7 @@ const eventCategories: LifeEventCategory[] = [
   "other"
 ];
 const cashflowTypes: CashflowType[] = ["expense", "income", "neutral"];
+const cashflowModes: CashflowMode[] = ["basic", "detailed"];
 const cashflowPeriodTargets: CashflowPeriodTarget[] = [
   "monthlyIncome",
   "annualBonus",
@@ -339,6 +343,8 @@ const normalizePlan = (plan: LifePlan): LifePlan => {
     profile,
     householdMembers,
     household: normalizeHousehold(plan.household),
+    cashflowMode: enumValue(plan.cashflowMode, cashflowModes, "basic"),
+    detailedCashflowItems: normalizeDetailedCashflowItems(plan.detailedCashflowItems, householdMembers),
     cashflowPeriods: Array.isArray(plan.cashflowPeriods) ? plan.cashflowPeriods.map(normalizeCashflowPeriod) : [],
     assets: normalizeAssets(plan.assets),
     goals: Array.isArray(plan.goals) ? plan.goals.map(normalizeGoal) : [],
@@ -397,6 +403,30 @@ const normalizeCashflowPeriod = (period: CashflowPeriod | null | undefined): Cas
     amount: nonNegativeNumber(period?.amount),
     memo: stringValue(period?.memo)
   };
+};
+
+const normalizeDetailedCashflowItems = (
+  items: DetailedCashflowItem[] | undefined,
+  householdMembers: HouseholdMember[]
+): DetailedCashflowItem[] => {
+  if (!Array.isArray(items)) return [];
+  const memberIds = new Set(householdMembers.map((member) => member.id));
+
+  return items.slice(0, MAX_DETAILED_CASHFLOW_ITEMS).map((item) => {
+    const startYear = integerInRange(item?.startYear, new Date().getFullYear(), 1900, MAX_PLAN_YEAR);
+    const memberId = typeof item?.memberId === "string" && memberIds.has(item.memberId) ? item.memberId : null;
+
+    return {
+      id: identifierValue(item?.id),
+      title: nonEmptyString(item?.title, "収支項目"),
+      memberId,
+      target: enumValue(item?.target, cashflowPeriodTargets, "monthlyIncome"),
+      startYear,
+      endYear: integerInRange(item?.endYear, startYear, startYear, MAX_PLAN_YEAR),
+      amount: nonNegativeNumber(item?.amount),
+      memo: stringValue(item?.memo)
+    };
+  });
 };
 
 const normalizeEvent = (event: LifeEvent | null | undefined): LifeEvent => ({
@@ -548,17 +578,27 @@ const normalizeReview = (review: ReviewNote): ReviewNote => ({
 const normalizeScenarioSnapshot = (
   snapshot: ScenarioSnapshot | undefined,
   fallbackMembers: HouseholdMember[]
-): ScenarioSnapshot => ({
-  householdMembers: normalizeHouseholdMembers(snapshot?.householdMembers, defaultPlan.profile, fallbackMembers),
-  household: normalizeHousehold(snapshot?.household),
-  cashflowPeriods: Array.isArray(snapshot?.cashflowPeriods)
-    ? snapshot.cashflowPeriods.map(normalizeCashflowPeriod)
-    : [],
-  assets: normalizeAssets(snapshot?.assets),
-  goals: Array.isArray(snapshot?.goals) ? snapshot.goals.map(normalizeGoal) : [],
-  events: Array.isArray(snapshot?.events) ? snapshot.events.map(normalizeEvent) : [],
-  simulation: normalizeSimulation(snapshot?.simulation)
-});
+): ScenarioSnapshot => {
+  const householdMembers = normalizeHouseholdMembers(
+    snapshot?.householdMembers,
+    defaultPlan.profile,
+    fallbackMembers
+  );
+
+  return {
+    householdMembers,
+    household: normalizeHousehold(snapshot?.household),
+    cashflowMode: enumValue(snapshot?.cashflowMode, cashflowModes, "basic"),
+    detailedCashflowItems: normalizeDetailedCashflowItems(snapshot?.detailedCashflowItems, householdMembers),
+    cashflowPeriods: Array.isArray(snapshot?.cashflowPeriods)
+      ? snapshot.cashflowPeriods.map(normalizeCashflowPeriod)
+      : [],
+    assets: normalizeAssets(snapshot?.assets),
+    goals: Array.isArray(snapshot?.goals) ? snapshot.goals.map(normalizeGoal) : [],
+    events: Array.isArray(snapshot?.events) ? snapshot.events.map(normalizeEvent) : [],
+    simulation: normalizeSimulation(snapshot?.simulation)
+  };
+};
 
 const normalizeScenario = (scenario: PlanScenario, fallbackMembers: HouseholdMember[]): PlanScenario => ({
   id: identifierValue(scenario?.id),
@@ -619,11 +659,14 @@ const normalizePlanRevisionSnapshot = (
   fallbackMembers: HouseholdMember[]
 ): PlanRevisionSnapshot => {
   const profile = normalizeProfile(snapshot?.profile);
+  const householdMembers = normalizeHouseholdMembers(snapshot?.householdMembers, profile, fallbackMembers);
 
   return {
     profile,
-    householdMembers: normalizeHouseholdMembers(snapshot?.householdMembers, profile, fallbackMembers),
+    householdMembers,
     household: normalizeHousehold(snapshot?.household),
+    cashflowMode: enumValue(snapshot?.cashflowMode, cashflowModes, "basic"),
+    detailedCashflowItems: normalizeDetailedCashflowItems(snapshot?.detailedCashflowItems, householdMembers),
     cashflowPeriods: Array.isArray(snapshot?.cashflowPeriods)
       ? snapshot.cashflowPeriods.map(normalizeCashflowPeriod)
       : [],

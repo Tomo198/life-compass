@@ -4,7 +4,7 @@ import {
   buildPlanFromScenario,
   emergencyMonthsLabel,
   getAssetSummary,
-  getCashflowSummary,
+  getCurrentCashflowSummary,
   getEmergencyFundResult,
   getGoalAchievement,
   getPrimaryGoal,
@@ -24,7 +24,7 @@ export function getScenarioComparisonMetrics(plan: LifePlan) {
   ];
 
   return comparisonPlans.map((item) => {
-    const cashflow = getCashflowSummary(item.plan.household);
+    const cashflow = getCurrentCashflowSummary(item.plan);
     const assets = getAssetSummary(item.plan.assets);
     const projection = projectAssets(item.plan, 30);
     const primaryGoal = getPrimaryGoal(item.plan);

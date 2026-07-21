@@ -3,7 +3,7 @@ import type { Assets, Household, LifePlan, PlanScenario, ReviewNote, ScenarioSna
 import {
   getAssetSummary,
   getBudgetSummary,
-  getCashflowSummary,
+  getCurrentCashflowSummary,
   getGoalAchievement,
   getPrimaryGoal,
   projectAssets
@@ -83,7 +83,7 @@ export const createReviewScenarioSnapshot = (
 
 export const createPlanReview = (plan: LifePlan, id: string, date: string): ReviewNote => {
   const assets = getAssetSummary(plan.assets);
-  const cashflow = getCashflowSummary(plan.household);
+  const cashflow = getCurrentCashflowSummary(plan);
   const projection = projectAssets(plan, 30);
   const primaryGoal = getPrimaryGoal(plan);
   const goalAchievement = primaryGoal ? getGoalAchievement(plan, primaryGoal) : null;
@@ -117,7 +117,7 @@ export const applyBudgetActualsToReview = (plan: LifePlan, review: ReviewNote): 
   const summary = getBudgetSummary(budgetItems, monthKey);
   if (summary.actualEntryCount !== budgetItems.length) return null;
 
-  const monthlyIncome = getCashflowSummary(plan.household).monthlyIncome;
+  const monthlyIncome = getCurrentCashflowSummary(plan).monthlyIncome;
   return {
     ...review,
     actualMonthlyExpenses: summary.actual,

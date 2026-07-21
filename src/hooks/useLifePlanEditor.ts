@@ -66,6 +66,8 @@ export const createEmptyPlan = (): LifePlan => ({
     variableCost: 0,
     annualSpecialCost: 0
   },
+  cashflowMode: "basic",
+  detailedCashflowItems: [],
   cashflowPeriods: [],
   assets: {
     cash: 0,

@@ -8,7 +8,7 @@ import {
 } from "../data/labels";
 import { hasFeatureAccess, type AccessState } from "../features";
 import type { CashflowPeriod, FixedCostItem, Household, LifePlan, ViewKey } from "../types";
-import { getCashflowSummary, getFixedCostImpact, manYen, percent } from "../utils/calculations";
+import { getCurrentCashflowSummary, getFixedCostImpact, manYen, percent } from "../utils/calculations";
 
 type HouseholdViewProps = {
   plan: LifePlan;
@@ -35,7 +35,7 @@ export function HouseholdView({
   setActiveView,
   accessState
 }: HouseholdViewProps) {
-  const cashflow = getCashflowSummary(plan.household);
+  const cashflow = getCurrentCashflowSummary(plan);
   const fixedCostItems = plan.fixedCostItems || [];
   const fixedCostImpact = getFixedCostImpact(fixedCostItems);
   const canUseFixedCostImpact = hasFeatureAccess(accessState, "fixedCostImpact");

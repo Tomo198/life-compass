@@ -13,6 +13,8 @@ const cloneSnapshot = (snapshot: PlanRevisionSnapshot): PlanRevisionSnapshot => 
     ...member
   })),
   household: { ...snapshot.household },
+  cashflowMode: snapshot.cashflowMode || "basic",
+  detailedCashflowItems: (snapshot.detailedCashflowItems || []).map((item) => ({ ...item })),
   cashflowPeriods: snapshot.cashflowPeriods.map((period) => ({ ...period })),
   assets: { ...snapshot.assets },
   goals: snapshot.goals.map((goal) => ({ ...goal })),
@@ -38,6 +40,8 @@ export const createPlanRevisionSnapshot = (plan: LifePlan): PlanRevisionSnapshot
     profile: plan.profile,
     householdMembers: plan.householdMembers || createSuggestedHouseholdMembers(plan.profile),
     household: plan.household,
+    cashflowMode: plan.cashflowMode || "basic",
+    detailedCashflowItems: plan.detailedCashflowItems || [],
     cashflowPeriods: plan.cashflowPeriods || [],
     assets: plan.assets,
     goals: plan.goals,

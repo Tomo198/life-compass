@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   CURRENT_PLAN_VERSION,
+  MAX_DETAILED_CASHFLOW_ITEMS,
   MAX_MONEY_AMOUNT,
   MAX_PLAN_AGE,
   MAX_PLAN_REVISIONS,
@@ -40,6 +41,7 @@ import {
   getBudgetSummary,
   getCashflowSummary,
   getCashflowStressYears,
+  getCurrentCashflowSummary,
   getEmergencyFundMonths,
   getEmergencyFundResult,
   getFixedCostImpact,
@@ -266,6 +268,8 @@ const basePlan: LifePlan = {
     variableCost: 90000,
     annualSpecialCost: 300000
   },
+  cashflowMode: "basic",
+  detailedCashflowItems: [],
   cashflowPeriods: [],
   assets: {
     cash: 1200000,
@@ -332,15 +336,31 @@ test("計画版は保存時点を複製し、上限件数を超えない", () =>
       memo: ""
     }
   ];
+  plan.cashflowMode = "detailed";
+  plan.detailedCashflowItems = [
+    {
+      id: "revision-income",
+      title: "本人収入",
+      memberId: plan.householdMembers[0].id,
+      target: "monthlyIncome",
+      startYear: currentYear,
+      endYear: currentYear + 10,
+      amount: 300000,
+      memo: ""
+    }
+  ];
 
   const saved = createPlanRevision(plan, "revision-1", "保存時点", "manual", "2026-07-01T00:00:00.000Z");
   plan.household.monthlyIncome = 450000;
   plan.householdMembers[0].displayName = "変更後";
   plan.budgetItems[0].actuals["2026-07"] = 70000;
+  plan.detailedCashflowItems[0].amount = 450000;
 
   assert.equal(saved.snapshot.household.monthlyIncome, 300000);
   assert.equal(saved.snapshot.householdMembers[0].displayName, "本人");
   assert.equal(saved.snapshot.budgetItems[0].actuals["2026-07"], 48000);
+  assert.equal(saved.snapshot.cashflowMode, "detailed");
+  assert.equal(saved.snapshot.detailedCashflowItems[0].amount, 300000);
 
   let revisions = [];
   for (let index = 0; index < MAX_PLAN_REVISIONS + 2; index += 1) {
@@ -519,6 +539,9 @@ test("scenario snapshots can be compared without mutating the base plan", () => 
     snapshot: {
       householdMembers: basePlan.householdMembers.map((member) => ({ ...member })),
       household: { ...basePlan.household, fixedCost: basePlan.household.fixedCost - 30000 },
+      cashflowMode: "basic",
+      detailedCashflowItems: [],
+      cashflowPeriods: [],
       assets: { ...basePlan.assets },
       goals: [],
       events: [],
@@ -549,6 +572,19 @@ test("adopting a scenario replaces the base assumptions and preserves the previo
         }
       ],
       household: { ...basePlan.household, fixedCost: 90000 },
+      cashflowMode: "detailed" as const,
+      detailedCashflowItems: [
+        {
+          id: "scenario-income",
+          title: "scenario income",
+          memberId: "member-self",
+          target: "monthlyIncome" as const,
+          startYear: currentYear,
+          endYear: currentYear + 30,
+          amount: 280000,
+          memo: ""
+        }
+      ],
       cashflowPeriods: [
         {
           id: "scenario-income-period",
@@ -593,6 +629,8 @@ test("adopting a scenario replaces the base assumptions and preserves the previo
   assert.equal(adopted.household.fixedCost, 90000);
   assert.equal(adopted.householdMembers.length, 2);
   assert.equal(adopted.householdMembers[1].displayName, "配偶者");
+  assert.equal(adopted.cashflowMode, "detailed");
+  assert.equal(adopted.detailedCashflowItems[0].amount, 280000);
   assert.equal(adopted.cashflowPeriods[0].title, "career transition");
   assert.equal(adopted.assets.cash, 2500000);
   assert.equal(adopted.goals.some((goal) => goal.id === "scenario-goal"), true);
@@ -602,6 +640,8 @@ test("adopting a scenario replaces the base assumptions and preserves the previo
   assert.equal(adopted.scenarios[0].name, "採用前: test");
   assert.equal(adopted.scenarios[0].snapshot.household.fixedCost, 130000);
   assert.equal(adopted.scenarios[0].snapshot.householdMembers.length, 1);
+  assert.equal(adopted.scenarios[0].snapshot.cashflowMode, "basic");
+  assert.deepEqual(adopted.scenarios[0].snapshot.detailedCashflowItems, []);
   assert.deepEqual(adopted.scenarios[0].snapshot.cashflowPeriods, []);
   assert.deepEqual(adopted.scenarios.map((scenario) => scenario.id), ["scenario-previous", "scenario-other"]);
   assert.deepEqual(adopted.activeScenario, {
@@ -941,6 +981,138 @@ test("future cashflow periods replace only the selected household field during t
   assert.equal(getHouseholdForYear(plan, currentYear + 2).monthlyIncome, 400000);
   assert.equal(getHouseholdForYear(plan, currentYear + 4).monthlyIncome, basePlan.household.monthlyIncome);
   assert.equal(getHouseholdForYear(plan, currentYear + 2).fixedCost, basePlan.household.fixedCost);
+});
+
+test("detailed cashflow mode sums active items and never adds basic household values", () => {
+  const plan: LifePlan = {
+    ...basePlan,
+    cashflowMode: "detailed",
+    household: {
+      monthlyIncome: 9000000,
+      annualBonus: 9000000,
+      sideIncome: 9000000,
+      fixedCost: 9000000,
+      variableCost: 9000000,
+      annualSpecialCost: 9000000
+    },
+    detailedCashflowItems: [
+      {
+        id: "self-income",
+        title: "本人収入",
+        memberId: "member-self",
+        target: "monthlyIncome",
+        startYear: currentYear,
+        endYear: currentYear + 2,
+        amount: 200000,
+        memo: ""
+      },
+      {
+        id: "spouse-income",
+        title: "配偶者収入",
+        memberId: null,
+        target: "monthlyIncome",
+        startYear: currentYear,
+        endYear: currentYear + 2,
+        amount: 100000,
+        memo: ""
+      },
+      {
+        id: "bonus",
+        title: "賞与",
+        memberId: "member-self",
+        target: "annualBonus",
+        startYear: currentYear,
+        endYear: currentYear + 2,
+        amount: 240000,
+        memo: ""
+      },
+      {
+        id: "side-income",
+        title: "副業",
+        memberId: "member-self",
+        target: "sideIncome",
+        startYear: currentYear,
+        endYear: currentYear + 2,
+        amount: 20000,
+        memo: ""
+      },
+      {
+        id: "expired-side-income",
+        title: "終了済み副業",
+        memberId: "member-self",
+        target: "sideIncome",
+        startYear: currentYear - 2,
+        endYear: currentYear - 1,
+        amount: 9000000,
+        memo: ""
+      },
+      {
+        id: "fixed-cost",
+        title: "固定費",
+        memberId: null,
+        target: "fixedCost",
+        startYear: currentYear,
+        endYear: currentYear + 2,
+        amount: 90000,
+        memo: ""
+      },
+      {
+        id: "variable-cost",
+        title: "変動費",
+        memberId: null,
+        target: "variableCost",
+        startYear: currentYear,
+        endYear: currentYear + 2,
+        amount: 50000,
+        memo: ""
+      },
+      {
+        id: "special-cost",
+        title: "年間特別支出",
+        memberId: null,
+        target: "annualSpecialCost",
+        startYear: currentYear,
+        endYear: currentYear + 2,
+        amount: 120000,
+        memo: ""
+      }
+    ],
+    cashflowPeriods: [
+      {
+        id: "ignored-basic-period",
+        title: "詳細方式では無視",
+        owner: "household",
+        target: "monthlyIncome",
+        startYear: currentYear,
+        endYear: currentYear + 2,
+        amount: 8000000,
+        memo: ""
+      }
+    ],
+    assets: { cash: 0, investment: 0, other: 0, debt: 0 },
+    events: [],
+    simulation: { ...basePlan.simulation, annualReturnRate: 0 }
+  };
+
+  const currentHousehold = getHouseholdForYear(plan, currentYear);
+  const nextHousehold = getHouseholdForYear(plan, currentYear + 1);
+  const currentCashflow = getCurrentCashflowSummary(plan);
+  const annualRow = getAnnualProjectionRows(plan, 1)[1];
+
+  assert.deepEqual(currentHousehold, {
+    monthlyIncome: 300000,
+    annualBonus: 240000,
+    sideIncome: 20000,
+    fixedCost: 90000,
+    variableCost: 50000,
+    annualSpecialCost: 120000
+  });
+  assert.equal(nextHousehold.sideIncome, 20000);
+  assert.equal(currentCashflow.annualIncome, 4080000);
+  assert.equal(currentCashflow.annualLivingCost, 1800000);
+  assert.equal(annualRow.annualSavings, 2280000);
+  assert.ok(annualRow.cashflowChangeTitles.includes("本人収入"));
+  assert.ok(!annualRow.cashflowChangeTitles.includes("詳細方式では無視"));
 });
 
 test("annual cashflow rows expose income, expenses, events, and balances from one projection", () => {
@@ -2263,6 +2435,8 @@ test("import validation rejects unrelated JSON and fills optional fields for leg
   assert.equal(imported.events[0].owner, "household");
   assert.equal(imported.goals[0].dueMonth, 12);
   assert.deepEqual(imported.timelineMemos, []);
+  assert.equal(imported.cashflowMode, "basic");
+  assert.deepEqual(imported.detailedCashflowItems, []);
   assert.deepEqual(imported.cashflowPeriods, []);
   assert.deepEqual(imported.reviews, []);
   assert.deepEqual(imported.scenarios, []);
@@ -2386,6 +2560,34 @@ test("import validation normalizes future cashflow periods", () => {
   assert.equal(imported.cashflowPeriods[0].startYear, currentYear + 3);
   assert.equal(imported.cashflowPeriods[0].endYear, currentYear + 3);
   assert.equal(imported.cashflowPeriods[0].amount, 0);
+});
+
+test("import validation normalizes and limits detailed cashflow items", () => {
+  const imported = validateImportedPlan({
+    ...basePlan,
+    cashflowMode: "invalid",
+    detailedCashflowItems: Array.from({ length: MAX_DETAILED_CASHFLOW_ITEMS + 2 }, (_, index) => ({
+      id: index === 0 ? "" : `detail-${index}`,
+      title: index === 0 ? "" : `item-${index}`,
+      memberId: index === 1 ? "member-self" : "unknown-member",
+      target: index === 0 ? "invalid" : "fixedCost",
+      startYear: currentYear + 3,
+      endYear: currentYear + 1,
+      amount: index === 0 ? -100 : MAX_MONEY_AMOUNT + 1,
+      memo: undefined
+    }))
+  });
+
+  assert.equal(imported.cashflowMode, "basic");
+  assert.equal(imported.detailedCashflowItems.length, MAX_DETAILED_CASHFLOW_ITEMS);
+  assert.ok(imported.detailedCashflowItems[0].id);
+  assert.equal(imported.detailedCashflowItems[0].title, "収支項目");
+  assert.equal(imported.detailedCashflowItems[0].memberId, null);
+  assert.equal(imported.detailedCashflowItems[0].target, "monthlyIncome");
+  assert.equal(imported.detailedCashflowItems[0].endYear, currentYear + 3);
+  assert.equal(imported.detailedCashflowItems[0].amount, 0);
+  assert.equal(imported.detailedCashflowItems[1].memberId, "member-self");
+  assert.equal(imported.detailedCashflowItems[1].amount, MAX_MONEY_AMOUNT);
 });
 
 test("import validation normalizes and limits plan revisions", () => {

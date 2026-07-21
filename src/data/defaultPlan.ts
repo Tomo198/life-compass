@@ -29,6 +29,8 @@ export const defaultPlan: LifePlan = {
     variableCost: 90000,
     annualSpecialCost: 300000
   },
+  cashflowMode: "basic",
+  detailedCashflowItems: [],
   cashflowPeriods: [],
   assets: {
     cash: 1200000,

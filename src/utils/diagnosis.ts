@@ -4,7 +4,7 @@ import {
   emergencyMonthsLabel,
   getAssetSummary,
   getBudgetSummary,
-  getCashflowSummary,
+  getCurrentCashflowSummary,
   getEmergencyFundResult,
   getGoalAchievements,
   getGoalFundingSummary,
@@ -21,7 +21,7 @@ export type DiagnosisItem = {
 };
 
 export function getLifePlanDiagnosis(plan: LifePlan): DiagnosisItem[] {
-  const cashflow = getCashflowSummary(plan.household);
+  const cashflow = getCurrentCashflowSummary(plan);
   const assets = getAssetSummary(plan.assets);
   const emergency = getEmergencyFundResult(plan);
   const goalAchievements = getGoalAchievements(plan);

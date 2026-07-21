@@ -20,7 +20,7 @@ import {
   getAnnualProjectionRows,
   getBasicProjectionAllocation,
   getCashflowStressYears,
-  getCashflowSummary,
+  getCurrentCashflowSummary,
   getContributionProjectionRows,
   getEmergencyFundResult,
   getMonthlyProjectionRows,
@@ -395,7 +395,7 @@ export function SimulationView({
       <section className="panel">
         <StepTitle step="確認" title="生活防衛資金チェック" description={emergency.note} />
         <div className="calculation-band compact">
-          <Metric label="月間生活費" value={manYen(getCashflowSummary(plan.household).monthlyLivingCost)} helper="固定費 + 変動費 + 特別支出月割" />
+          <Metric label="月間生活費" value={manYen(getCurrentCashflowSummary(plan).monthlyLivingCost)} helper="固定費 + 変動費 + 特別支出月割" />
           <Metric
             label="推奨生活防衛資金"
             value={emergencyAmountLabel(emergency.lowerAmount, emergency.upperAmount)}

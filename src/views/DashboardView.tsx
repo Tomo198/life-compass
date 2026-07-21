@@ -5,7 +5,7 @@ import type { LifePlan, ViewKey } from "../types";
 import {
   emergencyMonthsLabel,
   getAssetSummary,
-  getCashflowSummary,
+  getCurrentCashflowSummary,
   getEmergencyFundResult,
   getGoalAchievement,
   getGoalAchievements,
@@ -55,7 +55,7 @@ const getDashboardGuidance = ({
   completion
 }: {
   plan: LifePlan;
-  cashflow: ReturnType<typeof getCashflowSummary>;
+  cashflow: ReturnType<typeof getCurrentCashflowSummary>;
   assets: ReturnType<typeof getAssetSummary>;
   emergency: ReturnType<typeof getEmergencyFundResult>;
   completion: ReturnType<typeof getInputCompletion>;
@@ -120,7 +120,7 @@ const getDashboardGuidance = ({
 };
 
 export function DashboardView({ plan, reminders, setActiveView, startEmptyPlan, proAccess }: DashboardViewProps) {
-  const cashflow = getCashflowSummary(plan.household);
+  const cashflow = getCurrentCashflowSummary(plan);
   const assets = getAssetSummary(plan.assets);
   const emergency = getEmergencyFundResult(plan);
   const projection = useMemo(() => projectAssets(plan, 30), [plan]);

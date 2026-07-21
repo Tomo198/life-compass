@@ -13,7 +13,7 @@ import type {
   TimelineMemo,
   ViewKey
 } from "../types";
-import { getAssetSummary, getBudgetSummary, getCashflowSummary, manYen } from "../utils/calculations";
+import { getAssetSummary, getBudgetSummary, getCurrentCashflowSummary, manYen } from "../utils/calculations";
 import {
   createReviewScenarioSnapshot,
   type ReviewScenarioOptions
@@ -80,7 +80,7 @@ export function NotesView({
     ? createReviewScenarioSnapshot(plan, latestReview, reviewScenarioOptions)
     : null;
   const reviewScenarioAssets = reviewScenarioSnapshot ? getAssetSummary(reviewScenarioSnapshot.assets) : null;
-  const reviewScenarioCashflow = reviewScenarioSnapshot ? getCashflowSummary(reviewScenarioSnapshot.household) : null;
+  const reviewScenarioCashflow = reviewScenarioSnapshot ? getCurrentCashflowSummary(reviewScenarioSnapshot) : null;
   const openTodoCount = (plan.reviews || []).filter((review) => review.todo && !review.todoDone).length;
   const reviewMonthKey = latestReview?.date ? latestReview.date.slice(0, 7) : new Date().toISOString().slice(0, 7);
   const reviewBudgetSummary = getBudgetSummary(plan.budgetItems || [], reviewMonthKey);
@@ -325,7 +325,7 @@ export function NotesView({
                 <Metric
                   label="月間支出"
                   value={manYen(reviewScenarioCashflow.monthlyLivingCost)}
-                  helper={`現在プラン ${manYen(getCashflowSummary(plan.household).monthlyLivingCost)}`}
+                  helper={`現在プラン ${manYen(getCurrentCashflowSummary(plan).monthlyLivingCost)}`}
                 />
                 <Metric
                   label="通常月の家計余剰"
@@ -455,7 +455,7 @@ export function NotesView({
             <div className="plan-revision-list">
               {sortedPlanRevisions.map((revision) => {
                 const assets = getAssetSummary(revision.snapshot.assets);
-                const cashflow = getCashflowSummary(revision.snapshot.household);
+                const cashflow = getCurrentCashflowSummary(revision.snapshot);
                 return (
                   <article className="plan-revision-item" key={revision.id}>
                     <div className="plan-revision-head">

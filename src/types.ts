@@ -40,6 +40,7 @@ export type CashflowPeriodTarget =
   | "fixedCost"
   | "variableCost"
   | "annualSpecialCost";
+export type CashflowMode = "basic" | "detailed";
 
 export type LifeEventCategory =
   | "career"
@@ -95,6 +96,17 @@ export type CashflowPeriod = {
 };
 
 export type CashflowPeriodDraft = Omit<CashflowPeriod, "id">;
+
+export type DetailedCashflowItem = {
+  id: string;
+  title: string;
+  memberId: string | null;
+  target: CashflowPeriodTarget;
+  startYear: number;
+  endYear: number;
+  amount: number;
+  memo: string;
+};
 
 export type Assets = {
   cash: number;
@@ -225,6 +237,8 @@ export type ActiveScenario = {
 export type ScenarioSnapshot = {
   householdMembers: HouseholdMember[];
   household: Household;
+  cashflowMode: CashflowMode;
+  detailedCashflowItems: DetailedCashflowItem[];
   cashflowPeriods: CashflowPeriod[];
   assets: Assets;
   goals: Goal[];
@@ -269,6 +283,8 @@ export type PlanRevisionSnapshot = {
   profile: Profile;
   householdMembers: HouseholdMember[];
   household: Household;
+  cashflowMode: CashflowMode;
+  detailedCashflowItems: DetailedCashflowItem[];
   cashflowPeriods: CashflowPeriod[];
   assets: Assets;
   goals: Goal[];
@@ -297,6 +313,8 @@ export type LifePlan = {
   profile: Profile;
   householdMembers: HouseholdMember[];
   household: Household;
+  cashflowMode: CashflowMode;
+  detailedCashflowItems: DetailedCashflowItem[];
   cashflowPeriods: CashflowPeriod[];
   assets: Assets;
   goals: Goal[];

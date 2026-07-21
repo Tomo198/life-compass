@@ -30,6 +30,8 @@ export const createScenarioSnapshot = (plan: LifePlan): ScenarioSnapshot => ({
     ...member
   })),
   household: { ...plan.household },
+  cashflowMode: plan.cashflowMode || "basic",
+  detailedCashflowItems: (plan.detailedCashflowItems || []).map((item) => ({ ...item })),
   cashflowPeriods: (plan.cashflowPeriods || []).map((period) => ({ ...period })),
   assets: { ...plan.assets },
   goals: plan.goals.map((goal) => ({ ...goal })),

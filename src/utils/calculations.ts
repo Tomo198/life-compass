@@ -4,6 +4,7 @@ import type {
   BudgetItem,
   CashflowPeriod,
   CashflowPeriodTarget,
+  DetailedCashflowItem,
   FixedCostItem,
   Goal,
   Household,
@@ -27,6 +28,11 @@ export type CashflowSummary = {
   savingsRate: number;
   annualSavingsRate: number;
 };
+
+type CashflowPlanSource = Pick<
+  LifePlan,
+  "household" | "cashflowMode" | "detailedCashflowItems" | "cashflowPeriods"
+>;
 
 export type BasicProjectionAllocation = {
   monthlySurplus: number;
@@ -324,13 +330,16 @@ export const getCashflowSummary = (household: Household): CashflowSummary => {
   };
 };
 
-export const getBasicProjectionAllocation = (plan: LifePlan): BasicProjectionAllocation => {
-  const cashflow = getCashflowSummary(plan.household);
+export const getBasicProjectionAllocation = (
+  plan: LifePlan,
+  household = getHouseholdForYear(plan, new Date().getFullYear())
+): BasicProjectionAllocation => {
+  const cashflow = getCashflowSummary(household);
   const monthlySurplus = cashflow.monthlySavings;
   const availableMonthlySurplus = Math.max(0, monthlySurplus);
   const requestedMonthlyInvestment = Math.max(0, plan.simulation.monthlyInvestmentAmount || 0);
   const monthlyInvestment = Math.min(requestedMonthlyInvestment, availableMonthlySurplus);
-  const annualBonus = Math.max(0, plan.household.annualBonus);
+  const annualBonus = Math.max(0, household.annualBonus);
   const requestedAnnualBonusInvestment = Math.max(0, plan.simulation.annualBonusInvestmentAmount || 0);
   const annualBonusInvestment = Math.min(requestedAnnualBonusInvestment, annualBonus);
 
@@ -358,6 +367,8 @@ export const buildPlanFromScenario = (basePlan: LifePlan, scenario: PlanScenario
   ...basePlan,
   householdMembers: scenario.snapshot.householdMembers || basePlan.householdMembers,
   household: scenario.snapshot.household,
+  cashflowMode: scenario.snapshot.cashflowMode || "basic",
+  detailedCashflowItems: scenario.snapshot.detailedCashflowItems || [],
   cashflowPeriods: scenario.snapshot.cashflowPeriods || [],
   assets: scenario.snapshot.assets,
   goals: scenario.snapshot.goals,
@@ -374,7 +385,7 @@ const cashflowPeriodTargets: CashflowPeriodTarget[] = [
   "annualSpecialCost"
 ];
 
-const getSelectedCashflowPeriodsForYear = (plan: LifePlan, year: number): CashflowPeriod[] =>
+const getSelectedCashflowPeriodsForYear = (plan: CashflowPlanSource, year: number): CashflowPeriod[] =>
   cashflowPeriodTargets.flatMap((target) => {
     const candidates = (plan.cashflowPeriods || [])
       .map((period, index) => ({ period, index }))
@@ -384,7 +395,26 @@ const getSelectedCashflowPeriodsForYear = (plan: LifePlan, year: number): Cashfl
     return selected ? [selected] : [];
   });
 
-export const getHouseholdForYear = (plan: LifePlan, year: number): Household => {
+const emptyHousehold = (): Household => ({
+  monthlyIncome: 0,
+  annualBonus: 0,
+  sideIncome: 0,
+  fixedCost: 0,
+  variableCost: 0,
+  annualSpecialCost: 0
+});
+
+const getDetailedCashflowItemsForYear = (plan: CashflowPlanSource, year: number): DetailedCashflowItem[] =>
+  (plan.detailedCashflowItems || []).filter((item) => item.startYear <= year && year <= item.endYear);
+
+export const getHouseholdForYear = (plan: CashflowPlanSource, year: number): Household => {
+  if (plan.cashflowMode === "detailed") {
+    return getDetailedCashflowItemsForYear(plan, year).reduce((household, item) => {
+      household[item.target] += item.amount;
+      return household;
+    }, emptyHousehold());
+  }
+
   const household = { ...plan.household };
   getSelectedCashflowPeriodsForYear(plan, year).forEach((period) => {
     household[period.target] = period.amount;
@@ -392,6 +422,9 @@ export const getHouseholdForYear = (plan: LifePlan, year: number): Household => 
 
   return household;
 };
+
+export const getCurrentCashflowSummary = (plan: CashflowPlanSource): CashflowSummary =>
+  getCashflowSummary(getHouseholdForYear(plan, new Date().getFullYear()));
 
 export const getFixedCostImpact = (items: FixedCostItem[]): FixedCostImpact => {
   const monthlyImprovement = items.reduce(
@@ -495,8 +528,9 @@ export const getEmergencyFundMonths = (profile: Profile): { lower: number; upper
 };
 
 export const getEmergencyFundResult = (plan: LifePlan): EmergencyFundResult => {
-  const cashflow = getCashflowSummary(plan.household);
-  const allocation = getBasicProjectionAllocation(plan);
+  const currentHousehold = getHouseholdForYear(plan, new Date().getFullYear());
+  const cashflow = getCashflowSummary(currentHousehold);
+  const allocation = getBasicProjectionAllocation(plan, currentHousehold);
   const months = getEmergencyFundMonths(plan.profile);
   const lowerAmount = cashflow.monthlyLivingCost * months.lower;
   const upperAmount = cashflow.monthlyLivingCost * months.upper;
@@ -648,14 +682,16 @@ export const getMonthlyProjectionRows = (plan: LifePlan, months: number): Monthl
     const age = plan.profile.age + Math.floor(monthOffset / 12);
     const effectiveHousehold = getHouseholdForYear(plan, year);
     const cashflow = getCashflowSummary(effectiveHousehold);
-    const allocation = getBasicProjectionAllocation({ ...plan, household: effectiveHousehold });
+    const allocation = getBasicProjectionAllocation(plan, effectiveHousehold);
     const previousValue = rows[monthOffset - 1]?.value ?? getProjectionValue(balances);
     const eventImpact = monthOffset === 0 ? 0 : eventImpactForMonth(plan.events, year, month);
     const eventAmounts = monthOffset === 0 ? { income: 0, expense: 0 } : eventAmountsForMonth(plan.events, year, month);
     const monthEvents = monthOffset === 0 ? [] : eventsForMonth(plan.events, year, month);
     const cashflowChangeTitles = monthOffset === 0
       ? []
-      : getSelectedCashflowPeriodsForYear(plan, year).map((period) => period.title);
+      : plan.cashflowMode === "detailed"
+        ? getDetailedCashflowItemsForYear(plan, year).map((item) => item.title)
+        : getSelectedCashflowPeriodsForYear(plan, year).map((period) => period.title);
     const monthlyIncome = monthOffset === 0 ? 0 : cashflow.monthlyIncome;
     const monthlyMainIncome = monthOffset === 0 ? 0 : effectiveHousehold.monthlyIncome;
     const monthlySideIncome = monthOffset === 0 ? 0 : effectiveHousehold.sideIncome;
@@ -847,7 +883,7 @@ export const getGoalFundingSummary = (plan: LifePlan): GoalFundingSummary => {
     (total, goal) => total + Math.max(0, goal.monthlyAllocation),
     0
   );
-  const monthlyAvailable = getCashflowSummary(plan.household).monthlySavings;
+  const monthlyAvailable = getCurrentCashflowSummary(plan).monthlySavings;
   const monthlyRemaining = monthlyAvailable - monthlyAllocated;
 
   return {
@@ -860,10 +896,11 @@ export const getGoalFundingSummary = (plan: LifePlan): GoalFundingSummary => {
 };
 
 export const getInputCompletion = (plan: LifePlan) => {
+  const currentHousehold = getHouseholdForYear(plan, new Date().getFullYear());
   const items: { label: string; complete: boolean; view: ViewKey }[] = [
     { label: "基本プロフィール", complete: Boolean(plan.profile.name && plan.profile.age > 0), view: "profile" },
-    { label: "家計", complete: plan.household.monthlyIncome > 0 || plan.household.sideIncome > 0, view: "household" },
-    { label: "生活費", complete: plan.household.fixedCost > 0 || plan.household.variableCost > 0, view: "household" },
+    { label: "家計", complete: currentHousehold.monthlyIncome > 0 || currentHousehold.sideIncome > 0, view: "household" },
+    { label: "生活費", complete: currentHousehold.fixedCost > 0 || currentHousehold.variableCost > 0, view: "household" },
     { label: "資産", complete: plan.assets.cash > 0 || plan.assets.investment > 0 || plan.assets.other > 0, view: "assets" },
     { label: "目標", complete: plan.goals.length > 0, view: "goals" },
     { label: "ライフイベント", complete: plan.events.length > 0, view: "events" },
