@@ -374,19 +374,38 @@ test("Proレビューで将来見通しを保存し、見直しシナリオへ�
   expect(reviewOverflow).toBeLessThanOrEqual(1);
   await page.getByLabel("実際の純資産").fill("3456789");
   await page.getByLabel("実際の純資産").blur();
+  await page.getByLabel("実際の支出（月合計）").fill("270000");
+  await page.getByLabel("実際の支出（月合計）").blur();
 
   const savedReview = await page.evaluate(() => {
     const plan = JSON.parse(localStorage.getItem("life-compass-plan-v1") || "{}");
     return plan.reviews[0];
   });
   expect(savedReview.actualNetAssets).toBe(3456789);
+  expect(savedReview.actualMonthlyExpenses).toBe(270000);
   expect(savedReview.plannedTenYearAssets).toEqual(expect.any(Number));
   expect(savedReview.plannedThirtyYearAssets).toEqual(expect.any(Number));
 
   await page.getByRole("button", { name: "最新レビューから見直し案を作る", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "実績を反映する項目", level: 3 })).toBeVisible();
+  await expect(page.getByRole("checkbox", { name: "実際の純資産を反映", exact: true })).toBeChecked();
+  await expect(page.getByRole("checkbox", { name: "実際の月間支出を反映", exact: true })).toBeChecked();
+  const builderOverflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect(builderOverflow).toBeLessThanOrEqual(1);
+  await page.getByRole("button", { name: "この内容で見直し案を作る", exact: true }).click();
   await expect(page.getByRole("heading", { name: "シナリオ比較", level: 1 })).toBeVisible();
   const expectedScenarioName = `${new Date().toISOString().slice(0, 7).replace("-", "年")}月 見直し案`;
   await expect(page.locator(".scenario-row").getByLabel("シナリオ名")).toHaveValue(expectedScenarioName);
+  const reflectedScenario = await page.evaluate(() => {
+    const plan = JSON.parse(localStorage.getItem("life-compass-plan-v1") || "{}");
+    const scenario = plan.scenarios[0];
+    return {
+      netAssets: scenario.snapshot.assets.cash + scenario.snapshot.assets.investment + scenario.snapshot.assets.other - scenario.snapshot.assets.debt,
+      monthlyExpenses: scenario.snapshot.household.fixedCost + scenario.snapshot.household.variableCost + scenario.snapshot.household.annualSpecialCost / 12
+    };
+  });
+  expect(reflectedScenario.netAssets).toBe(3456789);
+  expect(reflectedScenario.monthlyExpenses).toBe(270000);
 
   await page.reload();
   await openView(page, "dashboard");

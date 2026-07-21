@@ -593,6 +593,7 @@ test("plan reviews preserve the active scenario and long-term outlook at creatio
   assert.equal(review.plannedTenYearAssets, projectAssets(basePlan, 30)[10].value);
   assert.equal(review.plannedThirtyYearAssets, projectAssets(basePlan, 30)[30].value);
   assert.equal(review.actualNetAssets, review.plannedNetAssets);
+  assert.equal(review.actualMonthlyExpenses, getCashflowSummary(basePlan.household).monthlyLivingCost);
 });
 
 test("complete monthly budget actuals can be reflected in a review", () => {
@@ -628,6 +629,35 @@ test("a review can create an editable scenario from the current plan", () => {
   assert.equal(scenario.tag, "custom");
   assert.equal(scenario.snapshot.household.fixedCost, basePlan.household.fixedCost);
   assert.match(scenario.description, /純資産差/);
+});
+
+test("a review scenario reflects only the selected actual values", () => {
+  const review = {
+    ...createPlanReview(basePlan, "review-reflect", "2026-07-19"),
+    actualNetAssets: getAssetSummary(basePlan.assets).netAssets - 500000,
+    actualMonthlyExpenses: getCashflowSummary(basePlan.household).monthlyLivingCost + 30000
+  };
+  const scenario = createScenarioFromReview(
+    basePlan,
+    review,
+    "scenario-reflect",
+    "2026-07-19T01:00:00.000Z",
+    { applyActualNetAssets: true, applyActualMonthlyExpenses: true }
+  );
+
+  assert.equal(getAssetSummary(scenario.snapshot.assets).netAssets, review.actualNetAssets);
+  assert.equal(getCashflowSummary(scenario.snapshot.household).monthlyLivingCost, review.actualMonthlyExpenses);
+  assert.match(scenario.description, /実際の純資産・実際の月間支出を比較前提へ仮反映/);
+
+  const expensesOnly = createScenarioFromReview(
+    basePlan,
+    review,
+    "scenario-expenses",
+    "2026-07-19T01:00:00.000Z",
+    { applyActualNetAssets: false, applyActualMonthlyExpenses: true }
+  );
+  assert.equal(getAssetSummary(expensesOnly.snapshot.assets).netAssets, getAssetSummary(basePlan.assets).netAssets);
+  assert.equal(getCashflowSummary(expensesOnly.snapshot.household).monthlyLivingCost, review.actualMonthlyExpenses);
 });
 
 test("budget summary converts frequency to monthly average and selected actuals", () => {

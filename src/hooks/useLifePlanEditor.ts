@@ -30,7 +30,8 @@ import {
 import {
   applyBudgetActualsToReview,
   createPlanReview,
-  createScenarioFromReview
+  createScenarioFromReview,
+  type ReviewScenarioOptions
 } from "../utils/reviews";
 import {
   addPlanRevision,
@@ -262,10 +263,10 @@ export function useLifePlanEditor() {
     });
   };
 
-  const addScenarioFromReview = (reviewId: string) => {
+  const addScenarioFromReview = (reviewId: string, options: ReviewScenarioOptions) => {
     const review = (plan.reviews || []).find((item) => item.id === reviewId);
     if (!review || (plan.scenarios || []).length >= featureTiers.pro.scenarioLimit) return false;
-    const scenario = createScenarioFromReview(plan, review, createId(), new Date().toISOString());
+    const scenario = createScenarioFromReview(plan, review, createId(), new Date().toISOString(), options);
     return commitPlan({ ...plan, scenarios: [...(plan.scenarios || []), scenario] });
   };
 

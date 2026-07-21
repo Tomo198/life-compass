@@ -14,6 +14,10 @@ import type {
   ViewKey
 } from "../types";
 import { getAssetSummary, getBudgetSummary, getCashflowSummary, manYen } from "../utils/calculations";
+import {
+  createReviewScenarioSnapshot,
+  type ReviewScenarioOptions
+} from "../utils/reviews";
 
 const planRevisionSourceLabels: Record<PlanRevisionSource, string> = {
   manual: "手動保存",
@@ -50,18 +54,33 @@ export function NotesView({
   updateReview: <K extends keyof ReviewNote>(id: string, key: K, value: ReviewNote[K]) => void;
   removeReview: (id: string) => void;
   applyBudgetActualsToReviewRecord: (id: string) => boolean;
-  addScenarioFromReview: (id: string) => boolean;
+  addScenarioFromReview: (id: string, options: ReviewScenarioOptions) => boolean;
   saveCurrentPlanRevision: () => boolean;
   restorePlanRevision: (id: string) => boolean;
   removePlanRevision: (id: string) => boolean;
 }) {
   const [reviewMessage, setReviewMessage] = useState("");
   const [revisionMessage, setRevisionMessage] = useState("");
+  const [isReviewScenarioBuilderOpen, setIsReviewScenarioBuilderOpen] = useState(false);
+  const [reviewScenarioOptions, setReviewScenarioOptions] = useState<ReviewScenarioOptions>({
+    applyActualNetAssets: true,
+    applyActualMonthlyExpenses: true
+  });
   const sortedReviews = [...(plan.reviews || [])].sort((a, b) => b.date.localeCompare(a.date));
   const chronologicalReviews = [...(plan.reviews || [])].sort((a, b) => a.date.localeCompare(b.date));
   const previousReviewById = new Map<string, ReviewNote | undefined>();
   chronologicalReviews.forEach((review, index) => previousReviewById.set(review.id, chronologicalReviews[index - 1]));
   const latestReview = sortedReviews[0];
+  const canApplyReviewNetAssets = latestReview?.actualNetAssets !== undefined;
+  const canApplyReviewExpenses = latestReview?.actualMonthlyExpenses !== undefined;
+  const hasSelectedReviewActual =
+    (reviewScenarioOptions.applyActualNetAssets && canApplyReviewNetAssets) ||
+    (reviewScenarioOptions.applyActualMonthlyExpenses && canApplyReviewExpenses);
+  const reviewScenarioSnapshot = latestReview
+    ? createReviewScenarioSnapshot(plan, latestReview, reviewScenarioOptions)
+    : null;
+  const reviewScenarioAssets = reviewScenarioSnapshot ? getAssetSummary(reviewScenarioSnapshot.assets) : null;
+  const reviewScenarioCashflow = reviewScenarioSnapshot ? getCashflowSummary(reviewScenarioSnapshot.household) : null;
   const openTodoCount = (plan.reviews || []).filter((review) => review.todo && !review.todoDone).length;
   const reviewMonthKey = latestReview?.date ? latestReview.date.slice(0, 7) : new Date().toISOString().slice(0, 7);
   const reviewBudgetSummary = getBudgetSummary(plan.budgetItems || [], reviewMonthKey);
@@ -90,7 +109,7 @@ export function NotesView({
 
   const handleCreateReviewScenario = () => {
     if (!latestReview) return;
-    if (!addScenarioFromReview(latestReview.id)) {
+    if (!addScenarioFromReview(latestReview.id, reviewScenarioOptions)) {
       setReviewMessage(
         scenarioLimitReached
           ? `比較案は最大${featureTiers.pro.scenarioLimit}件です。不要な案を削除してから追加してください。`
@@ -98,6 +117,7 @@ export function NotesView({
       );
       return;
     }
+    setIsReviewScenarioBuilderOpen(false);
     setActiveView("scenarios");
   };
 
@@ -247,10 +267,87 @@ export function NotesView({
 
           <div className="review-cycle-actions">
             <button type="button" className="secondary" onClick={() => setActiveView("budget")}>予算・実績を確認</button>
-            <button type="button" className="secondary" disabled={!latestReview} onClick={handleCreateReviewScenario}>最新レビューから見直し案を作る</button>
+            <button
+              type="button"
+              className="secondary"
+              disabled={!latestReview}
+              onClick={() => setIsReviewScenarioBuilderOpen((current) => !current)}
+            >
+              最新レビューから見直し案を作る
+            </button>
             <button type="button" className="secondary" onClick={handleSaveCurrentRevision}>現在の計画を版として保存</button>
           </div>
           {reviewMessage && <p className="success-text" role="status">{reviewMessage}</p>}
+
+          {latestReview && isReviewScenarioBuilderOpen && reviewScenarioAssets && reviewScenarioCashflow && (
+            <section className="review-scenario-builder" aria-labelledby="review-scenario-builder-title">
+              <div className="section-heading">
+                <div>
+                  <h3 id="review-scenario-builder-title">実績を反映する項目</h3>
+                  <p>選んだ実績だけを比較案へ仮反映します。基本プランは採用するまで変わりません。</p>
+                </div>
+                <button type="button" className="text-button" onClick={() => setIsReviewScenarioBuilderOpen(false)}>閉じる</button>
+              </div>
+              <div className="review-scenario-options">
+                <label>
+                  <input
+                    type="checkbox"
+                    aria-label="実際の純資産を反映"
+                    checked={reviewScenarioOptions.applyActualNetAssets && canApplyReviewNetAssets}
+                    disabled={!canApplyReviewNetAssets}
+                    onChange={(event) => setReviewScenarioOptions((current) => ({ ...current, applyActualNetAssets: event.target.checked }))}
+                  />
+                  <span>
+                    <strong>実際の純資産を反映</strong>
+                    <small>純資産差を資産内訳へ仮反映します。内訳はシナリオ画面で調整できます。</small>
+                  </span>
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    aria-label="実際の月間支出を反映"
+                    checked={reviewScenarioOptions.applyActualMonthlyExpenses && canApplyReviewExpenses}
+                    disabled={!canApplyReviewExpenses}
+                    onChange={(event) => setReviewScenarioOptions((current) => ({ ...current, applyActualMonthlyExpenses: event.target.checked }))}
+                  />
+                  <span>
+                    <strong>実際の月間支出を反映</strong>
+                    <small>今回の支出が今後も続く仮定で、固定費・変動費・年間特別支出の比率へ反映します。</small>
+                  </span>
+                </label>
+              </div>
+              <div className="calculation-band compact review-scenario-preview">
+                <Metric
+                  label="純資産"
+                  value={manYen(reviewScenarioAssets.netAssets)}
+                  helper={`現在プラン ${manYen(getAssetSummary(plan.assets).netAssets)}`}
+                />
+                <Metric
+                  label="月間支出"
+                  value={manYen(reviewScenarioCashflow.monthlyLivingCost)}
+                  helper={`現在プラン ${manYen(getCashflowSummary(plan.household).monthlyLivingCost)}`}
+                />
+                <Metric
+                  label="通常月の家計余剰"
+                  value={manYen(reviewScenarioCashflow.monthlySavings)}
+                  helper="収入前提は現在プランと同じ"
+                />
+              </div>
+              <div className="notice-band check">
+                <strong>比較用の仮前提です</strong>
+                <span>一時的な支出や相場変動を今後の前提に含めたくない場合は、該当項目のチェックを外してください。</span>
+              </div>
+              <div className="button-row review-scenario-builder-actions">
+                <button
+                  type="button"
+                  disabled={!hasSelectedReviewActual}
+                  onClick={handleCreateReviewScenario}
+                >
+                  この内容で見直し案を作る
+                </button>
+              </div>
+            </section>
+          )}
 
           {sortedReviews.length === 0 ? (
             <EmptyState title="まだレビューがありません" detail="最初のレビューを作ると、その時点の10年・30年見通しと目標到達目安も一緒に保存されます。" />
