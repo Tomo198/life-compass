@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { CURRENT_PLAN_VERSION } from "../config";
+import { CURRENT_PLAN_VERSION, MAX_HOUSEHOLD_MEMBERS } from "../config";
 import { createId, defaultPlan } from "../data/defaultPlan";
 import { createSuggestedHouseholdMembers } from "../data/householdMembers";
 import { createScenarioFromTemplate, type ScenarioTemplate } from "../data/scenarios";
@@ -13,6 +13,8 @@ import type {
   Goal,
   GoalDraft,
   Household,
+  HouseholdMember,
+  HouseholdMemberDraft,
   LifeEvent,
   LifeEventDraft,
   LifePlan,
@@ -137,7 +139,56 @@ export function useLifePlanEditor() {
   };
 
   const updateProfile = <K extends keyof Profile>(key: K, value: Profile[K]) => {
-    commitPlan({ ...plan, profile: { ...plan.profile, [key]: value } });
+    const householdMembers = key === "age"
+      ? plan.householdMembers.map((member) =>
+          member.relationship === "self"
+            ? {
+                ...member,
+                birthYear: (value as number) > 0 ? new Date().getFullYear() - (value as number) : null
+              }
+            : member
+        )
+      : plan.householdMembers;
+
+    commitPlan({
+      ...plan,
+      profile: { ...plan.profile, [key]: value },
+      householdMembers
+    });
+  };
+
+  const addHouseholdMember = (draft: HouseholdMemberDraft) => {
+    if (plan.householdMembers.length >= MAX_HOUSEHOLD_MEMBERS) return false;
+    const nextMember: HouseholdMember = {
+      id: createId(),
+      ...draft,
+      relationship: draft.relationship === "self" ? "other" : draft.relationship
+    };
+    return commitPlan({ ...plan, householdMembers: [...plan.householdMembers, nextMember] });
+  };
+
+  const updateHouseholdMember = <K extends keyof HouseholdMember>(
+    id: string,
+    key: K,
+    value: HouseholdMember[K]
+  ) => {
+    commitPlan({
+      ...plan,
+      householdMembers: plan.householdMembers.map((member) => {
+        if (member.id !== id) return member;
+        if (member.relationship === "self" && key === "relationship") return member;
+        return { ...member, [key]: value };
+      })
+    });
+  };
+
+  const removeHouseholdMember = (id: string) => {
+    const member = plan.householdMembers.find((item) => item.id === id);
+    if (!member || member.relationship === "self") return false;
+    return commitPlan({
+      ...plan,
+      householdMembers: plan.householdMembers.filter((item) => item.id !== id)
+    });
   };
 
   const updateHousehold = <K extends keyof Household>(key: K, value: Household[K]) => {
@@ -633,6 +684,9 @@ export function useLifePlanEditor() {
     setImportMessage,
     storageError,
     updateProfile,
+    addHouseholdMember,
+    updateHouseholdMember,
+    removeHouseholdMember,
     updateHousehold,
     addCashflowPeriod,
     updateCashflowPeriod,

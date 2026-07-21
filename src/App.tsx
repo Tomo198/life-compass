@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import {
   canOpenView,
   defaultAccessState,
@@ -24,7 +24,6 @@ import { HouseholdView } from "./views/HouseholdView";
 import { LegalDocumentView, LegalIndexView } from "./views/LegalView";
 import { LifePlanDiagnosisView } from "./views/LifePlanDiagnosisView";
 import { NotesView } from "./views/NotesView";
-import { ProfileView } from "./views/ProfileView";
 import { PricingView as PricingPage } from "./views/PricingView";
 import { DataView as DataPage } from "./views/DataView";
 import { RetirementPlanView } from "./views/RetirementPlanView";
@@ -42,6 +41,10 @@ import {
 } from "./utils/settings";
 import { exportPlan } from "./utils/storage";
 
+const ProfileView = lazy(() =>
+  import("./views/ProfileView").then((module) => ({ default: module.ProfileView }))
+);
+
 function App() {
   const {
     plan,
@@ -50,6 +53,9 @@ function App() {
     setImportMessage,
     storageError,
     updateProfile,
+    addHouseholdMember,
+    updateHouseholdMember,
+    removeHouseholdMember,
     updateHousehold,
     addCashflowPeriod,
     updateCashflowPeriod,
@@ -233,7 +239,18 @@ function App() {
           />
         );
       case "profile":
-        return <ProfileView plan={plan} updateProfile={updateProfile} setActiveView={setActiveView} />;
+        return (
+          <Suspense fallback={<section className="panel">基本プロフィールを読み込んでいます。</section>}>
+            <ProfileView
+              plan={plan}
+              updateProfile={updateProfile}
+              addHouseholdMember={addHouseholdMember}
+              updateHouseholdMember={updateHouseholdMember}
+              removeHouseholdMember={removeHouseholdMember}
+              setActiveView={setActiveView}
+            />
+          </Suspense>
+        );
       case "household":
         return (
           <HouseholdView

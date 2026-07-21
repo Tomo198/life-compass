@@ -50,6 +50,11 @@ test("基本入力が画面移動と再読み込み後も保存される", async
   const ageInput = page.getByLabel("現在の年齢");
   await ageInput.fill("42");
   await ageInput.blur();
+  const primaryBirthYear = await page.evaluate(() => {
+    const plan = JSON.parse(localStorage.getItem("life-compass-plan-v1") || "{}");
+    return plan.householdMembers?.find((member: { relationship: string }) => member.relationship === "self")?.birthYear;
+  });
+  expect(primaryBirthYear).toBe(new Date().getFullYear() - 42);
 
   await openView(page, "household");
   const incomeInput = page.getByLabel("月収");
@@ -63,6 +68,33 @@ test("基本入力が画面移動と再読み込み後も保存される", async
   await expect(page.getByLabel("現在の年齢")).toHaveValue("42");
   await openView(page, "household");
   await expect(page.getByLabel("月収")).toHaveValue("450,000");
+});
+
+test("世帯メンバーを追加・編集・削除して再読み込み後も確認できる", async ({ page }) => {
+  await openView(page, "profile");
+  const memberForm = page.getByTestId("household-member-create-form");
+  await memberForm.getByLabel("呼び名").fill("子どもA");
+  await memberForm.getByLabel("続柄").selectOption("child");
+  await memberForm.getByLabel("生まれた年").fill("2020");
+  await memberForm.getByLabel("生まれた月").selectOption("4");
+  await memberForm.getByRole("button", { name: "メンバーを追加", exact: true }).click();
+  await expect(memberForm.getByRole("status")).toContainText("子どもAを追加しました");
+
+  const memberRow = page.locator(".household-member-row").filter({ hasText: "子どもA" });
+  await expect(memberRow).toHaveCount(1);
+  await expect(page.getByLabel("世帯メンバー2の生まれた年")).toHaveValue("2020");
+  await expect(page.getByLabel("世帯メンバー2の生まれた月")).toHaveValue("4");
+
+  await page.reload();
+  await openView(page, "profile");
+  await expect(page.locator(".household-member-row").filter({ hasText: "子どもA" })).toHaveCount(1);
+
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.locator(".household-member-row").filter({ hasText: "子どもA" }).getByRole("button", { name: "削除" }).click();
+  await expect(page.locator(".household-member-row").filter({ hasText: "子どもA" })).toHaveCount(0);
+
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect(overflow).toBeLessThanOrEqual(1);
 });
 
 test("JSONの書き出し・初期化前復旧・読み込みを行える", async ({ page }) => {

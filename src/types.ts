@@ -81,6 +81,8 @@ export type HouseholdMember = {
   birthMonth: number | null;
 };
 
+export type HouseholdMemberDraft = Omit<HouseholdMember, "id">;
+
 export type CashflowPeriod = {
   id: string;
   title: string;
