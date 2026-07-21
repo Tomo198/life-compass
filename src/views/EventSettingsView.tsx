@@ -2,6 +2,7 @@ import { useMemo, useState, type FormEvent } from "react";
 import { EmptyState, MoneyInput, NumericInput, StepFlowNav, StepTitle } from "../components/CommonUi";
 import { YearAgeInput } from "../components/YearAgeInput";
 import { MAX_MONEY_AMOUNT, MAX_PLAN_YEAR } from "../config";
+import { createEventDraft } from "../data/entryDrafts";
 import {
   cashflowHelp,
   cashflowLabels,
@@ -19,17 +20,6 @@ import type {
   ViewKey
 } from "../types";
 import { getTargetAgeForYear } from "../utils/calculations";
-
-const createEventDraft = (): LifeEventDraft => ({
-  title: "",
-  owner: "household",
-  category: "other",
-  year: new Date().getFullYear() + 1,
-  month: new Date().getMonth() + 1,
-  amount: 0,
-  cashflowType: "neutral",
-  memo: ""
-});
 
 export function EventSettingsView({
   plan,

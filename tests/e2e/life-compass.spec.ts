@@ -336,6 +336,65 @@ test("シナリオ前提を編集して基本プランへ採用し、採用前�
   await expect(page.getByText("支出見直し", { exact: true }).first()).toBeVisible();
 });
 
+test("シナリオ内の時期別収支・目標・イベントを編集して採用できる", async ({ page }) => {
+  await openView(page, "scenarios");
+  await page.getByRole("button", { name: "現状維持", exact: true }).click();
+  const initialCounts = await page.evaluate(() => {
+    const plan = JSON.parse(localStorage.getItem("life-compass-plan-v1") || "{}");
+    return {
+      cashflowPeriods: plan.cashflowPeriods.length,
+      goals: plan.goals.length,
+      events: plan.events.length,
+      scenarioCashflowPeriods: plan.scenarios[0].snapshot.cashflowPeriods.length,
+      scenarioGoals: plan.scenarios[0].snapshot.goals.length,
+      scenarioEvents: plan.scenarios[0].snapshot.events.length
+    };
+  });
+
+  await page.getByLabel("表示シナリオ").selectOption({ label: "現状維持" });
+
+  const scenarioTabs = page.locator(".scenario-editor-tabs");
+  await scenarioTabs.getByRole("button", { name: /時期別収支/ }).click();
+  const cashflowForm = page.getByTestId("scenario-cashflow-create-form");
+  await cashflowForm.getByLabel("変更名").fill("育休期間の収入");
+  await cashflowForm.getByLabel("期間中の金額（月額）").fill("210000");
+  await cashflowForm.getByRole("button", { name: "時期別収支を登録" }).click();
+  await expect(cashflowForm.getByRole("status")).toContainText("シナリオへ登録しました");
+
+  await scenarioTabs.getByRole("button", { name: /目標/ }).click();
+  const goalForm = page.getByTestId("scenario-goal-create-form");
+  await goalForm.getByLabel("目標名").fill("住宅購入の頭金");
+  await goalForm.getByLabel("目標額").fill("5000000");
+  await goalForm.getByRole("button", { name: "目標を登録" }).click();
+  await expect(goalForm.getByRole("status")).toContainText("シナリオへ登録しました");
+
+  await scenarioTabs.getByRole("button", { name: /イベント/ }).click();
+  const eventForm = page.getByTestId("scenario-event-create-form");
+  await eventForm.getByLabel("イベント名").fill("住宅購入");
+  await eventForm.getByLabel("家計への影響").selectOption("expense");
+  await eventForm.getByLabel("金額").fill("3000000");
+  await eventForm.getByRole("button", { name: "イベントを登録" }).click();
+  await expect(eventForm.getByRole("status")).toContainText("シナリオへ登録しました");
+
+  const beforeAdoption = await page.evaluate(() => JSON.parse(localStorage.getItem("life-compass-plan-v1") || "{}"));
+  expect(beforeAdoption.cashflowPeriods).toHaveLength(initialCounts.cashflowPeriods);
+  expect(beforeAdoption.goals).toHaveLength(initialCounts.goals);
+  expect(beforeAdoption.events).toHaveLength(initialCounts.events);
+  expect(beforeAdoption.scenarios[0].snapshot.cashflowPeriods).toHaveLength(initialCounts.scenarioCashflowPeriods + 1);
+  expect(beforeAdoption.scenarios[0].snapshot.goals).toHaveLength(initialCounts.scenarioGoals + 1);
+  expect(beforeAdoption.scenarios[0].snapshot.events).toHaveLength(initialCounts.scenarioEvents + 1);
+
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "このシナリオを採用", exact: true }).click();
+  const adopted = await page.evaluate(() => JSON.parse(localStorage.getItem("life-compass-plan-v1") || "{}"));
+  expect(adopted.cashflowPeriods.some((period: { title: string }) => period.title === "育休期間の収入")).toBe(true);
+  expect(adopted.goals.some((goal: { title: string }) => goal.title === "住宅購入の頭金")).toBe(true);
+  expect(adopted.events.some((item: { title: string }) => item.title === "住宅購入")).toBe(true);
+
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect(overflow).toBeLessThanOrEqual(1);
+});
+
 test("診断の見直し候補から支出見直しの比較案を作成して保存できる", async ({ page }) => {
   await openView(page, "household");
   const fixedCostInput = page.getByLabel("固定費");

@@ -3661,6 +3661,104 @@ td select {
   font-size: 1rem;
 }
 
+.scenario-editor-tabs {
+  display: flex;
+  width: 100%;
+  margin-top: 1rem;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.scenario-editor-tabs button {
+  flex: 1 0 auto;
+  min-width: 8.5rem;
+  white-space: nowrap;
+}
+
+.scenario-editor-content {
+  margin-top: 1rem;
+}
+
+.scenario-editor-content > .entry-creation-form {
+  margin-top: 0;
+}
+
+.scenario-record-list {
+  margin-top: 1rem;
+  border-top: 1px solid var(--line);
+}
+
+.scenario-record-editor {
+  border-bottom: 1px solid var(--line);
+}
+
+.scenario-record-editor > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 0;
+  cursor: pointer;
+  color: var(--primary-dark);
+  list-style-position: inside;
+}
+
+.scenario-record-editor > summary > span {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.scenario-record-editor > summary > span:last-child {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 0.84rem;
+  font-weight: 700;
+  text-align: right;
+}
+
+.scenario-record-editor > summary small {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.scenario-record-editor[open] > summary {
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+}
+
+.scenario-record-fields {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.85rem;
+  padding: 1rem 0;
+  align-items: start;
+}
+
+.scenario-record-fields > label,
+.scenario-record-fields > .entry-control-field {
+  min-width: 0;
+}
+
+.scenario-record-fields .entry-field-wide {
+  grid-column: span 2;
+}
+
+.scenario-record-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0 0 1rem;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.scenario-deadline-fields {
+  display: grid;
+  grid-template-columns: minmax(12rem, 1fr) minmax(6rem, 0.45fr);
+  gap: 0.75rem;
+  align-items: start;
+}
+
 .success-text {
   margin: 0.8rem 0 0;
   color: var(--primary-dark);
@@ -4339,6 +4437,10 @@ td select {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .scenario-record-fields {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .timeline-fields {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
@@ -4780,6 +4882,44 @@ td select {
 
   .scenario-adopt-actions button {
     width: 100%;
+  }
+
+  .scenario-editor-tabs {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+    overflow: hidden;
+  }
+
+  .scenario-editor-tabs button {
+    min-width: 0;
+  }
+
+  .scenario-editor-tabs button:nth-child(odd) {
+    border-left: 0;
+  }
+
+  .scenario-editor-tabs button:nth-child(n + 3) {
+    border-top: 1px solid var(--line);
+  }
+
+  .scenario-record-fields,
+  .scenario-deadline-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .scenario-record-fields .entry-field-wide {
+    grid-column: auto;
+  }
+
+  .scenario-record-editor > summary,
+  .scenario-record-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .scenario-record-editor > summary > span:last-child {
+    text-align: left;
   }
 
   .onboarding-panel .button-row {

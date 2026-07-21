@@ -7,6 +7,7 @@ import type {
   Assets,
   BudgetItem,
   CashflowPeriod,
+  CashflowPeriodDraft,
   FixedCostItem,
   Goal,
   GoalDraft,
@@ -16,6 +17,7 @@ import type {
   LifePlan,
   PlanNotes,
   PlanScenario,
+  ScenarioSnapshot,
   Profile,
   RetirementPlanSettings,
   ReviewNote,
@@ -319,6 +321,15 @@ export function useLifePlanEditor() {
     });
   };
 
+  const updateScenarioSnapshot = (id: string, update: (snapshot: ScenarioSnapshot) => ScenarioSnapshot) => {
+    commitPlan({
+      ...plan,
+      scenarios: (plan.scenarios || []).map((scenario) =>
+        scenario.id === id ? { ...scenario, snapshot: update(scenario.snapshot) } : scenario
+      )
+    });
+  };
+
   const updateScenarioHousehold = <K extends keyof Household>(id: string, key: K, value: Household[K]) => {
     commitPlan({
       ...plan,
@@ -350,6 +361,102 @@ export function useLifePlanEditor() {
           : scenario
       )
     });
+  };
+
+  const addScenarioCashflowPeriod = (id: string, draft: CashflowPeriodDraft) => {
+    const nextPeriod: CashflowPeriod = { id: createId(), ...draft };
+    updateScenarioSnapshot(id, (snapshot) => ({
+      ...snapshot,
+      cashflowPeriods: [...(snapshot.cashflowPeriods || []), nextPeriod]
+    }));
+  };
+
+  const updateScenarioCashflowPeriod = <K extends keyof CashflowPeriod>(
+    scenarioId: string,
+    periodId: string,
+    key: K,
+    value: CashflowPeriod[K]
+  ) => {
+    updateScenarioSnapshot(scenarioId, (snapshot) => ({
+      ...snapshot,
+      cashflowPeriods: (snapshot.cashflowPeriods || []).map((period) => {
+        if (period.id !== periodId) return period;
+        if (key === "startYear") {
+          const startYear = value as number;
+          return { ...period, startYear, endYear: Math.max(startYear, period.endYear) };
+        }
+        return { ...period, [key]: value };
+      })
+    }));
+  };
+
+  const removeScenarioCashflowPeriod = (scenarioId: string, periodId: string) => {
+    updateScenarioSnapshot(scenarioId, (snapshot) => ({
+      ...snapshot,
+      cashflowPeriods: (snapshot.cashflowPeriods || []).filter((period) => period.id !== periodId)
+    }));
+  };
+
+  const addScenarioGoal = (scenarioId: string, draft: GoalDraft) => {
+    const nextGoal: Goal = { id: createId(), ...draft, progress: 0 };
+    updateScenarioSnapshot(scenarioId, (snapshot) => ({
+      ...snapshot,
+      goals: [...snapshot.goals, nextGoal]
+    }));
+  };
+
+  const updateScenarioGoal = <K extends keyof Goal>(scenarioId: string, goalId: string, key: K, value: Goal[K]) => {
+    updateScenarioSnapshot(scenarioId, (snapshot) => ({
+      ...snapshot,
+      goals: snapshot.goals.map((goal) => (goal.id === goalId ? { ...goal, [key]: value } : goal))
+    }));
+  };
+
+  const removeScenarioGoal = (scenarioId: string, goalId: string) => {
+    updateScenarioSnapshot(scenarioId, (snapshot) => ({
+      ...snapshot,
+      goals: snapshot.goals.filter((goal) => goal.id !== goalId)
+    }));
+  };
+
+  const addScenarioEvent = (scenarioId: string, draft: LifeEventDraft) => {
+    const nextEvent: LifeEvent = {
+      id: createId(),
+      ...draft,
+      age: getTargetAgeForYear(plan.profile.age, draft.year)
+    };
+    updateScenarioSnapshot(scenarioId, (snapshot) => ({
+      ...snapshot,
+      events: [...snapshot.events, nextEvent]
+    }));
+  };
+
+  const updateScenarioEvent = <K extends keyof LifeEvent>(
+    scenarioId: string,
+    eventId: string,
+    key: K,
+    value: LifeEvent[K]
+  ) => {
+    updateScenarioSnapshot(scenarioId, (snapshot) => ({
+      ...snapshot,
+      events: snapshot.events.map((event) => (event.id === eventId ? { ...event, [key]: value } : event))
+    }));
+  };
+
+  const updateScenarioEventSchedule = (scenarioId: string, eventId: string, year: number) => {
+    updateScenarioSnapshot(scenarioId, (snapshot) => ({
+      ...snapshot,
+      events: snapshot.events.map((event) =>
+        event.id === eventId ? { ...event, year, age: getTargetAgeForYear(plan.profile.age, year) } : event
+      )
+    }));
+  };
+
+  const removeScenarioEvent = (scenarioId: string, eventId: string) => {
+    updateScenarioSnapshot(scenarioId, (snapshot) => ({
+      ...snapshot,
+      events: snapshot.events.filter((event) => event.id !== eventId)
+    }));
   };
 
   const adoptScenario = (id: string) => {
@@ -550,6 +657,16 @@ export function useLifePlanEditor() {
     updateScenarioHousehold,
     updateScenarioAssets,
     updateScenarioSimulation,
+    addScenarioCashflowPeriod,
+    updateScenarioCashflowPeriod,
+    removeScenarioCashflowPeriod,
+    addScenarioGoal,
+    updateScenarioGoal,
+    removeScenarioGoal,
+    addScenarioEvent,
+    updateScenarioEvent,
+    updateScenarioEventSchedule,
+    removeScenarioEvent,
     adoptScenario,
     removeScenario,
     addFixedCostItem,

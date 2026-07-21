@@ -536,8 +536,14 @@ test("adopting a scenario replaces the base assumptions and preserves the previo
         }
       ],
       assets: { ...basePlan.assets, cash: 2500000 },
-      goals: [...basePlan.goals],
-      events: [...basePlan.events],
+      goals: [
+        ...basePlan.goals,
+        { ...basePlan.goals[0], id: "scenario-goal", title: "scenario-specific goal" }
+      ],
+      events: [
+        ...basePlan.events,
+        { ...basePlan.events[0], id: "scenario-event", title: "scenario-specific event" }
+      ],
       simulation: { ...basePlan.simulation, monthlyInvestmentAmount: 50000 }
     }
   };
@@ -561,6 +567,8 @@ test("adopting a scenario replaces the base assumptions and preserves the previo
   assert.equal(adopted.household.fixedCost, 90000);
   assert.equal(adopted.cashflowPeriods[0].title, "career transition");
   assert.equal(adopted.assets.cash, 2500000);
+  assert.equal(adopted.goals.some((goal) => goal.id === "scenario-goal"), true);
+  assert.equal(adopted.events.some((event) => event.id === "scenario-event"), true);
   assert.equal(adopted.simulation.monthlyInvestmentAmount, 50000);
   assert.equal(adopted.scenarios[0].id, "scenario-previous");
   assert.equal(adopted.scenarios[0].name, "採用前: test");
@@ -572,6 +580,8 @@ test("adopting a scenario replaces the base assumptions and preserves the previo
     adoptedAt: "2026-07-18T01:00:00.000Z"
   });
   assert.equal(plan.household.fixedCost, 130000);
+  assert.equal(plan.goals.some((goal) => goal.id === "scenario-goal"), false);
+  assert.equal(plan.events.some((event) => event.id === "scenario-event"), false);
   assert.equal(plan.scenarios[0].snapshot.household.fixedCost, 90000);
 });
 

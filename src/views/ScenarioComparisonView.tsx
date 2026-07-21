@@ -1,6 +1,9 @@
 import { useMemo, useState } from "react";
 import { LineChart } from "../components/Charts";
 import { EmptyState, MoneyInput, NumericInput } from "../components/CommonUi";
+import { ScenarioCashflowEditor } from "../components/scenarios/ScenarioCashflowEditor";
+import { ScenarioEventsEditor } from "../components/scenarios/ScenarioEventsEditor";
+import { ScenarioGoalsEditor } from "../components/scenarios/ScenarioGoalsEditor";
 import { MAX_RATE_PERCENT } from "../config";
 import {
   scenarioTagLabels,
@@ -8,7 +11,20 @@ import {
   type ScenarioTemplate
 } from "../data/scenarios";
 import { featureTiers } from "../features";
-import type { Assets, Household, LifePlan, PlanScenario, ScenarioTag, SimulationSettings } from "../types";
+import type {
+  Assets,
+  CashflowPeriod,
+  CashflowPeriodDraft,
+  Goal,
+  GoalDraft,
+  Household,
+  LifeEvent,
+  LifeEventDraft,
+  LifePlan,
+  PlanScenario,
+  ScenarioTag,
+  SimulationSettings
+} from "../types";
 import {
   buildPlanFromScenario,
   getAnnualProjectionRows,
@@ -23,6 +39,16 @@ type ScenarioComparisonViewProps = {
   updateScenarioHousehold: <K extends keyof Household>(id: string, key: K, value: Household[K]) => void;
   updateScenarioAssets: <K extends keyof Assets>(id: string, key: K, value: Assets[K]) => void;
   updateScenarioSimulation: <K extends keyof SimulationSettings>(id: string, key: K, value: SimulationSettings[K]) => void;
+  addScenarioCashflowPeriod: (id: string, draft: CashflowPeriodDraft) => void;
+  updateScenarioCashflowPeriod: <K extends keyof CashflowPeriod>(scenarioId: string, periodId: string, key: K, value: CashflowPeriod[K]) => void;
+  removeScenarioCashflowPeriod: (scenarioId: string, periodId: string) => void;
+  addScenarioGoal: (scenarioId: string, draft: GoalDraft) => void;
+  updateScenarioGoal: <K extends keyof Goal>(scenarioId: string, goalId: string, key: K, value: Goal[K]) => void;
+  removeScenarioGoal: (scenarioId: string, goalId: string) => void;
+  addScenarioEvent: (scenarioId: string, draft: LifeEventDraft) => void;
+  updateScenarioEvent: <K extends keyof LifeEvent>(scenarioId: string, eventId: string, key: K, value: LifeEvent[K]) => void;
+  updateScenarioEventSchedule: (scenarioId: string, eventId: string, year: number) => void;
+  removeScenarioEvent: (scenarioId: string, eventId: string) => void;
   adoptScenario: (id: string) => boolean;
   removeScenario: (id: string) => void;
 };
@@ -34,6 +60,16 @@ export function ScenarioComparisonView({
   updateScenarioHousehold,
   updateScenarioAssets,
   updateScenarioSimulation,
+  addScenarioCashflowPeriod,
+  updateScenarioCashflowPeriod,
+  removeScenarioCashflowPeriod,
+  addScenarioGoal,
+  updateScenarioGoal,
+  removeScenarioGoal,
+  addScenarioEvent,
+  updateScenarioEvent,
+  updateScenarioEventSchedule,
+  removeScenarioEvent,
   adoptScenario,
   removeScenario
 }: ScenarioComparisonViewProps) {
@@ -41,6 +77,7 @@ export function ScenarioComparisonView({
   const [selectedScenarioId, setSelectedScenarioId] = useState("current");
   const [addMessage, setAddMessage] = useState("");
   const [actionMessage, setActionMessage] = useState("");
+  const [editorTab, setEditorTab] = useState<"assumptions" | "cashflow" | "goals" | "events">("assumptions");
   const comparisonMetrics = useMemo(() => getScenarioComparisonMetrics(plan), [plan]);
   const scenarioOptions = useMemo(
     () => [
@@ -159,6 +196,7 @@ export function ScenarioComparisonView({
                 setSelectedScenarioId(event.target.value);
                 setActionMessage("");
                 setAddMessage("");
+                setEditorTab("assumptions");
               }}
             >
               {scenarioOptions.map((item) => (
@@ -191,37 +229,85 @@ export function ScenarioComparisonView({
             </div>
             <span className="status-pill recurring">{selectedPlanScenario.name}</span>
           </div>
-          <h3>家計</h3>
-          <div className="form-grid">
-            <MoneyInput label="シナリオの月収" value={selectedPlanScenario.snapshot.household.monthlyIncome} onChange={(value) => updateScenarioHousehold(selectedPlanScenario.id, "monthlyIncome", value)} />
-            <MoneyInput label="シナリオのボーナス年額" value={selectedPlanScenario.snapshot.household.annualBonus} onChange={(value) => updateScenarioHousehold(selectedPlanScenario.id, "annualBonus", value)} />
-            <MoneyInput label="シナリオの副業収入 月額" value={selectedPlanScenario.snapshot.household.sideIncome} onChange={(value) => updateScenarioHousehold(selectedPlanScenario.id, "sideIncome", value)} />
-            <MoneyInput label="シナリオの固定費 月額" value={selectedPlanScenario.snapshot.household.fixedCost} onChange={(value) => updateScenarioHousehold(selectedPlanScenario.id, "fixedCost", value)} />
-            <MoneyInput label="シナリオの変動費 月額" value={selectedPlanScenario.snapshot.household.variableCost} onChange={(value) => updateScenarioHousehold(selectedPlanScenario.id, "variableCost", value)} />
-            <MoneyInput label="シナリオの年間特別支出" value={selectedPlanScenario.snapshot.household.annualSpecialCost} onChange={(value) => updateScenarioHousehold(selectedPlanScenario.id, "annualSpecialCost", value)} />
+          <div className="segmented-control scenario-editor-tabs" aria-label="シナリオ編集項目">
+            {[
+              { id: "assumptions", label: "基本条件" },
+              { id: "cashflow", label: `時期別収支 ${selectedPlanScenario.snapshot.cashflowPeriods.length}` },
+              { id: "goals", label: `目標 ${selectedPlanScenario.snapshot.goals.length}` },
+              { id: "events", label: `イベント ${selectedPlanScenario.snapshot.events.length}` }
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                className={editorTab === tab.id ? "active" : ""}
+                aria-pressed={editorTab === tab.id}
+                onClick={() => setEditorTab(tab.id as typeof editorTab)}
+              >
+                {tab.label}
+              </button>
+            ))}
           </div>
-          <h3>資産</h3>
-          <div className="form-grid">
-            <MoneyInput label="シナリオの現金" value={selectedPlanScenario.snapshot.assets.cash} onChange={(value) => updateScenarioAssets(selectedPlanScenario.id, "cash", value)} />
-            <MoneyInput label="シナリオの投資資産" value={selectedPlanScenario.snapshot.assets.investment} onChange={(value) => updateScenarioAssets(selectedPlanScenario.id, "investment", value)} />
-            <MoneyInput label="シナリオのその他資産" value={selectedPlanScenario.snapshot.assets.other} onChange={(value) => updateScenarioAssets(selectedPlanScenario.id, "other", value)} />
-            <MoneyInput label="シナリオの負債" value={selectedPlanScenario.snapshot.assets.debt} onChange={(value) => updateScenarioAssets(selectedPlanScenario.id, "debt", value)} />
-          </div>
-          <h3>積立・基本見通し</h3>
-          <div className="form-grid">
-            <MoneyInput label="シナリオで毎月投資へ回す額" value={selectedPlanScenario.snapshot.simulation.monthlyInvestmentAmount} onChange={(value) => updateScenarioSimulation(selectedPlanScenario.id, "monthlyInvestmentAmount", value)} />
-            <MoneyInput label="シナリオでボーナスから投資へ回す年額" value={selectedPlanScenario.snapshot.simulation.annualBonusInvestmentAmount} onChange={(value) => updateScenarioSimulation(selectedPlanScenario.id, "annualBonusInvestmentAmount", value)} />
-            <label>
-              シナリオの想定利回り %
-              <NumericInput
-                value={selectedPlanScenario.snapshot.simulation.annualReturnRate}
-                min={-MAX_RATE_PERCENT}
-                max={MAX_RATE_PERCENT}
-                allowDecimal
-                onChange={(value) => updateScenarioSimulation(selectedPlanScenario.id, "annualReturnRate", value)}
-              />
-            </label>
-          </div>
+          {editorTab === "assumptions" && (
+            <div className="scenario-editor-content">
+              <h3>家計</h3>
+              <div className="form-grid">
+                <MoneyInput label="シナリオの月収" value={selectedPlanScenario.snapshot.household.monthlyIncome} onChange={(value) => updateScenarioHousehold(selectedPlanScenario.id, "monthlyIncome", value)} />
+                <MoneyInput label="シナリオのボーナス年額" value={selectedPlanScenario.snapshot.household.annualBonus} onChange={(value) => updateScenarioHousehold(selectedPlanScenario.id, "annualBonus", value)} />
+                <MoneyInput label="シナリオの副業収入 月額" value={selectedPlanScenario.snapshot.household.sideIncome} onChange={(value) => updateScenarioHousehold(selectedPlanScenario.id, "sideIncome", value)} />
+                <MoneyInput label="シナリオの固定費 月額" value={selectedPlanScenario.snapshot.household.fixedCost} onChange={(value) => updateScenarioHousehold(selectedPlanScenario.id, "fixedCost", value)} />
+                <MoneyInput label="シナリオの変動費 月額" value={selectedPlanScenario.snapshot.household.variableCost} onChange={(value) => updateScenarioHousehold(selectedPlanScenario.id, "variableCost", value)} />
+                <MoneyInput label="シナリオの年間特別支出" value={selectedPlanScenario.snapshot.household.annualSpecialCost} onChange={(value) => updateScenarioHousehold(selectedPlanScenario.id, "annualSpecialCost", value)} />
+              </div>
+              <h3>資産</h3>
+              <div className="form-grid">
+                <MoneyInput label="シナリオの現金" value={selectedPlanScenario.snapshot.assets.cash} onChange={(value) => updateScenarioAssets(selectedPlanScenario.id, "cash", value)} />
+                <MoneyInput label="シナリオの投資資産" value={selectedPlanScenario.snapshot.assets.investment} onChange={(value) => updateScenarioAssets(selectedPlanScenario.id, "investment", value)} />
+                <MoneyInput label="シナリオのその他資産" value={selectedPlanScenario.snapshot.assets.other} onChange={(value) => updateScenarioAssets(selectedPlanScenario.id, "other", value)} />
+                <MoneyInput label="シナリオの負債" value={selectedPlanScenario.snapshot.assets.debt} onChange={(value) => updateScenarioAssets(selectedPlanScenario.id, "debt", value)} />
+              </div>
+              <h3>積立・基本見通し</h3>
+              <div className="form-grid">
+                <MoneyInput label="シナリオで毎月投資へ回す額" value={selectedPlanScenario.snapshot.simulation.monthlyInvestmentAmount} onChange={(value) => updateScenarioSimulation(selectedPlanScenario.id, "monthlyInvestmentAmount", value)} />
+                <MoneyInput label="シナリオでボーナスから投資へ回す年額" value={selectedPlanScenario.snapshot.simulation.annualBonusInvestmentAmount} onChange={(value) => updateScenarioSimulation(selectedPlanScenario.id, "annualBonusInvestmentAmount", value)} />
+                <label>
+                  シナリオの想定利回り %
+                  <NumericInput value={selectedPlanScenario.snapshot.simulation.annualReturnRate} min={-MAX_RATE_PERCENT} max={MAX_RATE_PERCENT} allowDecimal onChange={(value) => updateScenarioSimulation(selectedPlanScenario.id, "annualReturnRate", value)} />
+                </label>
+              </div>
+            </div>
+          )}
+          {editorTab === "cashflow" && (
+            <ScenarioCashflowEditor
+              key={`cashflow-${selectedPlanScenario.id}`}
+              household={selectedPlanScenario.snapshot.household}
+              periods={selectedPlanScenario.snapshot.cashflowPeriods}
+              currentAge={plan.profile.age}
+              onAdd={(draft) => addScenarioCashflowPeriod(selectedPlanScenario.id, draft)}
+              onUpdate={(periodId, key, value) => updateScenarioCashflowPeriod(selectedPlanScenario.id, periodId, key, value)}
+              onRemove={(periodId) => removeScenarioCashflowPeriod(selectedPlanScenario.id, periodId)}
+            />
+          )}
+          {editorTab === "goals" && (
+            <ScenarioGoalsEditor
+              key={`goals-${selectedPlanScenario.id}`}
+              goals={selectedPlanScenario.snapshot.goals}
+              currentAge={plan.profile.age}
+              onAdd={(draft) => addScenarioGoal(selectedPlanScenario.id, draft)}
+              onUpdate={(goalId, key, value) => updateScenarioGoal(selectedPlanScenario.id, goalId, key, value)}
+              onRemove={(goalId) => removeScenarioGoal(selectedPlanScenario.id, goalId)}
+            />
+          )}
+          {editorTab === "events" && (
+            <ScenarioEventsEditor
+              key={`events-${selectedPlanScenario.id}`}
+              events={selectedPlanScenario.snapshot.events}
+              currentAge={plan.profile.age}
+              onAdd={(draft) => addScenarioEvent(selectedPlanScenario.id, draft)}
+              onUpdate={(eventId, key, value) => updateScenarioEvent(selectedPlanScenario.id, eventId, key, value)}
+              onScheduleChange={(eventId, year) => updateScenarioEventSchedule(selectedPlanScenario.id, eventId, year)}
+              onRemove={(eventId) => removeScenarioEvent(selectedPlanScenario.id, eventId)}
+            />
+          )}
         </section>
       )}
 

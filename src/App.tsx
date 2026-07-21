@@ -76,6 +76,16 @@ function App() {
     updateScenarioHousehold,
     updateScenarioAssets,
     updateScenarioSimulation,
+    addScenarioCashflowPeriod,
+    updateScenarioCashflowPeriod,
+    removeScenarioCashflowPeriod,
+    addScenarioGoal,
+    updateScenarioGoal,
+    removeScenarioGoal,
+    addScenarioEvent,
+    updateScenarioEvent,
+    updateScenarioEventSchedule,
+    removeScenarioEvent,
     adoptScenario,
     removeScenario,
     addFixedCostItem,
@@ -304,6 +314,16 @@ function App() {
             updateScenarioHousehold={updateScenarioHousehold}
             updateScenarioAssets={updateScenarioAssets}
             updateScenarioSimulation={updateScenarioSimulation}
+            addScenarioCashflowPeriod={addScenarioCashflowPeriod}
+            updateScenarioCashflowPeriod={updateScenarioCashflowPeriod}
+            removeScenarioCashflowPeriod={removeScenarioCashflowPeriod}
+            addScenarioGoal={addScenarioGoal}
+            updateScenarioGoal={updateScenarioGoal}
+            removeScenarioGoal={removeScenarioGoal}
+            addScenarioEvent={addScenarioEvent}
+            updateScenarioEvent={updateScenarioEvent}
+            updateScenarioEventSchedule={updateScenarioEventSchedule}
+            removeScenarioEvent={removeScenarioEvent}
             adoptScenario={adoptScenario}
             removeScenario={removeScenario}
           />

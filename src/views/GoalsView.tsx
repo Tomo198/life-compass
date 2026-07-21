@@ -2,6 +2,7 @@ import { useMemo, useState, type FormEvent } from "react";
 import { EmptyState, MoneyInput, NumericInput, StepFlowNav, StepTitle } from "../components/CommonUi";
 import { YearAgeInput } from "../components/YearAgeInput";
 import { MAX_MONEY_AMOUNT } from "../config";
+import { createGoalDraft } from "../data/entryDrafts";
 import { monthLabels, priorityLabels } from "../data/labels";
 import type { Goal, GoalDraft, LifePlan, Priority, RecurrenceInterval, ViewKey } from "../types";
 import {
@@ -12,19 +13,6 @@ import {
   getTargetAgeForYear,
   manYen
 } from "../utils/calculations";
-
-const createGoalDraft = (): GoalDraft => ({
-  title: "",
-  goalType: "oneTime",
-  dueYear: new Date().getFullYear() + 3,
-  dueMonth: 12,
-  requiredAmount: 0,
-  savedAmount: 0,
-  monthlyAllocation: 0,
-  recurrence: "yearly",
-  priority: "medium",
-  memo: ""
-});
 
 export function GoalsView({
   plan,

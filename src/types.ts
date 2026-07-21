@@ -83,6 +83,8 @@ export type CashflowPeriod = {
   memo: string;
 };
 
+export type CashflowPeriodDraft = Omit<CashflowPeriod, "id">;
+
 export type Assets = {
   cash: number;
   investment: number;
