@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { AnnualCashflowTable } from "../components/AnnualCashflowTable";
 import { AnnualCashflowChart, LineChart } from "../components/Charts";
 import { Metric, MoneyInput, NumericInput, StepFlowNav, StepTitle } from "../components/CommonUi";
 import {
@@ -332,37 +333,9 @@ export function SimulationView({
               )}
             </section>
             <details className="projection-details">
-              <summary>年次キャッシュフロー表を確認</summary>
-              <div className="table-wrap projection-detail-table">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>年 / 年齢</th>
-                      <th>年間収入</th>
-                      <th>年間支出</th>
-                      <th>イベント収支</th>
-                      <th>年間収支</th>
-                      <th>現金</th>
-                      <th>投資資産</th>
-                      <th>純資産見通し</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {annualCashflowRows.map((row) => (
-                      <tr key={`${row.year}-${row.age}`}>
-                        <td>{row.year}年<small>{row.age}歳</small></td>
-                        <td>{manYen(row.annualIncome + row.eventIncome)}</td>
-                        <td>{manYen(row.annualLivingCost + row.eventExpense)}</td>
-                        <td>{row.eventImpact ? manYen(row.eventImpact) : "-"}<small>{row.eventTitles.join(" / ")}</small></td>
-                        <td className={row.netCashflow < 0 ? "negative-value" : ""}>{manYen(row.netCashflow)}</td>
-                        <td>{manYen(row.cashBalance)}</td>
-                        <td>{manYen(row.investmentBalance)}</td>
-                        <td>{manYen(row.value)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <summary>世帯年齢と年次キャッシュフローの内訳を確認</summary>
+              <p className="projection-detail-intro">各行は現在から12か月ごとの区間です。行をタップすると、世帯年齢、収入・支出、残高、イベントの内訳を確認できます。</p>
+              <AnnualCashflowTable rows={annualCashflowRows} />
             </details>
           </>
         )}

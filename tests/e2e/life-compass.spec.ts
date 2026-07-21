@@ -566,6 +566,14 @@ test("基本見通しで家計余剰の振り分けを設定して保存でき�
 test("時期別の収支を年次見通しへ反映して保存できる", async ({ page }) => {
   const periodYear = new Date().getFullYear() + 1;
 
+  await openView(page, "profile");
+  const memberForm = page.getByTestId("household-member-create-form");
+  await memberForm.getByLabel("呼び名").fill("子どもA");
+  await memberForm.getByLabel("続柄").selectOption("child");
+  await memberForm.getByLabel("生まれた年").fill(String(new Date().getFullYear() - 10));
+  await memberForm.getByLabel("生まれた月").selectOption(String(new Date().getMonth() + 1));
+  await memberForm.getByRole("button", { name: "メンバーを追加", exact: true }).click();
+
   await openView(page, "household");
   await page.getByRole("button", { name: "期間を追加", exact: true }).click();
 
@@ -583,6 +591,18 @@ test("時期別の収支を年次見通しへ反映して保存できる", async
   await expect(cashflowDetails).toContainText("年間収入");
   await expect(cashflowDetails).toContainText("年間支出");
   await expect(cashflowDetails).toContainText("年間収支");
+
+  await page.getByText("世帯年齢と年次キャッシュフローの内訳を確認").click();
+  const ledgerRow = page.locator(".annual-ledger-row").filter({ hasText: `${periodYear}年時点` }).first();
+  await ledgerRow.locator(".annual-ledger-summary").click();
+  await expect(ledgerRow).toContainText("子どもA（子ども） 11歳");
+  await expect(ledgerRow).toContainText("収入の内訳");
+  await expect(ledgerRow).toContainText("支出の内訳");
+  await expect(ledgerRow).toContainText("残高の内訳");
+  await expect(ledgerRow).toContainText("育休中の収入");
+
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect(overflow).toBeLessThanOrEqual(1);
 
   await page.reload();
   await openView(page, "household");

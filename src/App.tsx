@@ -29,7 +29,6 @@ import { DataView as DataPage } from "./views/DataView";
 import { RetirementPlanView } from "./views/RetirementPlanView";
 import { ScenarioComparisonView } from "./views/ScenarioComparisonView";
 import { SettingsView } from "./views/SettingsView";
-import { SimulationView } from "./views/SimulationView";
 import { TimelineView } from "./views/TimelineView";
 import type { ViewKey } from "./types";
 import {
@@ -43,6 +42,9 @@ import { exportPlan } from "./utils/storage";
 
 const ProfileView = lazy(() =>
   import("./views/ProfileView").then((module) => ({ default: module.ProfileView }))
+);
+const SimulationView = lazy(() =>
+  import("./views/SimulationView").then((module) => ({ default: module.SimulationView }))
 );
 
 function App() {
@@ -303,14 +305,16 @@ function App() {
         );
       case "simulation":
         return (
-          <SimulationView
-            plan={plan}
-            updateSimulation={updateSimulation}
-            updateWithdrawalPlan={updateWithdrawalPlan}
-            updateWithdrawalPlanPatch={updateWithdrawalPlanPatch}
-            setActiveView={setActiveView}
-            accessState={accessState}
-          />
+          <Suspense fallback={<section className="panel">シミュレーションを読み込んでいます。</section>}>
+            <SimulationView
+              plan={plan}
+              updateSimulation={updateSimulation}
+              updateWithdrawalPlan={updateWithdrawalPlan}
+              updateWithdrawalPlanPatch={updateWithdrawalPlanPatch}
+              setActiveView={setActiveView}
+              accessState={accessState}
+            />
+          </Suspense>
         );
       case "timeline":
         return <TimelineView plan={plan} setActiveView={setActiveView} />;

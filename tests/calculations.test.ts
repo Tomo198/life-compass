@@ -948,12 +948,22 @@ test("annual cashflow rows expose income, expenses, events, and balances from on
     ...basePlan,
     household: {
       monthlyIncome: 200000,
-      annualBonus: 0,
-      sideIncome: 0,
+      annualBonus: 120000,
+      sideIncome: 20000,
       fixedCost: 100000,
-      variableCost: 0,
-      annualSpecialCost: 0
+      variableCost: 30000,
+      annualSpecialCost: 120000
     },
+    householdMembers: [
+      ...basePlan.householdMembers,
+      {
+        id: "child-a",
+        displayName: "子どもA",
+        relationship: "child",
+        birthYear: currentYear - 10,
+        birthMonth: new Date().getMonth() + 1
+      }
+    ],
     cashflowPeriods: [
       {
         id: "income-period",
@@ -973,13 +983,28 @@ test("annual cashflow rows expose income, expenses, events, and balances from on
 
   const row = getAnnualProjectionRows(plan, 1)[1];
 
-  assert.equal(row.annualIncome, 3000000);
-  assert.equal(row.annualLivingCost, 1200000);
-  assert.equal(row.annualSavings, 1800000);
+  assert.equal(row.annualIncome, 3360000);
+  assert.equal(row.annualLivingCost, 1680000);
+  assert.equal(row.annualSavings, 1680000);
   assert.equal(row.eventIncome, 0);
   assert.equal(row.eventExpense, 0);
-  assert.equal(row.netCashflow, 1800000);
+  assert.equal(row.netCashflow, 1680000);
   assert.equal(row.cashBalance + row.investmentBalance, row.value);
+  assert.deepEqual(row.incomeBreakdown, {
+    mainIncome: 3000000,
+    sideIncome: 240000,
+    bonus: 120000,
+    eventIncome: 0
+  });
+  assert.deepEqual(row.expenseBreakdown, {
+    fixedCost: 1200000,
+    variableCost: 360000,
+    annualSpecialCost: 120000,
+    eventExpense: 0
+  });
+  assert.deepEqual(row.cashflowChangeTitles, ["income change"]);
+  assert.equal(row.memberAges.find((member) => member.relationship === "self")?.age, basePlan.profile.age + 1);
+  assert.equal(row.memberAges.find((member) => member.id === "child-a")?.age, 11);
 });
 
 test("cashflow stress years explain annual deficits and emergency-fund shortfalls", () => {

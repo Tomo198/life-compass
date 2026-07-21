@@ -2,10 +2,12 @@ import type {
   Assets,
   BudgetCategory,
   BudgetItem,
+  CashflowPeriod,
   CashflowPeriodTarget,
   FixedCostItem,
   Goal,
   Household,
+  HouseholdMemberRelationship,
   LifeEvent,
   LifePlan,
   PlanScenario,
@@ -68,6 +70,26 @@ export type AnnualProjectionRow = ProjectionPoint & {
   cashBalance: number;
   investmentBalance: number;
   eventTitles: string[];
+  cashflowChangeTitles: string[];
+  incomeBreakdown: {
+    mainIncome: number;
+    sideIncome: number;
+    bonus: number;
+    eventIncome: number;
+  };
+  expenseBreakdown: {
+    fixedCost: number;
+    variableCost: number;
+    annualSpecialCost: number;
+    eventExpense: number;
+  };
+  memberAges: {
+    id: string;
+    displayName: string;
+    relationship: HouseholdMemberRelationship;
+    age: number | null;
+    status: "age" | "beforeBirth" | "unknown";
+  }[];
 };
 
 export type CashflowStressYear = {
@@ -86,7 +108,12 @@ export type MonthlyProjectionRow = ProjectionPoint & {
   cashBalance: number;
   investmentBalance: number;
   monthlyIncome: number;
+  monthlyMainIncome: number;
+  monthlySideIncome: number;
   monthlyLivingCost: number;
+  monthlyFixedCost: number;
+  monthlyVariableCost: number;
+  monthlySpecialCost: number;
   monthlySavings: number;
   monthlyInvestmentContribution: number;
   bonusSavings: number;
@@ -96,6 +123,7 @@ export type MonthlyProjectionRow = ProjectionPoint & {
   eventExpense: number;
   returnImpact: number;
   eventTitles: string[];
+  cashflowChangeTitles: string[];
 };
 
 export type ContributionResult = {
@@ -346,17 +374,20 @@ const cashflowPeriodTargets: CashflowPeriodTarget[] = [
   "annualSpecialCost"
 ];
 
-export const getHouseholdForYear = (plan: LifePlan, year: number): Household => {
-  const household = { ...plan.household };
-  const periods = plan.cashflowPeriods || [];
-
-  cashflowPeriodTargets.forEach((target) => {
-    const candidates = periods
+const getSelectedCashflowPeriodsForYear = (plan: LifePlan, year: number): CashflowPeriod[] =>
+  cashflowPeriodTargets.flatMap((target) => {
+    const candidates = (plan.cashflowPeriods || [])
       .map((period, index) => ({ period, index }))
       .filter(({ period }) => period.target === target && period.startYear <= year && year <= period.endYear)
       .sort((a, b) => a.period.startYear - b.period.startYear || a.index - b.index);
     const selected = candidates[candidates.length - 1]?.period;
-    if (selected) household[target] = selected.amount;
+    return selected ? [selected] : [];
+  });
+
+export const getHouseholdForYear = (plan: LifePlan, year: number): Household => {
+  const household = { ...plan.household };
+  getSelectedCashflowPeriodsForYear(plan, year).forEach((period) => {
+    household[period.target] = period.amount;
   });
 
   return household;
@@ -540,6 +571,26 @@ export const projectAssets = (plan: LifePlan, years: number): ProjectionPoint[] 
   });
 };
 
+const getMemberAgesForDate = (plan: LifePlan, year: number, month: number, primaryAge: number) =>
+  (plan.householdMembers || []).map((member) => {
+    if (member.relationship === "self") {
+      return { ...member, age: primaryAge, status: "age" as const };
+    }
+    if (member.birthYear === null) {
+      return { ...member, age: null, status: "unknown" as const };
+    }
+    const birthMonth = member.birthMonth ?? 1;
+    if (year < member.birthYear || (year === member.birthYear && month < birthMonth)) {
+      return { ...member, age: null, status: "beforeBirth" as const };
+    }
+    const beforeBirthday = month < birthMonth;
+    return {
+      ...member,
+      age: Math.max(0, year - member.birthYear - (beforeBirthday ? 1 : 0)),
+      status: "age" as const
+    };
+  });
+
 export const getAnnualProjectionRows = (plan: LifePlan, years: number): AnnualProjectionRow[] => {
   const normalizedYears = Math.max(0, years);
   const monthlyRows = getMonthlyProjectionRows(plan, normalizedYears * 12);
@@ -554,6 +605,12 @@ export const getAnnualProjectionRows = (plan: LifePlan, years: number): AnnualPr
     const eventExpense = periodRows.reduce((total, row) => total + row.eventExpense, 0);
     const eventImpact = periodRows.reduce((total, row) => total + row.eventImpact, 0);
     const returnImpact = periodRows.reduce((total, row) => total + row.returnImpact, 0);
+    const mainIncome = periodRows.reduce((total, row) => total + row.monthlyMainIncome, 0);
+    const sideIncome = periodRows.reduce((total, row) => total + row.monthlySideIncome, 0);
+    const bonus = periodRows.reduce((total, row) => total + row.bonusSavings, 0);
+    const fixedCost = periodRows.reduce((total, row) => total + row.monthlyFixedCost, 0);
+    const variableCost = periodRows.reduce((total, row) => total + row.monthlyVariableCost, 0);
+    const annualSpecialCost = periodRows.reduce((total, row) => total + row.monthlySpecialCost, 0);
     return {
       year: point.year,
       age: point.age,
@@ -568,7 +625,11 @@ export const getAnnualProjectionRows = (plan: LifePlan, years: number): AnnualPr
       returnImpact,
       cashBalance: point.cashBalance,
       investmentBalance: point.investmentBalance,
-      eventTitles: periodRows.flatMap((row) => row.eventTitles)
+      eventTitles: [...new Set(periodRows.flatMap((row) => row.eventTitles))],
+      cashflowChangeTitles: [...new Set(periodRows.flatMap((row) => row.cashflowChangeTitles))],
+      incomeBreakdown: { mainIncome, sideIncome, bonus, eventIncome },
+      expenseBreakdown: { fixedCost, variableCost, annualSpecialCost, eventExpense },
+      memberAges: getMemberAgesForDate(plan, point.year, point.month, point.age)
     };
   });
 };
@@ -592,8 +653,16 @@ export const getMonthlyProjectionRows = (plan: LifePlan, months: number): Monthl
     const eventImpact = monthOffset === 0 ? 0 : eventImpactForMonth(plan.events, year, month);
     const eventAmounts = monthOffset === 0 ? { income: 0, expense: 0 } : eventAmountsForMonth(plan.events, year, month);
     const monthEvents = monthOffset === 0 ? [] : eventsForMonth(plan.events, year, month);
+    const cashflowChangeTitles = monthOffset === 0
+      ? []
+      : getSelectedCashflowPeriodsForYear(plan, year).map((period) => period.title);
     const monthlyIncome = monthOffset === 0 ? 0 : cashflow.monthlyIncome;
+    const monthlyMainIncome = monthOffset === 0 ? 0 : effectiveHousehold.monthlyIncome;
+    const monthlySideIncome = monthOffset === 0 ? 0 : effectiveHousehold.sideIncome;
     const monthlyLivingCost = monthOffset === 0 ? 0 : cashflow.monthlyLivingCost;
+    const monthlyFixedCost = monthOffset === 0 ? 0 : effectiveHousehold.fixedCost;
+    const monthlyVariableCost = monthOffset === 0 ? 0 : effectiveHousehold.variableCost;
+    const monthlySpecialCost = monthOffset === 0 ? 0 : effectiveHousehold.annualSpecialCost / 12;
     const monthlySavings = monthOffset === 0 ? 0 : cashflow.monthlySavings;
     const monthlyInvestmentContribution = monthOffset === 0 ? 0 : allocation.monthlyInvestment;
     const bonusSavings = monthOffset > 0 && monthOffset % 12 === 0 ? effectiveHousehold.annualBonus : 0;
@@ -621,7 +690,12 @@ export const getMonthlyProjectionRows = (plan: LifePlan, months: number): Monthl
       cashBalance: balances.cash,
       investmentBalance: balances.investment,
       monthlyIncome,
+      monthlyMainIncome,
+      monthlySideIncome,
       monthlyLivingCost,
+      monthlyFixedCost,
+      monthlyVariableCost,
+      monthlySpecialCost,
       monthlySavings,
       monthlyInvestmentContribution,
       bonusSavings,
@@ -630,7 +704,8 @@ export const getMonthlyProjectionRows = (plan: LifePlan, months: number): Monthl
       eventIncome: eventAmounts.income,
       eventExpense: eventAmounts.expense,
       returnImpact: monthOffset === 0 ? 0 : value - previousValue - monthlySavings - bonusSavings - eventImpact,
-      eventTitles: monthEvents.map((event) => event.title)
+      eventTitles: monthEvents.map((event) => event.title),
+      cashflowChangeTitles
     });
   }
 
