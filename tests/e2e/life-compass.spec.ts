@@ -705,7 +705,8 @@ test("時期別の収支を年次見通しへ反映して保存できる", async
   await expect(periodRow.getByText(`${periodYear}年`)).toBeVisible();
 
   await openView(page, "simulation");
-  await expect(page.getByRole("heading", { name: "年次キャッシュフロー", level: 3 })).toBeVisible();
+  await page.getByRole("button", { name: "年次収支", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "年次キャッシュフロー", level: 2 })).toBeVisible();
   await page.getByRole("button", { name: new RegExp(`^${periodYear}年 収入`) }).click();
   const cashflowDetails = page.locator(".annual-cashflow-chart .chart-selection-panel");
   await expect(cashflowDetails).toContainText(`${periodYear}年`);
@@ -715,7 +716,7 @@ test("時期別の収支を年次見通しへ反映して保存できる", async
 
   await page.getByText("世帯年齢と年次キャッシュフローの内訳を確認").click();
   const ledgerRow = page.locator(".annual-ledger-row").filter({ hasText: `${periodYear}年時点` }).first();
-  await ledgerRow.locator(".annual-ledger-summary").click();
+  await expect(ledgerRow.locator(".annual-ledger-summary")).toHaveAttribute("aria-expanded", "true");
   await expect(ledgerRow).toContainText("子どもA（子ども） 11歳");
   await expect(ledgerRow).toContainText("収入の内訳");
   await expect(ledgerRow).toContainText("支出の内訳");

@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
-import { AnnualCashflowTable } from "../components/AnnualCashflowTable";
-import { AnnualCashflowChart, LineChart } from "../components/Charts";
+import { AnnualCashflowPanel } from "../components/AnnualCashflowPanel";
+import { LineChart } from "../components/Charts";
 import { Metric, MoneyInput, NumericInput, StepFlowNav, StepTitle } from "../components/CommonUi";
 import {
   MAX_PLAN_AGE,
@@ -19,7 +19,6 @@ import {
   emergencyMonthsLabel,
   getAnnualProjectionRows,
   getBasicProjectionAllocation,
-  getCashflowStressYears,
   getCurrentCashflowSummary,
   getContributionProjectionRows,
   getEmergencyFundResult,
@@ -57,7 +56,7 @@ export function SimulationView({
   setActiveView: (view: ViewKey) => void;
   accessState: AccessState;
 }) {
-  const [simulationTab, setSimulationTab] = useState<"basic" | "contribution" | "withdrawal">("basic");
+  const [simulationTab, setSimulationTab] = useState<"basic" | "cashflow" | "contribution" | "withdrawal">("basic");
   const [projectionMode, setProjectionMode] = useState<"annual" | "monthly">("annual");
   const [projectionYears, setProjectionYears] = useState<10 | 30>(30);
   const [projectionMonths, setProjectionMonths] = useState<12 | 24>(24);
@@ -107,8 +106,6 @@ export function SimulationView({
   const projection10 = useMemo(() => projectAssets(plan, 10), [plan]);
   const projection30 = useMemo(() => projectAssets(plan, 30), [plan]);
   const annualRows = useMemo(() => getAnnualProjectionRows(plan, projectionYears), [plan, projectionYears]);
-  const annualCashflowRows = annualRows.slice(1);
-  const cashflowStressYears = useMemo(() => getCashflowStressYears(plan, annualRows), [annualRows, plan]);
   const monthlyRows = useMemo(() => getMonthlyProjectionRows(plan, projectionMonths), [plan, projectionMonths]);
   const basicAllocation = useMemo(() => getBasicProjectionAllocation(plan), [plan]);
   const emergency = getEmergencyFundResult(plan);
@@ -188,11 +185,18 @@ export function SimulationView({
         <div className="section-heading">
           <div>
             <h2>シミュレーション種別</h2>
-            <p>基本見通し、積立試算、取り崩し試算を切り替えて確認します。</p>
+            <p>基本見通し、年次収支、積立試算、取り崩し試算を切り替えて確認します。</p>
           </div>
-          <div className="segmented-control" aria-label="シミュレーション種別">
+          <div className="segmented-control simulation-type-tabs" aria-label="シミュレーション種別">
             <button type="button" className={simulationTab === "basic" ? "active" : ""} onClick={() => setSimulationTab("basic")}>
               基本
+            </button>
+            <button
+              type="button"
+              className={simulationTab === "cashflow" ? "active" : ""}
+              onClick={() => setSimulationTab("cashflow")}
+            >
+              年次収支
             </button>
             <button
               type="button"
@@ -300,45 +304,6 @@ export function SimulationView({
           )}
         </div>
         <LineChart points={chartRows} />
-        {projectionMode === "annual" && (
-          <>
-            <div className="section-heading chart-section-heading">
-              <div>
-                <h3>年次キャッシュフロー</h3>
-                <p>収入と支出を年ごとに比較します。棒をタップすると、その年の内訳を確認できます。</p>
-              </div>
-            </div>
-            <AnnualCashflowChart rows={annualCashflowRows} />
-            <section className="cashflow-stress-summary" aria-label="家計の山場">
-              <div className="section-heading">
-                <div>
-                  <h3>家計の山場</h3>
-                  <p>年間収支、生活防衛資金、大きな支出イベントが重なる年を整理します。</p>
-                </div>
-              </div>
-              {cashflowStressYears.length > 0 ? (
-                <div className="cashflow-stress-list">
-                  {cashflowStressYears.map((item) => (
-                    <div className="cashflow-stress-item" key={item.year}>
-                      <strong>{item.year}年 / {item.age}歳</strong>
-                      <span>{item.reasons.join("。")}</span>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="notice-band good">
-                  <strong>大きな山場は見つかりませんでした</strong>
-                  <span>現在の入力条件で、年間赤字や生活防衛資金の不足につながる年は表示期間内に見つかりませんでした。</span>
-                </div>
-              )}
-            </section>
-            <details className="projection-details">
-              <summary>世帯年齢と年次キャッシュフローの内訳を確認</summary>
-              <p className="projection-detail-intro">各行は現在から12か月ごとの区間です。行をタップすると、世帯年齢、収入・支出、残高、イベントの内訳を確認できます。</p>
-              <AnnualCashflowTable rows={annualCashflowRows} />
-            </details>
-          </>
-        )}
         <div className="calculation-band compact">
           <Metric label="10年後" value={manYen(projection10[10]?.value ?? 0)} helper="前提条件に基づく試算" />
           <Metric label="30年後" value={manYen(projection30[30]?.value ?? 0)} helper="前提条件に基づく試算" />
@@ -438,6 +403,15 @@ export function SimulationView({
         </div>
       </section>
       </>
+      )}
+
+      {simulationTab === "cashflow" && (
+        <AnnualCashflowPanel
+          plan={plan}
+          annualRows={annualRows}
+          projectionYears={projectionYears}
+          onProjectionYearsChange={setProjectionYears}
+        />
       )}
 
       {simulationTab === "contribution" && (

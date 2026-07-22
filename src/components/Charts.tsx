@@ -76,12 +76,30 @@ export function VariabilityBandChart({ rows }: { rows: VariabilityResult["rows"]
   );
 }
 
-export function AnnualCashflowChart({ rows }: { rows: AnnualProjectionRow[] }) {
-  const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+export function AnnualCashflowChart({
+  rows,
+  selectedYear,
+  onSelectYear
+}: {
+  rows: AnnualProjectionRow[];
+  selectedYear?: number | null;
+  onSelectYear?: (year: number) => void;
+}) {
+  const [internalSelectedIndex, setInternalSelectedIndex] = useState<number | null>(null);
+  const controlledSelectedIndex = selectedYear === undefined
+    ? -1
+    : rows.findIndex((row) => row.year === selectedYear);
+  const selectedIndex = selectedYear === undefined
+    ? internalSelectedIndex
+    : controlledSelectedIndex >= 0
+      ? controlledSelectedIndex
+      : null;
 
   useEffect(() => {
-    if (selectedIndex !== null && selectedIndex >= rows.length) setSelectedIndex(null);
-  }, [rows.length, selectedIndex]);
+    if (internalSelectedIndex !== null && internalSelectedIndex >= rows.length) {
+      setInternalSelectedIndex(null);
+    }
+  }, [internalSelectedIndex, rows.length]);
 
   if (rows.length === 0) return null;
 
@@ -100,6 +118,13 @@ export function AnnualCashflowChart({ rows }: { rows: AnnualProjectionRow[] }) {
   const labelStep = rows.length > 20 ? 5 : rows.length > 12 ? 3 : 1;
   const selected = selectedIndex === null ? null : rows[selectedIndex];
   const yFor = (value: number) => height - padding.bottom - (value / maxValue) * chartHeight;
+  const selectIndex = (index: number) => {
+    if (onSelectYear) {
+      onSelectYear(rows[index].year);
+      return;
+    }
+    setInternalSelectedIndex(index);
+  };
 
   return (
     <div className="chart-block annual-cashflow-chart">
@@ -116,7 +141,11 @@ export function AnnualCashflowChart({ rows }: { rows: AnnualProjectionRow[] }) {
             const incomeY = yFor(income);
             const expenseY = yFor(expense);
             const isSelected = selectedIndex === index;
-            const showLabel = isSelected || index % labelStep === 0 || index === rows.length - 1;
+            const isRegularLabel = index % labelStep === 0 || index === rows.length - 1;
+            const isNearSelectedLabel = selectedIndex !== null
+              && rows.length > 12
+              && Math.abs(index - selectedIndex) <= 1;
+            const showLabel = isSelected || (isRegularLabel && !isNearSelectedLabel);
             const label = `${row.year}年`;
             return (
               <g key={`${row.year}-${index}`}>
@@ -143,11 +172,11 @@ export function AnnualCashflowChart({ rows }: { rows: AnnualProjectionRow[] }) {
                   tabIndex={0}
                   className="chart-hit-button"
                   aria-label={`${label} 収入${manYen(income)} 支出${manYen(expense)}`}
-                  onClick={() => setSelectedIndex(index)}
+                  onClick={() => selectIndex(index)}
                   onKeyDown={(event) => {
                     if (event.key === "Enter" || event.key === " ") {
                       event.preventDefault();
-                      setSelectedIndex(index);
+                      selectIndex(index);
                     }
                   }}
                 >

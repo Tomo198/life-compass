@@ -8,8 +8,25 @@ const memberAgeLabel = (member: AnnualProjectionRow["memberAges"][number]) => {
   return `${member.age}歳`;
 };
 
-export function AnnualCashflowTable({ rows }: { rows: AnnualProjectionRow[] }) {
-  const [expandedYear, setExpandedYear] = useState<number | null>(null);
+export function AnnualCashflowTable({
+  rows,
+  selectedYear,
+  onSelectYear
+}: {
+  rows: AnnualProjectionRow[];
+  selectedYear?: number | null;
+  onSelectYear?: (year: number | null) => void;
+}) {
+  const [internalExpandedYear, setInternalExpandedYear] = useState<number | null>(null);
+  const expandedYear = selectedYear === undefined ? internalExpandedYear : selectedYear;
+  const toggleYear = (year: number) => {
+    const nextYear = expandedYear === year ? null : year;
+    if (onSelectYear) {
+      onSelectYear(nextYear);
+      return;
+    }
+    setInternalExpandedYear(nextYear);
+  };
 
   return (
     <div className="annual-ledger" data-testid="annual-cashflow-ledger">
@@ -32,7 +49,7 @@ export function AnnualCashflowTable({ rows }: { rows: AnnualProjectionRow[] }) {
               className="annual-ledger-summary"
               aria-expanded={expanded}
               aria-controls={detailId}
-              onClick={() => setExpandedYear(expanded ? null : row.year)}
+              onClick={() => toggleYear(row.year)}
             >
               <span className="annual-ledger-year">
                 <strong>{row.year}年時点</strong>
