@@ -241,6 +241,7 @@ test("目標とイベントは入力後に登録され、再読み込み後も�
   await openView(page, "goals");
   const goalForm = page.getByTestId("goal-create-form");
   const registeredGoalTitles = page.locator(".goal-table tbody td:first-child input");
+  await expect(goalForm).toBeVisible();
   const initialGoalCount = await registeredGoalTitles.count();
   await goalForm.getByLabel("目標名").fill(goalTitle);
   await expect(registeredGoalTitles).toHaveCount(initialGoalCount);
@@ -253,6 +254,7 @@ test("目標とイベントは入力後に登録され、再読み込み後も�
   await openView(page, "events");
   const eventForm = page.getByTestId("event-create-form");
   const registeredEventTitles = page.locator(".timeline-row .title-field input");
+  await expect(eventForm).toBeVisible();
   const initialEventCount = await registeredEventTitles.count();
   await eventForm.getByLabel("イベント名").fill(eventTitle);
   await expect(registeredEventTitles).toHaveCount(initialEventCount);
@@ -470,6 +472,14 @@ test("シナリオ前提を編集して基本プランへ採用し、採用前�
   expect(beforeAdoption.scenarios[0].snapshot.household.fixedCost).toBe(88888);
 
   await page.getByRole("button", { name: "比較結果", exact: true }).click();
+  const impactAnalysis = page.getByTestId("scenario-impact-analysis");
+  await expect(impactAnalysis).toBeVisible();
+  await expect(impactAnalysis).toContainText("順位付けや助言ではなく");
+  await expect(impactAnalysis).toContainText("固定費 月額");
+  await expect(impactAnalysis).toContainText("年間収支への直接差");
+  await expect(impactAnalysis).toContainText("10年後資産");
+  const impactOverflow = await impactAnalysis.evaluate((element) => element.scrollWidth - element.clientWidth);
+  expect(impactOverflow).toBeLessThanOrEqual(1);
   page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: "このプランを採用", exact: true }).click();
   await expect(page.getByRole("status")).toContainText("基本プランへ採用しました");

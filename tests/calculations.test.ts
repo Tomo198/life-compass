@@ -72,7 +72,7 @@ import {
   savePlan,
   validateImportedPlan
 } from "../src/utils/storage";
-import { adoptScenarioAsBase } from "../src/utils/scenarios";
+import { adoptScenarioAsBase, getScenarioImpactChanges } from "../src/utils/scenarios";
 import {
   applyBudgetActualsToReview,
   createPlanReview,
@@ -553,6 +553,87 @@ test("scenario snapshots can be compared without mutating the base plan", () => 
 
   assert.equal(getCashflowSummary(scenarioPlan.household).monthlySavings, getCashflowSummary(basePlan.household).monthlySavings + 30000);
   assert.equal(basePlan.household.fixedCost, 130000);
+});
+
+test("scenario impact analysis links changed assumptions to direct and overall inputs", () => {
+  const scenario = createScenarioFromTemplate(
+    basePlan,
+    scenarioTemplates.find((template) => template.tag === "current")!
+  );
+  scenario.snapshot.household.fixedCost = 100000;
+  scenario.snapshot.assets.debt = 300000;
+  scenario.snapshot.simulation.monthlyInvestmentAmount = 20000;
+  scenario.snapshot.simulation.annualReturnRate = 3;
+  scenario.snapshot.events = [
+    {
+      id: "education-event",
+      title: "大学進学費用",
+      owner: "child",
+      category: "education",
+      year: currentYear + 5,
+      month: 4,
+      age: 40,
+      amount: 2000000,
+      cashflowType: "expense",
+      memo: ""
+    }
+  ];
+
+  const changes = getScenarioImpactChanges(basePlan, scenario, currentYear, 10);
+  const fixedCost = changes.find((change) => change.id === `cashflow-fixedCost-${currentYear}`);
+  const debt = changes.find((change) => change.id === "assets-debt");
+  const returnRate = changes.find((change) => change.id === "allocation-annualReturnRate");
+  const education = changes.find((change) => change.id === "event-education-event");
+
+  assert.equal(fixedCost?.currentValue, "130,000円");
+  assert.equal(fixedCost?.proposedValue, "100,000円");
+  assert.equal(fixedCost?.effect, "年間収支への直接差 +360,000円");
+  assert.equal(debt?.effect, "現在純資産への直接差 +200,000円");
+  assert.equal(returnRate?.currentValue, "0%");
+  assert.equal(returnRate?.proposedValue, "3%");
+  assert.equal(education?.period, "教育費");
+  assert.equal(education?.effect, "予定年の資産見通しへの直接差 -200万円");
+});
+
+test("scenario impact analysis compresses equal year-specific cashflow changes", () => {
+  const plan: LifePlan = {
+    ...basePlan,
+    cashflowMode: "detailed",
+    detailedCashflowItems: [
+      {
+        id: "income",
+        title: "給与",
+        memberId: "member-self",
+        target: "monthlyIncome",
+        startYear: currentYear,
+        endYear: currentYear + 10,
+        amount: 320000,
+        memo: ""
+      }
+    ]
+  };
+  const scenario = createScenarioFromTemplate(
+    plan,
+    scenarioTemplates.find((template) => template.tag === "current")!
+  );
+  scenario.snapshot.detailedCashflowItems[0] = {
+    ...scenario.snapshot.detailedCashflowItems[0],
+    startYear: currentYear + 3,
+    endYear: currentYear + 6,
+    amount: 360000
+  };
+
+  const changes = getScenarioImpactChanges(plan, scenario, currentYear, 10)
+    .filter((change) => change.group === "cashflow");
+
+  assert.deepEqual(
+    changes.map((change) => ({ period: change.period, current: change.currentValue, proposed: change.proposedValue })),
+    [
+      { period: `${currentYear}〜${currentYear + 2}年`, current: "320,000円", proposed: "0円" },
+      { period: `${currentYear + 3}〜${currentYear + 6}年`, current: "320,000円", proposed: "360,000円" },
+      { period: `${currentYear + 7}〜${currentYear + 10}年`, current: "320,000円", proposed: "0円" }
+    ]
+  );
 });
 
 test("adopting a scenario replaces the base assumptions and preserves the previous plan", () => {

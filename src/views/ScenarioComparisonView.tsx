@@ -5,6 +5,7 @@ import { DetailedCashflowEditor } from "../components/DetailedCashflowEditor";
 import { ScenarioCashflowEditor } from "../components/scenarios/ScenarioCashflowEditor";
 import { ScenarioEventsEditor } from "../components/scenarios/ScenarioEventsEditor";
 import { ScenarioGoalsEditor } from "../components/scenarios/ScenarioGoalsEditor";
+import { ScenarioImpactAnalysis } from "../components/scenarios/ScenarioImpactAnalysis";
 import { MAX_RATE_PERCENT } from "../config";
 import {
   scenarioTagLabels,
@@ -34,7 +35,7 @@ import {
   getCurrentCashflowSummary,
   manYen
 } from "../utils/calculations";
-import { getScenarioComparisonMetrics } from "../utils/scenarios";
+import { getScenarioComparisonMetrics, getScenarioImpactChanges } from "../utils/scenarios";
 
 type ScenarioComparisonViewProps = {
   plan: LifePlan;
@@ -103,6 +104,12 @@ export function ScenarioComparisonView({
   const selectedPlanScenario = scenarios.find((scenario) => scenario.id === selectedScenarioId) || null;
   const selectedScenarioRows = getAnnualProjectionRows(selectedScenario.plan, 30);
   const selectedScenarioCashflow = getCurrentCashflowSummary(selectedScenario.plan);
+  const selectedScenarioImpactChanges = useMemo(
+    () => selectedPlanScenario ? getScenarioImpactChanges(plan, selectedPlanScenario) : [],
+    [plan, selectedPlanScenario]
+  );
+  const currentComparisonMetric = comparisonMetrics.find((item) => item.id === "current");
+  const selectedComparisonMetric = comparisonMetrics.find((item) => item.id === selectedScenarioId);
   const scenarioLimitReached = scenarios.length >= featureTiers.pro.scenarioLimit;
 
   const handleAddScenario = (template: ScenarioTemplate) => {
@@ -260,6 +267,13 @@ export function ScenarioComparisonView({
           </label>
         </div>
         <LineChart points={selectedScenarioRows} />
+        {selectedPlanScenario && currentComparisonMetric && selectedComparisonMetric ? (
+          <ScenarioImpactAnalysis
+            current={currentComparisonMetric}
+            proposed={selectedComparisonMetric}
+            changes={selectedScenarioImpactChanges}
+          />
+        ) : null}
         {selectedPlanScenario && (
           <div className="scenario-adopt-actions">
             <div>

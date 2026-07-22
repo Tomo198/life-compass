@@ -4076,6 +4076,154 @@ td select {
   flex: 0 0 auto;
 }
 
+.scenario-impact-analysis {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1.4rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--line);
+}
+
+.scenario-impact-heading {
+  margin-bottom: 0;
+}
+
+.scenario-impact-heading h3,
+.scenario-impact-change-heading h4 {
+  margin: 0;
+}
+
+.scenario-impact-heading p,
+.scenario-impact-change-heading p {
+  margin: 0.25rem 0 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.scenario-impact-results {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border-block: 1px solid var(--line);
+}
+
+.scenario-impact-result {
+  display: grid;
+  gap: 0.45rem;
+  min-width: 0;
+  padding: 0.9rem 1rem;
+  border-left: 1px solid var(--line);
+}
+
+.scenario-impact-result:first-child {
+  border-left: 0;
+}
+
+.scenario-impact-result > span,
+.scenario-impact-result > small,
+.scenario-impact-values small {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.scenario-impact-values {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.scenario-impact-values strong {
+  overflow-wrap: anywhere;
+  font-size: 1.05rem;
+}
+
+.scenario-impact-caption {
+  margin: -0.3rem 0 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.55;
+}
+
+.scenario-impact-change-heading {
+  margin-top: 0.25rem;
+}
+
+.scenario-impact-groups {
+  border-top: 1px solid var(--line);
+}
+
+.scenario-impact-group {
+  border-bottom: 1px solid var(--line);
+}
+
+.scenario-impact-group > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.85rem 0;
+  cursor: pointer;
+  color: var(--primary-dark);
+  font-weight: 700;
+  list-style-position: inside;
+}
+
+.scenario-impact-group > summary small {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.scenario-impact-list {
+  display: grid;
+}
+
+.scenario-impact-row {
+  display: grid;
+  grid-template-columns: minmax(9rem, 0.75fr) minmax(15rem, 1fr) minmax(13rem, 1fr);
+  gap: 1rem;
+  align-items: center;
+  padding: 0.85rem 0;
+  border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+}
+
+.scenario-impact-label {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.scenario-impact-label strong,
+.scenario-impact-label small,
+.scenario-impact-row p {
+  overflow-wrap: anywhere;
+}
+
+.scenario-impact-label small,
+.scenario-impact-row p {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.scenario-impact-before-after {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 0.55rem;
+  align-items: center;
+}
+
+.scenario-impact-before-after span:first-child {
+  color: var(--muted);
+}
+
+.scenario-impact-before-after strong,
+.scenario-impact-before-after span:first-child {
+  overflow-wrap: anywhere;
+}
+
+.scenario-impact-row p {
+  margin: 0;
+  line-height: 1.5;
+}
+
 .scenario-assumptions-panel h3 {
   margin: 1.4rem 0 0.75rem;
   font-size: 1rem;
@@ -4861,6 +5009,26 @@ td select {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .scenario-impact-results {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .scenario-impact-result:nth-child(3) {
+    border-left: 0;
+  }
+
+  .scenario-impact-result:nth-child(n + 3) {
+    border-top: 1px solid var(--line);
+  }
+
+  .scenario-impact-row {
+    grid-template-columns: minmax(9rem, 0.65fr) minmax(15rem, 1fr);
+  }
+
+  .scenario-impact-row p {
+    grid-column: 1 / -1;
+  }
+
   .household-member-row {
     grid-template-columns: 1fr;
   }
@@ -5327,6 +5495,28 @@ td select {
   .annual-review-plan-prompt {
     display: grid;
     grid-template-columns: 1fr;
+  }
+
+  .scenario-impact-results,
+  .scenario-impact-row {
+    grid-template-columns: 1fr;
+  }
+
+  .scenario-impact-result {
+    border-top: 1px solid var(--line);
+    border-left: 0;
+  }
+
+  .scenario-impact-result:first-child {
+    border-top: 0;
+  }
+
+  .scenario-impact-row p {
+    grid-column: auto;
+  }
+
+  .scenario-impact-before-after {
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   }
 
   .scenario-adopt-actions button,

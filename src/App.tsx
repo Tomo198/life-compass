@@ -15,21 +15,7 @@ import {
   mobilePrimaryNavItems,
   navItems
 } from "./navigation";
-import { AssetsView } from "./views/AssetsView";
-import { BudgetView } from "./views/BudgetView";
 import { DashboardView } from "./views/DashboardView";
-import { EventSettingsView } from "./views/EventSettingsView";
-import { GoalsView } from "./views/GoalsView";
-import { HouseholdView } from "./views/HouseholdView";
-import { LegalDocumentView, LegalIndexView } from "./views/LegalView";
-import { LifePlanDiagnosisView } from "./views/LifePlanDiagnosisView";
-import { NotesView } from "./views/NotesView";
-import { PricingView as PricingPage } from "./views/PricingView";
-import { DataView as DataPage } from "./views/DataView";
-import { RetirementPlanView } from "./views/RetirementPlanView";
-import { ScenarioComparisonView } from "./views/ScenarioComparisonView";
-import { SettingsView } from "./views/SettingsView";
-import { TimelineView } from "./views/TimelineView";
 import type { ViewKey } from "./types";
 import {
   getAppReminders,
@@ -43,8 +29,53 @@ import { exportPlan } from "./utils/storage";
 const ProfileView = lazy(() =>
   import("./views/ProfileView").then((module) => ({ default: module.ProfileView }))
 );
+const AssetsView = lazy(() =>
+  import("./views/AssetsView").then((module) => ({ default: module.AssetsView }))
+);
+const BudgetView = lazy(() =>
+  import("./views/BudgetView").then((module) => ({ default: module.BudgetView }))
+);
+const DataPage = lazy(() =>
+  import("./views/DataView").then((module) => ({ default: module.DataView }))
+);
+const EventSettingsView = lazy(() =>
+  import("./views/EventSettingsView").then((module) => ({ default: module.EventSettingsView }))
+);
+const GoalsView = lazy(() =>
+  import("./views/GoalsView").then((module) => ({ default: module.GoalsView }))
+);
+const HouseholdView = lazy(() =>
+  import("./views/HouseholdView").then((module) => ({ default: module.HouseholdView }))
+);
+const LegalDocumentView = lazy(() =>
+  import("./views/LegalView").then((module) => ({ default: module.LegalDocumentView }))
+);
+const LegalIndexView = lazy(() =>
+  import("./views/LegalView").then((module) => ({ default: module.LegalIndexView }))
+);
+const LifePlanDiagnosisView = lazy(() =>
+  import("./views/LifePlanDiagnosisView").then((module) => ({ default: module.LifePlanDiagnosisView }))
+);
+const NotesView = lazy(() =>
+  import("./views/NotesView").then((module) => ({ default: module.NotesView }))
+);
+const PricingPage = lazy(() =>
+  import("./views/PricingView").then((module) => ({ default: module.PricingView }))
+);
+const RetirementPlanView = lazy(() =>
+  import("./views/RetirementPlanView").then((module) => ({ default: module.RetirementPlanView }))
+);
+const ScenarioComparisonView = lazy(() =>
+  import("./views/ScenarioComparisonView").then((module) => ({ default: module.ScenarioComparisonView }))
+);
+const SettingsView = lazy(() =>
+  import("./views/SettingsView").then((module) => ({ default: module.SettingsView }))
+);
 const SimulationView = lazy(() =>
   import("./views/SimulationView").then((module) => ({ default: module.SimulationView }))
+);
+const TimelineView = lazy(() =>
+  import("./views/TimelineView").then((module) => ({ default: module.TimelineView }))
 );
 
 function App() {
@@ -252,16 +283,14 @@ function App() {
         );
       case "profile":
         return (
-          <Suspense fallback={<section className="panel">基本プロフィールを読み込んでいます。</section>}>
-            <ProfileView
-              plan={plan}
-              updateProfile={updateProfile}
-              addHouseholdMember={addHouseholdMember}
-              updateHouseholdMember={updateHouseholdMember}
-              removeHouseholdMember={removeHouseholdMember}
-              setActiveView={setActiveView}
-            />
-          </Suspense>
+          <ProfileView
+            plan={plan}
+            updateProfile={updateProfile}
+            addHouseholdMember={addHouseholdMember}
+            updateHouseholdMember={updateHouseholdMember}
+            removeHouseholdMember={removeHouseholdMember}
+            setActiveView={setActiveView}
+          />
         );
       case "household":
         return (
@@ -320,20 +349,18 @@ function App() {
         );
       case "simulation":
         return (
-          <Suspense fallback={<section className="panel">シミュレーションを読み込んでいます。</section>}>
-            <SimulationView
-              plan={plan}
-              updateSimulation={updateSimulation}
-              updateWithdrawalPlan={updateWithdrawalPlan}
-              updateWithdrawalPlanPatch={updateWithdrawalPlanPatch}
-              setActiveView={setActiveView}
-              openReviewPlan={(year) => {
-                setReviewPlanYear(year);
-                setActiveView("scenarios");
-              }}
-              accessState={accessState}
-            />
-          </Suspense>
+          <SimulationView
+            plan={plan}
+            updateSimulation={updateSimulation}
+            updateWithdrawalPlan={updateWithdrawalPlan}
+            updateWithdrawalPlanPatch={updateWithdrawalPlanPatch}
+            setActiveView={setActiveView}
+            openReviewPlan={(year) => {
+              setReviewPlanYear(year);
+              setActiveView("scenarios");
+            }}
+            accessState={accessState}
+          />
         );
       case "timeline":
         return <TimelineView plan={plan} setActiveView={setActiveView} />;
@@ -529,7 +556,9 @@ function App() {
             </button>
           </section>
         )}
-        {renderView()}
+        <Suspense fallback={<section className="panel" aria-live="polite">画面を読み込んでいます。</section>}>
+          {renderView()}
+        </Suspense>
       </main>
       <nav className="mobile-bottom-nav" aria-label="スマートフォン用ナビゲーション" data-testid="mobile-bottom-nav">
         {mobilePrimaryNavItems.map((item) => {
