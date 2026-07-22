@@ -93,14 +93,14 @@ export const featureComparison: Array<{
   free: string;
   pro: string;
 }> = [
-  { key: "singlePlan", label: "ライフプラン", free: "基本プラン1件", pro: "基本プラン + 最大20シナリオ" },
+  { key: "singlePlan", label: "ライフプラン", free: "基本プラン1件", pro: "基本プラン + 最大20見直しプラン" },
   { key: "basicPlanning", label: "基本機能", free: "家計・資産・目標・年表・メモ", pro: "無料版の全機能" },
   { key: "budgetPlanning", label: "予算・実績", free: "月次入力・年間履歴・予算比較", pro: "レビューへの実績反映・計画差" },
   { key: "detailedCashflow", label: "時期別の収支", free: "現在の収支を基にした年次表", pro: "収入・支出の期間変更を年次見通しへ反映" },
   { key: "basicSimulation", label: "見通し", free: "基本資産推移・積立・取り崩し", pro: "1000回のばらつき試算・老後設計" },
   { key: "jsonBackup", label: "データ保存", free: "ブラウザ内保存・JSONバックアップ", pro: "無料版と同じ" },
   { key: "encryptedCloudBackup", label: "暗号化クラウドバックアップ", free: "JSONで手動保管", pro: "暗号化した手動保存・復元" },
-  { key: "scenarioComparison", label: "シナリオ比較", free: "プレビュー", pro: "保存・比較・差分確認" },
+  { key: "scenarioComparison", label: "見直しプラン", free: "プレビュー", pro: "保存・比較・差分確認" },
   { key: "reviewHistory", label: "レビューセンター", free: "現在のメモ", pro: "計画差・前回差・将来見通し・TODO" },
   { key: "planVersionHistory", label: "計画の版履歴", free: "JSONで手動保管", pro: "見直し時の自動保存・復元" },
   { key: "fixedCostImpact", label: "固定費見直し", free: "固定費の入力", pro: "年間・10年後・30年後への影響比較" },

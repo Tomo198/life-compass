@@ -47,7 +47,7 @@ export function ScenarioEventsEditor({
     if (!title) return;
     onAdd({ ...draft, title });
     setDraft(createEventDraft());
-    setStatus(`「${title}」をシナリオへ登録しました。`);
+    setStatus(`「${title}」を見直しプランへ登録しました。`);
   };
 
   return (
@@ -81,11 +81,11 @@ export function ScenarioEventsEditor({
       </form>
 
       <div className="registered-list-heading">
-        <div><h3>シナリオ内のイベント</h3><p>項目を開くと、予定月や家計への影響を変更できます。</p></div>
+        <div><h3>見直しプラン内のイベント</h3><p>項目を開くと、予定月や家計への影響を変更できます。</p></div>
         <span>{events.length}件</span>
       </div>
       {events.length === 0 ? (
-        <EmptyState title="このシナリオにイベントはありません" detail="比較に必要な予定だけを追加できます。" />
+        <EmptyState title="この見直しプランにイベントはありません" detail="比較に必要な予定だけを追加できます。" />
       ) : (
         <div className="scenario-record-list">
           {[...events].sort((a, b) => a.year - b.year || a.month - b.month).map((item) => (

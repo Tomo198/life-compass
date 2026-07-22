@@ -47,6 +47,7 @@ export function SimulationView({
   updateWithdrawalPlan,
   updateWithdrawalPlanPatch,
   setActiveView,
+  openReviewPlan,
   accessState
 }: {
   plan: LifePlan;
@@ -54,6 +55,7 @@ export function SimulationView({
   updateWithdrawalPlan: <K extends keyof WithdrawalPlanSettings>(key: K, value: WithdrawalPlanSettings[K]) => void;
   updateWithdrawalPlanPatch: (patch: Partial<WithdrawalPlanSettings>) => void;
   setActiveView: (view: ViewKey) => void;
+  openReviewPlan: (year: number) => void;
   accessState: AccessState;
 }) {
   const [simulationTab, setSimulationTab] = useState<"basic" | "cashflow" | "contribution" | "withdrawal">("basic");
@@ -411,6 +413,7 @@ export function SimulationView({
           annualRows={annualRows}
           projectionYears={projectionYears}
           onProjectionYearsChange={setProjectionYears}
+          onOpenReviewPlan={openReviewPlan}
         />
       )}
 

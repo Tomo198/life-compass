@@ -262,7 +262,7 @@ export function RetirementPlanView({
       <StepFlowNav
         setActiveView={setActiveView}
         previous={{ view: "simulation", label: "シミュレーション" }}
-        next={{ view: "scenarios", label: "シナリオ比較" }}
+        next={{ view: "scenarios", label: "見直しプラン" }}
       />
     </div>
   );

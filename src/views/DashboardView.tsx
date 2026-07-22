@@ -320,7 +320,7 @@ export function DashboardView({ plan, reminders, setActiveView, startEmptyPlan, 
           </div>
           <div className="button-row">
             <button type="button" onClick={() => setActiveView("reviews")}>{hasCurrentMonthReview ? "レビュー履歴を確認" : "今月のレビューを始める"}</button>
-            <button type="button" className="secondary" onClick={() => setActiveView("scenarios")}>シナリオを見直す</button>
+            <button type="button" className="secondary" onClick={() => setActiveView("scenarios")}>見直しプランを確認</button>
             <button type="button" className="secondary" onClick={() => setActiveView("data")}>バックアップを確認</button>
           </div>
         </section>

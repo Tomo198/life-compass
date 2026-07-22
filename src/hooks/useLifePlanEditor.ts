@@ -423,9 +423,11 @@ export function useLifePlanEditor() {
   };
 
   const addScenario = (template: ScenarioTemplate) => {
-    if ((plan.scenarios || []).length >= featureTiers.pro.scenarioLimit) return false;
+    if ((plan.scenarios || []).length >= featureTiers.pro.scenarioLimit) return null;
     const nextScenario = createScenarioFromTemplate(plan, template);
-    return commitPlan({ ...plan, scenarios: [...(plan.scenarios || []), nextScenario] });
+    return commitPlan({ ...plan, scenarios: [...(plan.scenarios || []), nextScenario] })
+      ? nextScenario.id
+      : null;
   };
 
   const updateScenario = <K extends keyof PlanScenario>(id: string, key: K, value: PlanScenario[K]) => {

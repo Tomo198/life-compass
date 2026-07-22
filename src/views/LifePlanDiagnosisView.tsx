@@ -8,7 +8,7 @@ import { getLifePlanDiagnosis, type DiagnosisItem } from "../utils/diagnosis";
 type LifePlanDiagnosisViewProps = {
   plan: LifePlan;
   setActiveView: (view: ViewKey) => void;
-  addScenario: (template: ScenarioTemplate) => boolean;
+  addScenario: (template: ScenarioTemplate) => string | null;
 };
 
 export function LifePlanDiagnosisView({ plan, setActiveView, addScenario }: LifePlanDiagnosisViewProps) {

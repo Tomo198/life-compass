@@ -40,7 +40,7 @@ export function PricingView({
           <strong>{legalConfig.proPriceLabel}</strong>
           <p className="muted">1か月ごとの自動更新を予定</p>
           <ul>
-            <li>複数シナリオを保存し、将来の差を比較</li>
+            <li>複数の見直しプランを保存し、将来の差を比較</li>
             <li>見直し候補を横断整理し、比較案へつなげる</li>
             <li>採用した計画と実績の差を毎月確認</li>
             <li>10年・30年見通しと次のTODOを履歴化</li>
@@ -82,7 +82,7 @@ export function PricingView({
           <span className="status-pill recurring">Coming soon</span>
         </div>
         <div className="template-actions">
-          <button type="button" className="secondary" disabled={!hasProAccess} onClick={() => setActiveView("scenarios")}>シナリオ比較</button>
+          <button type="button" className="secondary" disabled={!hasProAccess} onClick={() => setActiveView("scenarios")}>見直しプラン</button>
           <button type="button" className="secondary" disabled={!hasProAccess} onClick={() => setActiveView("retirement")}>老後生活プラン</button>
           <button type="button" className="secondary" disabled={!hasProAccess} onClick={() => setActiveView("diagnosis")}>ライフプラン診断</button>
           <button type="button" className="secondary" disabled={!hasProAccess} onClick={() => setActiveView("reviews")}>レビューセンター</button>

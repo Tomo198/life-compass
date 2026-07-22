@@ -3710,6 +3710,32 @@ td select {
   margin-top: 1rem;
 }
 
+.scenario-workspace-tabs {
+  width: min(28rem, 100%);
+}
+
+.scenario-workspace-tabs button {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.annual-review-plan-prompt {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.annual-review-plan-prompt > div,
+.scenario-review-year-context {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.annual-review-plan-prompt button {
+  flex: 0 0 auto;
+}
+
 .budget-toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -5297,12 +5323,14 @@ td select {
     min-width: 0;
   }
 
-  .scenario-adopt-actions {
+  .scenario-adopt-actions,
+  .annual-review-plan-prompt {
     display: grid;
     grid-template-columns: 1fr;
   }
 
-  .scenario-adopt-actions button {
+  .scenario-adopt-actions button,
+  .annual-review-plan-prompt button {
     width: 100%;
   }
 

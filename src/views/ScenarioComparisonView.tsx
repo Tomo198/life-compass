@@ -38,7 +38,7 @@ import { getScenarioComparisonMetrics } from "../utils/scenarios";
 
 type ScenarioComparisonViewProps = {
   plan: LifePlan;
-  addScenario: (template: ScenarioTemplate) => boolean;
+  addScenario: (template: ScenarioTemplate) => string | null;
   updateScenario: <K extends keyof PlanScenario>(id: string, key: K, value: PlanScenario[K]) => void;
   updateScenarioHousehold: <K extends keyof Household>(id: string, key: K, value: Household[K]) => void;
   updateScenarioAssets: <K extends keyof Assets>(id: string, key: K, value: Assets[K]) => void;
@@ -58,6 +58,7 @@ type ScenarioComparisonViewProps = {
   removeScenarioEvent: (scenarioId: string, eventId: string) => void;
   adoptScenario: (id: string) => boolean;
   removeScenario: (id: string) => void;
+  initialReviewYear: number | null;
 };
 
 export function ScenarioComparisonView({
@@ -81,10 +82,12 @@ export function ScenarioComparisonView({
   updateScenarioEventSchedule,
   removeScenarioEvent,
   adoptScenario,
-  removeScenario
+  removeScenario,
+  initialReviewYear
 }: ScenarioComparisonViewProps) {
   const scenarios = plan.scenarios || [];
-  const [selectedScenarioId, setSelectedScenarioId] = useState("current");
+  const [selectedScenarioId, setSelectedScenarioId] = useState(() => plan.scenarios?.[0]?.id || "current");
+  const [workspaceTab, setWorkspaceTab] = useState<"plans" | "comparison">("plans");
   const [addMessage, setAddMessage] = useState("");
   const [actionMessage, setActionMessage] = useState("");
   const [editorTab, setEditorTab] = useState<"assumptions" | "cashflow" | "goals" | "events">("assumptions");
@@ -103,21 +106,24 @@ export function ScenarioComparisonView({
   const scenarioLimitReached = scenarios.length >= featureTiers.pro.scenarioLimit;
 
   const handleAddScenario = (template: ScenarioTemplate) => {
-    if (addScenario(template)) {
-      setAddMessage(`「${template.name}」の比較案を追加しました。仮条件を確認して調整してください。`);
+    const scenarioId = addScenario(template);
+    if (scenarioId) {
+      setSelectedScenarioId(scenarioId);
+      setEditorTab("assumptions");
+      setAddMessage(`「${template.name}」の見直しプランを追加しました。仮条件を確認して調整してください。`);
       return;
     }
     setAddMessage(
       scenarioLimitReached
-        ? `比較案は最大${featureTiers.pro.scenarioLimit}件です。不要な案を削除してから追加してください。`
-        : "比較案を保存できませんでした。ブラウザの保存状態を確認してください。"
+        ? `見直しプランは最大${featureTiers.pro.scenarioLimit}件です。不要なプランを削除してから追加してください。`
+        : "見直しプランを保存できませんでした。ブラウザの保存状態を確認してください。"
     );
   };
 
   const handleAdoptScenario = () => {
     if (!selectedPlanScenario) return;
     const confirmed = window.confirm(
-      `「${selectedPlanScenario.name}」を基本プランへ採用しますか？採用前の基本プランは比較用シナリオとして残ります。`
+      `「${selectedPlanScenario.name}」を基本プランへ採用しますか？採用前の基本プランは比較用の見直しプランとして残ります。`
     );
     if (!confirmed) return;
     if (adoptScenario(selectedPlanScenario.id)) {
@@ -130,18 +136,44 @@ export function ScenarioComparisonView({
     <div className="view-stack">
       <section className="pro-hero">
         <div>
-          <p className="eyebrow">Pro予定 / シナリオ比較</p>
-          <h2>選択肢ごとの将来見通しを横並びで確認</h2>
-          <p>現状維持、支出見直し、転職、副業、住宅購入、早期退職などを同じ入力条件から分けて保存します。</p>
+          <p className="eyebrow">Pro予定 / 見直しプラン</p>
+          <h2>暮らしの選択肢を作って比べる</h2>
+          <p>支出、働き方、住まい、退職時期などの変更案を別のプランとして保存し、現在プランとの差を確認します。</p>
         </div>
         <span className="lock-badge">Coming soon</span>
       </section>
 
-      <section className="panel">
+      <div className="segmented-control scenario-workspace-tabs" aria-label="見直しプランの表示内容">
+        <button
+          type="button"
+          className={workspaceTab === "plans" ? "active" : ""}
+          aria-pressed={workspaceTab === "plans"}
+          onClick={() => setWorkspaceTab("plans")}
+        >
+          見直しプラン
+        </button>
+        <button
+          type="button"
+          className={workspaceTab === "comparison" ? "active" : ""}
+          aria-pressed={workspaceTab === "comparison"}
+          onClick={() => setWorkspaceTab("comparison")}
+        >
+          比較結果
+        </button>
+      </div>
+
+      {initialReviewYear !== null && workspaceTab === "plans" && (
+        <div className="notice-band check scenario-review-year-context" role="status">
+          <strong>{initialReviewYear}年の年次収支から開きました</strong>
+          <span>見直しプランを追加し、「時期別収支／詳細収支」または「イベント」で{initialReviewYear}年の条件を調整してください。</span>
+        </div>
+      )}
+
+      {workspaceTab === "plans" && <section className="panel">
         <div className="section-heading">
           <div>
-            <h2>シナリオを追加</h2>
-            <p>テンプレートは仮条件です。個別の助言ではなく、前提条件に基づく比較用のたたき台として使います。</p>
+            <h2>見直しプランを作る</h2>
+            <p>気になるテーマを選ぶと現在プランを複製します。金額と時期は仮条件なので、追加後に実際の予定へ調整してください。</p>
           </div>
           <span className="status-pill recurring">{scenarios.length} / {featureTiers.pro.scenarioLimit}件</span>
         </div>
@@ -154,13 +186,13 @@ export function ScenarioComparisonView({
         </div>
         {addMessage ? <p className="success-text" role="status">{addMessage}</p> : null}
         {scenarios.length === 0 ? (
-          <EmptyState title="シナリオはまだありません" detail="まずは現状維持と、気になる変更案を1つ追加すると比較しやすくなります。" />
+          <EmptyState title="見直しプランはまだありません" detail="まずは気になる変更案を1つ追加し、現在プランと比べてみましょう。" />
         ) : (
           <div className="scenario-list">
             {scenarios.map((scenario) => (
               <div className="scenario-row" key={scenario.id}>
                 <label>
-                  シナリオ名
+                  見直しプラン名
                   <input value={scenario.name} onChange={(event) => updateScenario(scenario.id, "name", event.target.value)} />
                 </label>
                 <label>
@@ -184,23 +216,32 @@ export function ScenarioComparisonView({
                     placeholder="例: 固定費を月3万円見直す"
                   />
                 </label>
-                <button type="button" className="text-button" onClick={() => removeScenario(scenario.id)}>
+                <button
+                  type="button"
+                  className="text-button"
+                  onClick={() => {
+                    removeScenario(scenario.id);
+                    if (selectedScenarioId === scenario.id) {
+                      setSelectedScenarioId(scenarios.find((item) => item.id !== scenario.id)?.id || "current");
+                    }
+                  }}
+                >
                   削除
                 </button>
               </div>
             ))}
           </div>
         )}
-      </section>
+      </section>}
 
-      <section className="panel">
+      {workspaceTab === "comparison" && <section className="panel">
         <div className="section-heading">
           <div>
-            <h2>シナリオ別の年次グラフ</h2>
-            <p>選んだシナリオの30年見通しをグラフで確認します。</p>
+            <h2>見直しプラン別の年次グラフ</h2>
+            <p>選んだプランの30年見通しをグラフで確認します。</p>
           </div>
           <label className="compact-select">
-            表示シナリオ
+            表示するプラン
             <select
               value={selectedScenarioId}
               onChange={(event) => {
@@ -223,24 +264,39 @@ export function ScenarioComparisonView({
           <div className="scenario-adopt-actions">
             <div>
               <strong>比較結果を基本プランへ反映</strong>
-              <span>採用前の基本条件は自動でシナリオとして残るため、あとから比較・再採用できます。</span>
+              <span>採用前の基本条件は自動で見直しプランとして残るため、あとから比較・再採用できます。</span>
             </div>
-            <button type="button" onClick={handleAdoptScenario}>このシナリオを採用</button>
+            <button type="button" onClick={handleAdoptScenario}>このプランを採用</button>
           </div>
         )}
         {actionMessage && <p className="success-text" role="status">{actionMessage}</p>}
-      </section>
+      </section>}
 
-      {selectedPlanScenario && (
+      {workspaceTab === "plans" && selectedPlanScenario && (
         <section className="panel scenario-assumptions-panel">
           <div className="section-heading">
             <div>
-              <h2>選択中のシナリオ前提</h2>
+              <h2>選択中の見直しプラン</h2>
               <p>比較に使う家計、資産、積立の前提を変更します。基本プランは採用するまで変わりません。</p>
             </div>
-            <span className="status-pill recurring">{selectedPlanScenario.name}</span>
+            <label className="compact-select">
+              編集するプラン
+              <select
+                value={selectedPlanScenario.id}
+                onChange={(event) => {
+                  setSelectedScenarioId(event.target.value);
+                  setEditorTab("assumptions");
+                  setActionMessage("");
+                  setAddMessage("");
+                }}
+              >
+                {scenarios.map((scenario) => (
+                  <option key={scenario.id} value={scenario.id}>{scenario.name}</option>
+                ))}
+              </select>
+            </label>
           </div>
-          <div className="segmented-control scenario-editor-tabs" aria-label="シナリオ編集項目">
+          <div className="segmented-control scenario-editor-tabs" aria-label="見直しプランの編集項目">
             {[
               { id: "assumptions", label: "基本条件" },
               {
@@ -280,27 +336,27 @@ export function ScenarioComparisonView({
                 </>
               ) : (
                 <div className="form-grid">
-                  <MoneyInput label="シナリオの月収" value={selectedPlanScenario.snapshot.household.monthlyIncome} onChange={(value) => updateScenarioHousehold(selectedPlanScenario.id, "monthlyIncome", value)} />
-                  <MoneyInput label="シナリオのボーナス年額" value={selectedPlanScenario.snapshot.household.annualBonus} onChange={(value) => updateScenarioHousehold(selectedPlanScenario.id, "annualBonus", value)} />
-                  <MoneyInput label="シナリオの副業収入 月額" value={selectedPlanScenario.snapshot.household.sideIncome} onChange={(value) => updateScenarioHousehold(selectedPlanScenario.id, "sideIncome", value)} />
-                  <MoneyInput label="シナリオの固定費 月額" value={selectedPlanScenario.snapshot.household.fixedCost} onChange={(value) => updateScenarioHousehold(selectedPlanScenario.id, "fixedCost", value)} />
-                  <MoneyInput label="シナリオの変動費 月額" value={selectedPlanScenario.snapshot.household.variableCost} onChange={(value) => updateScenarioHousehold(selectedPlanScenario.id, "variableCost", value)} />
-                  <MoneyInput label="シナリオの年間特別支出" value={selectedPlanScenario.snapshot.household.annualSpecialCost} onChange={(value) => updateScenarioHousehold(selectedPlanScenario.id, "annualSpecialCost", value)} />
+                  <MoneyInput label="見直しプランの月収" value={selectedPlanScenario.snapshot.household.monthlyIncome} onChange={(value) => updateScenarioHousehold(selectedPlanScenario.id, "monthlyIncome", value)} />
+                  <MoneyInput label="見直しプランのボーナス年額" value={selectedPlanScenario.snapshot.household.annualBonus} onChange={(value) => updateScenarioHousehold(selectedPlanScenario.id, "annualBonus", value)} />
+                  <MoneyInput label="見直しプランの副業収入 月額" value={selectedPlanScenario.snapshot.household.sideIncome} onChange={(value) => updateScenarioHousehold(selectedPlanScenario.id, "sideIncome", value)} />
+                  <MoneyInput label="見直しプランの固定費 月額" value={selectedPlanScenario.snapshot.household.fixedCost} onChange={(value) => updateScenarioHousehold(selectedPlanScenario.id, "fixedCost", value)} />
+                  <MoneyInput label="見直しプランの変動費 月額" value={selectedPlanScenario.snapshot.household.variableCost} onChange={(value) => updateScenarioHousehold(selectedPlanScenario.id, "variableCost", value)} />
+                  <MoneyInput label="見直しプランの年間特別支出" value={selectedPlanScenario.snapshot.household.annualSpecialCost} onChange={(value) => updateScenarioHousehold(selectedPlanScenario.id, "annualSpecialCost", value)} />
                 </div>
               )}
               <h3>資産</h3>
               <div className="form-grid">
-                <MoneyInput label="シナリオの現金" value={selectedPlanScenario.snapshot.assets.cash} onChange={(value) => updateScenarioAssets(selectedPlanScenario.id, "cash", value)} />
-                <MoneyInput label="シナリオの投資資産" value={selectedPlanScenario.snapshot.assets.investment} onChange={(value) => updateScenarioAssets(selectedPlanScenario.id, "investment", value)} />
-                <MoneyInput label="シナリオのその他資産" value={selectedPlanScenario.snapshot.assets.other} onChange={(value) => updateScenarioAssets(selectedPlanScenario.id, "other", value)} />
-                <MoneyInput label="シナリオの負債" value={selectedPlanScenario.snapshot.assets.debt} onChange={(value) => updateScenarioAssets(selectedPlanScenario.id, "debt", value)} />
+                <MoneyInput label="見直しプランの現金" value={selectedPlanScenario.snapshot.assets.cash} onChange={(value) => updateScenarioAssets(selectedPlanScenario.id, "cash", value)} />
+                <MoneyInput label="見直しプランの投資資産" value={selectedPlanScenario.snapshot.assets.investment} onChange={(value) => updateScenarioAssets(selectedPlanScenario.id, "investment", value)} />
+                <MoneyInput label="見直しプランのその他資産" value={selectedPlanScenario.snapshot.assets.other} onChange={(value) => updateScenarioAssets(selectedPlanScenario.id, "other", value)} />
+                <MoneyInput label="見直しプランの負債" value={selectedPlanScenario.snapshot.assets.debt} onChange={(value) => updateScenarioAssets(selectedPlanScenario.id, "debt", value)} />
               </div>
               <h3>積立・基本見通し</h3>
               <div className="form-grid">
-                <MoneyInput label="シナリオで毎月投資へ回す額" value={selectedPlanScenario.snapshot.simulation.monthlyInvestmentAmount} onChange={(value) => updateScenarioSimulation(selectedPlanScenario.id, "monthlyInvestmentAmount", value)} />
-                <MoneyInput label="シナリオでボーナスから投資へ回す年額" value={selectedPlanScenario.snapshot.simulation.annualBonusInvestmentAmount} onChange={(value) => updateScenarioSimulation(selectedPlanScenario.id, "annualBonusInvestmentAmount", value)} />
+                <MoneyInput label="見直しプランで毎月投資へ回す額" value={selectedPlanScenario.snapshot.simulation.monthlyInvestmentAmount} onChange={(value) => updateScenarioSimulation(selectedPlanScenario.id, "monthlyInvestmentAmount", value)} />
+                <MoneyInput label="見直しプランでボーナスから投資へ回す年額" value={selectedPlanScenario.snapshot.simulation.annualBonusInvestmentAmount} onChange={(value) => updateScenarioSimulation(selectedPlanScenario.id, "annualBonusInvestmentAmount", value)} />
                 <label>
-                  シナリオの想定利回り %
+                  見直しプランの想定利回り %
                   <NumericInput value={selectedPlanScenario.snapshot.simulation.annualReturnRate} min={-MAX_RATE_PERCENT} max={MAX_RATE_PERCENT} allowDecimal onChange={(value) => updateScenarioSimulation(selectedPlanScenario.id, "annualReturnRate", value)} />
                 </label>
               </div>
@@ -353,7 +409,7 @@ export function ScenarioComparisonView({
         </section>
       )}
 
-      <section className="panel">
+      {workspaceTab === "comparison" && <section className="panel">
         <h2>比較表</h2>
         <p>入力条件に基づく参考試算として、主要な差分を確認します。</p>
         <div className="table-wrap">
@@ -386,7 +442,7 @@ export function ScenarioComparisonView({
             </tbody>
           </table>
         </div>
-      </section>
+      </section>}
     </div>
   );
 }

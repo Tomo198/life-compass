@@ -45,7 +45,7 @@ export function ScenarioCashflowEditor({
     if (!title) return;
     onAdd({ ...draft, title });
     setDraft(createCashflowPeriodDraft(household));
-    setStatus(`「${title}」をシナリオへ登録しました。`);
+    setStatus(`「${title}」を見直しプランへ登録しました。`);
   };
 
   return (
@@ -98,7 +98,7 @@ export function ScenarioCashflowEditor({
       </form>
 
       <div className="registered-list-heading">
-        <div><h3>シナリオ内の時期別収支</h3><p>登録内容はこのシナリオだけの年次見通しへ反映されます。</p></div>
+        <div><h3>見直しプラン内の時期別収支</h3><p>登録内容はこの見直しプランだけの年次見通しへ反映されます。</p></div>
         <span>{periods.length}件</span>
       </div>
       {periods.length === 0 ? (
@@ -138,7 +138,7 @@ export function ScenarioCashflowEditor({
       )}
       <div className="notice-band check cashflow-period-note">
         <strong>基本プランとは別に保存</strong>
-        <span>ここでの変更は比較中のシナリオだけに反映され、「このシナリオを採用」するまで基本プランは変わりません。</span>
+        <span>ここでの変更は選択中の見直しプランだけに反映され、「このプランを採用」するまで基本プランは変わりません。</span>
       </div>
     </div>
   );

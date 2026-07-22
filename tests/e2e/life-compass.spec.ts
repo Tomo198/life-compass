@@ -125,7 +125,7 @@ test("詳細収支のシナリオを基本プランと分けて編集・保存�
 
   await openView(page, "scenarios");
   await page.getByRole("button", { name: "現状維持", exact: true }).click();
-  await page.getByLabel("表示シナリオ").selectOption({ label: "現状維持" });
+  await page.getByLabel("編集するプラン").selectOption({ label: "現状維持" });
   const scenarioTabs = page.locator(".scenario-editor-tabs");
   await scenarioTabs.getByRole("button", { name: /詳細収支/ }).click();
 
@@ -152,7 +152,7 @@ test("詳細収支のシナリオを基本プランと分けて編集・保存�
 
   await page.reload();
   await openView(page, "scenarios");
-  await page.getByLabel("表示シナリオ").selectOption({ label: "現状維持" });
+  await page.getByLabel("編集するプラン").selectOption({ label: "現状維持" });
   await page.locator(".scenario-editor-tabs").getByRole("button", { name: /詳細収支/ }).click();
   await expect(page.locator(".detailed-cashflow-list")).toContainText("シナリオ内の副業収入");
 });
@@ -352,9 +352,10 @@ test("無料版とPro版の境界が表示され、横方向にはみ出さな�
   expect(overflow).toBeLessThanOrEqual(1);
 
   await page.getByRole("button", { name: "開発中のPro機能を確認する", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "シナリオ比較", level: 1 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "見直しプラン", level: 1 })).toBeVisible();
   await page.getByRole("button", { name: "現状維持", exact: true }).click();
   await expect(page.locator(".scenario-row")).toHaveCount(1);
+  await page.getByRole("button", { name: "比較結果", exact: true }).click();
   await expect(page.getByRole("cell", { name: "10年後資産", exact: true })).toBeVisible();
   await expect(page.getByTestId("app-shell")).toHaveAttribute("data-access-mode", "preview");
   await expect(page.getByTestId("app-shell")).toHaveAttribute("data-access-tier", "free");
@@ -447,7 +448,7 @@ test("運営者としてログインした場合だけ課金なしでPro機能�
   const openPro = page.getByRole("button", { name: "開発中のPro機能を確認する", exact: true });
   await expect(openPro).toBeEnabled();
   await openPro.click();
-  await expect(page.getByRole("heading", { name: "シナリオ比較", level: 1 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "見直しプラン", level: 1 })).toBeVisible();
   await expect(page.getByTestId("app-shell")).toHaveAttribute("data-access-tier", "pro");
 });
 
@@ -459,8 +460,8 @@ test("シナリオ前提を編集して基本プランへ採用し、採用前�
     return plan.household.fixedCost as number;
   });
 
-  await page.getByLabel("表示シナリオ").selectOption({ label: "支出見直し" });
-  const scenarioFixedCost = page.getByLabel("シナリオの固定費 月額");
+  await page.getByLabel("編集するプラン").selectOption({ label: "支出見直し" });
+  const scenarioFixedCost = page.getByLabel("見直しプランの固定費 月額");
   await scenarioFixedCost.fill("88888");
   await scenarioFixedCost.blur();
 
@@ -468,8 +469,9 @@ test("シナリオ前提を編集して基本プランへ採用し、採用前�
   expect(beforeAdoption.household.fixedCost).toBe(originalFixedCost);
   expect(beforeAdoption.scenarios[0].snapshot.household.fixedCost).toBe(88888);
 
+  await page.getByRole("button", { name: "比較結果", exact: true }).click();
   page.once("dialog", (dialog) => dialog.accept());
-  await page.getByRole("button", { name: "このシナリオを採用", exact: true }).click();
+  await page.getByRole("button", { name: "このプランを採用", exact: true }).click();
   await expect(page.getByRole("status")).toContainText("基本プランへ採用しました");
 
   const afterAdoption = await page.evaluate(() => JSON.parse(localStorage.getItem("life-compass-plan-v1") || "{}"));
@@ -504,7 +506,7 @@ test("シナリオ内の時期別収支・目標・イベントを編集して�
     };
   });
 
-  await page.getByLabel("表示シナリオ").selectOption({ label: "現状維持" });
+  await page.getByLabel("編集するプラン").selectOption({ label: "現状維持" });
 
   const scenarioTabs = page.locator(".scenario-editor-tabs");
   await scenarioTabs.getByRole("button", { name: /時期別収支/ }).click();
@@ -512,14 +514,14 @@ test("シナリオ内の時期別収支・目標・イベントを編集して�
   await cashflowForm.getByLabel("変更名").fill("育休期間の収入");
   await cashflowForm.getByLabel("期間中の金額（月額）").fill("210000");
   await cashflowForm.getByRole("button", { name: "時期別収支を登録" }).click();
-  await expect(cashflowForm.getByRole("status")).toContainText("シナリオへ登録しました");
+  await expect(cashflowForm.getByRole("status")).toContainText("見直しプランへ登録しました");
 
   await scenarioTabs.getByRole("button", { name: /目標/ }).click();
   const goalForm = page.getByTestId("scenario-goal-create-form");
   await goalForm.getByLabel("目標名").fill("住宅購入の頭金");
   await goalForm.getByLabel("目標額").fill("5000000");
   await goalForm.getByRole("button", { name: "目標を登録" }).click();
-  await expect(goalForm.getByRole("status")).toContainText("シナリオへ登録しました");
+  await expect(goalForm.getByRole("status")).toContainText("見直しプランへ登録しました");
 
   await scenarioTabs.getByRole("button", { name: /イベント/ }).click();
   const eventForm = page.getByTestId("scenario-event-create-form");
@@ -527,7 +529,7 @@ test("シナリオ内の時期別収支・目標・イベントを編集して�
   await eventForm.getByLabel("家計への影響").selectOption("expense");
   await eventForm.getByLabel("金額").fill("3000000");
   await eventForm.getByRole("button", { name: "イベントを登録" }).click();
-  await expect(eventForm.getByRole("status")).toContainText("シナリオへ登録しました");
+  await expect(eventForm.getByRole("status")).toContainText("見直しプランへ登録しました");
 
   const beforeAdoption = await page.evaluate(() => JSON.parse(localStorage.getItem("life-compass-plan-v1") || "{}"));
   expect(beforeAdoption.cashflowPeriods).toHaveLength(initialCounts.cashflowPeriods);
@@ -537,8 +539,9 @@ test("シナリオ内の時期別収支・目標・イベントを編集して�
   expect(beforeAdoption.scenarios[0].snapshot.goals).toHaveLength(initialCounts.scenarioGoals + 1);
   expect(beforeAdoption.scenarios[0].snapshot.events).toHaveLength(initialCounts.scenarioEvents + 1);
 
+  await page.getByRole("button", { name: "比較結果", exact: true }).click();
   page.once("dialog", (dialog) => dialog.accept());
-  await page.getByRole("button", { name: "このシナリオを採用", exact: true }).click();
+  await page.getByRole("button", { name: "このプランを採用", exact: true }).click();
   const adopted = await page.evaluate(() => JSON.parse(localStorage.getItem("life-compass-plan-v1") || "{}"));
   expect(adopted.cashflowPeriods.some((period: { title: string }) => period.title === "育休期間の収入")).toBe(true);
   expect(adopted.goals.some((goal: { title: string }) => goal.title === "住宅購入の頭金")).toBe(true);
@@ -560,11 +563,11 @@ test("診断の見直し候補から支出見直しの比較案を作成して�
   await expect(page.locator(".diagnosis-confirmed")).not.toHaveAttribute("open", "");
   await page.getByRole("button", { name: "支出見直しの比較案を作る", exact: true }).click();
 
-  await expect(page.getByRole("heading", { name: "シナリオ比較", level: 1 })).toBeVisible();
-  await expect(page.locator(".scenario-row").getByLabel("シナリオ名")).toHaveValue("支出見直し");
+  await expect(page.getByRole("heading", { name: "見直しプラン", level: 1 })).toBeVisible();
+  await expect(page.locator(".scenario-row").getByLabel("見直しプラン名")).toHaveValue("支出見直し");
   await page.reload();
   await openView(page, "scenarios");
-  await expect(page.locator(".scenario-row").getByLabel("シナリオ名")).toHaveValue("支出見直し");
+  await expect(page.locator(".scenario-row").getByLabel("見直しプラン名")).toHaveValue("支出見直し");
 
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow).toBeLessThanOrEqual(1);
@@ -605,9 +608,9 @@ test("Proレビューで将来見通しを保存し、見直しシナリオへ�
   const builderOverflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(builderOverflow).toBeLessThanOrEqual(1);
   await page.getByRole("button", { name: "この内容で見直し案を作る", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "シナリオ比較", level: 1 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "見直しプラン", level: 1 })).toBeVisible();
   const expectedScenarioName = `${new Date().toISOString().slice(0, 7).replace("-", "年")}月 見直し案`;
-  await expect(page.locator(".scenario-row").getByLabel("シナリオ名")).toHaveValue(expectedScenarioName);
+  await expect(page.locator(".scenario-row").getByLabel("見直しプラン名")).toHaveValue(expectedScenarioName);
   const reflectedScenario = await page.evaluate(() => {
     const plan = JSON.parse(localStorage.getItem("life-compass-plan-v1") || "{}");
     const scenario = plan.scenarios[0];
@@ -725,6 +728,10 @@ test("時期別の収支を年次見通しへ反映して保存できる", async
 
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow).toBeLessThanOrEqual(1);
+
+  await page.getByRole("button", { name: "見直しプランで検討（Pro）", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "見直しプラン", level: 1 })).toBeVisible();
+  await expect(page.getByRole("status")).toContainText(`${periodYear}年の年次収支から開きました`);
 
   await page.reload();
   await openView(page, "household");

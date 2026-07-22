@@ -27,7 +27,7 @@ export function ScenarioGoalsEditor({ goals, currentAge, onAdd, onUpdate, onRemo
     if (!title) return;
     onAdd({ ...draft, title });
     setDraft(createGoalDraft());
-    setStatus(`「${title}」をシナリオへ登録しました。`);
+    setStatus(`「${title}」を見直しプランへ登録しました。`);
   };
 
   return (
@@ -76,11 +76,11 @@ export function ScenarioGoalsEditor({ goals, currentAge, onAdd, onUpdate, onRemo
       </form>
 
       <div className="registered-list-heading">
-        <div><h3>シナリオ内の目標</h3><p>項目を開くと、金額や期限を変更できます。</p></div>
+        <div><h3>見直しプラン内の目標</h3><p>項目を開くと、金額や期限を変更できます。</p></div>
         <span>{goals.length}件</span>
       </div>
       {goals.length === 0 ? (
-        <EmptyState title="このシナリオに目標はありません" detail="必要な目標だけを追加して比較できます。" />
+        <EmptyState title="この見直しプランに目標はありません" detail="必要な目標だけを追加して比較できます。" />
       ) : (
         <div className="scenario-record-list">
           {goals.map((goal) => (

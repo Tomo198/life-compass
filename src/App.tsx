@@ -123,6 +123,7 @@ function App() {
     startEmptyPlan
   } = useLifePlanEditor();
   const [activeView, setActiveViewState] = useState<ViewKey>(() => getViewForPath(window.location.pathname));
+  const [reviewPlanYear, setReviewPlanYear] = useState<number | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [accessState, setAccessState] = useState<AccessState>(() => defaultAccessState);
   const [settings, setSettings] = useState<AppSettings>(() => loadAppSettings());
@@ -153,6 +154,7 @@ function App() {
 
   const setActiveView = (view: ViewKey) => {
     const nextView = canOpenView(accessState, view) ? view : "pricing";
+    if (nextView !== "scenarios") setReviewPlanYear(null);
     setMobileMenuOpen(false);
     setActiveViewState(nextView);
     const nextPath = getPublicPath(nextView);
@@ -325,6 +327,10 @@ function App() {
               updateWithdrawalPlan={updateWithdrawalPlan}
               updateWithdrawalPlanPatch={updateWithdrawalPlanPatch}
               setActiveView={setActiveView}
+              openReviewPlan={(year) => {
+                setReviewPlanYear(year);
+                setActiveView("scenarios");
+              }}
               accessState={accessState}
             />
           </Suspense>
@@ -363,6 +369,7 @@ function App() {
             removeScenarioEvent={removeScenarioEvent}
             adoptScenario={adoptScenario}
             removeScenario={removeScenario}
+            initialReviewYear={reviewPlanYear}
           />
         );
       case "diagnosis":

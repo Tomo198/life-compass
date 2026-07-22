@@ -11,12 +11,14 @@ export function AnnualCashflowPanel({
   plan,
   annualRows,
   projectionYears,
-  onProjectionYearsChange
+  onProjectionYearsChange,
+  onOpenReviewPlan
 }: {
   plan: LifePlan;
   annualRows: AnnualProjectionRow[];
   projectionYears: 10 | 30;
   onProjectionYearsChange: (years: 10 | 30) => void;
+  onOpenReviewPlan: (year: number) => void;
 }) {
   const [selectedYear, setSelectedYear] = useState<number | null>(null);
   const rows = annualRows.slice(1);
@@ -89,6 +91,18 @@ export function AnnualCashflowPanel({
           </div>
         )}
       </section>
+
+      {selectedYear !== null && (
+        <div className="notice-band check annual-review-plan-prompt">
+          <div>
+            <strong>{selectedYear}年の条件を見直す</strong>
+            <span>この年の時期別収支やイベントを変更したプランを作り、現在プランとの差を比較できます。</span>
+          </div>
+          <button type="button" className="secondary" onClick={() => onOpenReviewPlan(selectedYear)}>
+            見直しプランで検討（Pro）
+          </button>
+        </div>
+      )}
 
       <details className="projection-details">
         <summary>世帯年齢と年次キャッシュフローの内訳を確認</summary>
