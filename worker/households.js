@@ -119,16 +119,64 @@ const countActiveMembers = async (env, householdId) => {
   return Number(row?.count || 0);
 };
 
+const listPublicMembers = async (env, householdId, currentUserId) => {
+  const result = await env.DB.prepare(
+    `SELECT memberships.id,
+            memberships.user_id,
+            memberships.role,
+            memberships.joined_at,
+            users.email,
+            users.email_verified
+       FROM household_memberships AS memberships
+       JOIN users
+         ON users.id = memberships.user_id
+      WHERE memberships.household_id = ?
+        AND memberships.status = 'active'
+        AND users.deleted_at IS NULL
+      ORDER BY CASE memberships.role WHEN 'owner' THEN 0 ELSE 1 END,
+               memberships.joined_at ASC`
+  ).bind(householdId).all();
+  return (result.results || []).map((member) => ({
+    id: member.id,
+    role: member.role,
+    email: member.email_verified === 1 ? member.email || null : null,
+    isCurrentUser: member.user_id === currentUserId,
+    joinedAt: member.joined_at
+  }));
+};
+
+const listPendingInvitations = async (env, householdId) => {
+  const result = await env.DB.prepare(
+    `SELECT id, expires_at, created_at
+       FROM household_invitations
+      WHERE household_id = ?
+        AND accepted_at IS NULL
+        AND revoked_at IS NULL
+        AND expires_at > unixepoch()
+      ORDER BY created_at DESC`
+  ).bind(householdId).all();
+  return (result.results || []).map((invitation) => ({
+    id: invitation.id,
+    expiresAt: new Date(Number(invitation.expires_at) * 1000).toISOString(),
+    createdAt: invitation.created_at
+  }));
+};
+
 const publicHousehold = async (user, env) => {
   const access = await resolveHouseholdAccess(user, env);
   if (!access.available) return null;
+  const members = await listPublicMembers(env, access.householdId, user.id);
   return {
     id: access.householdId,
     role: access.role,
     status: access.status,
     keyEpoch: access.keyEpoch,
     currentRevision: access.currentRevision,
-    memberCount: await countActiveMembers(env, access.householdId),
+    memberCount: members.length,
+    members,
+    pendingInvitations: access.role === "owner"
+      ? await listPendingInvitations(env, access.householdId)
+      : [],
     readAllowed: access.readAllowed,
     writeAllowed: access.writeAllowed,
     ownerProActive: access.ownerProActive,
@@ -436,52 +484,63 @@ const acceptInvitation = async (request, env, jsonResponse) => {
   return jsonResponse({ ok: true, household: await publicHousehold(user, env) });
 };
 
-const removeMember = async (request, env, memberUserId, jsonResponse) => {
+const removeMember = async (request, env, membershipId, jsonResponse) => {
   requireSharingEnabled(env);
   requireSameOrigin(request);
   const user = await requireFreshUser(request, env);
   await requireRateLimit(request, user, env, "household-member-remove");
   const access = await requireOwner(user, env);
-  if (memberUserId === user.id) {
-    throw new AuthError(400, "cannot_remove_owner", "The owner cannot be removed from the household.");
-  }
-
   const member = await env.DB.prepare(
-    `SELECT user_id, role
+    `SELECT id, user_id, role
        FROM household_memberships
       WHERE household_id = ?
-        AND user_id = ?
+        AND id = ?
         AND status = 'active'
       LIMIT 1`
-  ).bind(access.householdId, memberUserId).first();
+  ).bind(access.householdId, membershipId).first();
   if (!member || member.role !== "editor") {
     throw new AuthError(404, "household_member_not_found", "Household member not found.");
   }
 
-  await env.DB.batch([
-    env.DB.prepare(
-      `UPDATE household_memberships
-          SET status = 'revoked',
-              revoked_at = CURRENT_TIMESTAMP
-        WHERE household_id = ?
-          AND user_id = ?
-          AND role = 'editor'
-          AND status = 'active'`
-    ).bind(access.householdId, memberUserId),
+  const results = await env.DB.batch([
     env.DB.prepare(
       `UPDATE shared_households
           SET status = 'read_only',
               key_epoch = key_epoch + 1,
               updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
-          AND deleted_at IS NULL`
-    ).bind(access.householdId),
+          AND status = 'active'
+          AND deleted_at IS NULL
+          AND EXISTS (
+            SELECT 1
+              FROM household_memberships
+             WHERE household_id = shared_households.id
+               AND id = ?
+               AND role = 'editor'
+               AND status = 'active'
+          )`
+    ).bind(access.householdId, membershipId),
+    env.DB.prepare(
+      `UPDATE household_memberships
+          SET status = 'revoked',
+              revoked_at = CURRENT_TIMESTAMP
+        WHERE household_id = ?
+          AND id = ?
+          AND role = 'editor'
+          AND status = 'active'`
+    ).bind(access.householdId, membershipId),
     env.DB.prepare(
       `INSERT INTO household_audit_events
         (id, household_id, actor_user_id, event_type)
        VALUES (?, ?, ?, 'removed')`
     ).bind(crypto.randomUUID(), access.householdId, user.id)
   ]);
+  if (
+    Number(results?.[0]?.meta?.changes || 0) !== 1
+    || Number(results?.[1]?.meta?.changes || 0) !== 1
+  ) {
+    throw new AuthError(409, "household_state_changed", "Household membership changed before removal completed.");
+  }
 
   return jsonResponse({ ok: true, memberRemoved: true, requiresKeyRotation: true });
 };
@@ -496,7 +555,24 @@ const leaveHousehold = async (request, env, jsonResponse) => {
     throw new AuthError(409, "owner_cannot_leave", "Delete the shared household before leaving as owner.");
   }
 
-  await env.DB.batch([
+  const results = await env.DB.batch([
+    env.DB.prepare(
+      `UPDATE shared_households
+          SET status = 'read_only',
+              key_epoch = key_epoch + 1,
+              updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+          AND status = 'active'
+          AND deleted_at IS NULL
+          AND EXISTS (
+            SELECT 1
+              FROM household_memberships
+             WHERE household_id = shared_households.id
+               AND user_id = ?
+               AND role = 'editor'
+               AND status = 'active'
+          )`
+    ).bind(access.householdId, user.id),
     env.DB.prepare(
       `UPDATE household_memberships
           SET status = 'left',
@@ -507,19 +583,17 @@ const leaveHousehold = async (request, env, jsonResponse) => {
           AND status = 'active'`
     ).bind(access.householdId, user.id),
     env.DB.prepare(
-      `UPDATE shared_households
-          SET status = 'read_only',
-              key_epoch = key_epoch + 1,
-              updated_at = CURRENT_TIMESTAMP
-        WHERE id = ?
-          AND deleted_at IS NULL`
-    ).bind(access.householdId),
-    env.DB.prepare(
       `INSERT INTO household_audit_events
         (id, household_id, actor_user_id, event_type)
        VALUES (?, ?, ?, 'left')`
     ).bind(crypto.randomUUID(), access.householdId, user.id)
   ]);
+  if (
+    Number(results?.[0]?.meta?.changes || 0) !== 1
+    || Number(results?.[1]?.meta?.changes || 0) !== 1
+  ) {
+    throw new AuthError(409, "household_state_changed", "Household membership changed before leaving completed.");
+  }
   return jsonResponse({ ok: true, leftHousehold: true });
 };
 
@@ -528,30 +602,58 @@ const deleteHousehold = async (request, env, jsonResponse) => {
   requireSameOrigin(request);
   const user = await requireFreshUser(request, env);
   await requireRateLimit(request, user, env, "household-delete");
-  const access = await requireOwner(user, env);
   const body = await parseJsonBody(request);
   if (body.confirmation !== "DELETE_SHARED_HOUSEHOLD") {
     throw new AuthError(400, "household_deletion_not_confirmed", "Household deletion was not confirmed.");
   }
 
-  const revisions = await env.DB.prepare(
-    `SELECT COUNT(*) AS count
-       FROM shared_plan_revisions
-      WHERE household_id = ?`
-  ).bind(access.householdId).first();
-  if (Number(revisions?.count || 0) > 0) {
-    throw new AuthError(
-      409,
-      "shared_plan_deletion_not_ready",
-      "Delete encrypted shared plan revisions before deleting the household."
-    );
+  const household = await env.DB.prepare(
+    `SELECT households.id
+       FROM shared_households AS households
+       JOIN household_memberships AS memberships
+         ON memberships.household_id = households.id
+      WHERE households.owner_user_id = ?
+        AND households.deleted_at IS NULL
+        AND households.status IN ('active', 'read_only', 'deleting')
+        AND memberships.user_id = ?
+        AND memberships.role = 'owner'
+        AND memberships.status = 'active'
+      LIMIT 1`
+  ).bind(user.id, user.id).first();
+  if (!household) {
+    throw new AuthError(403, "household_owner_required", "Only the household owner can perform this action.");
   }
 
+  await env.DB.prepare(
+    `UPDATE shared_households
+        SET status = 'deleting',
+            updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+        AND owner_user_id = ?
+        AND deleted_at IS NULL`
+  ).bind(household.id, user.id).run();
+
+  const revisions = await env.DB.prepare(
+    `SELECT r2_object_key
+       FROM shared_plan_revisions
+      WHERE household_id = ?`
+  ).bind(household.id).all();
+  const objectKeys = (revisions.results || []).map((row) => row.r2_object_key).filter(Boolean);
+  if (objectKeys.length > 0) {
+    if (!env?.SHARED_PLANS) {
+      throw new AuthError(503, "shared_plan_storage_unavailable", "Shared plan storage is not configured.");
+    }
+    try {
+      await env.SHARED_PLANS.delete(objectKeys);
+    } catch {
+      throw new AuthError(503, "shared_plan_deletion_failed", "Encrypted shared plan deletion could not be completed.");
+    }
+  }
   await env.DB.prepare(
     `DELETE FROM shared_households
       WHERE id = ?
         AND owner_user_id = ?`
-  ).bind(access.householdId, user.id).run();
+  ).bind(household.id, user.id).run();
   return jsonResponse({ ok: true, householdDeleted: true });
 };
 

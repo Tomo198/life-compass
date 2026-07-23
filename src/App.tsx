@@ -153,7 +153,11 @@ function App() {
     resetPlan,
     startEmptyPlan
   } = useLifePlanEditor();
-  const [activeView, setActiveViewState] = useState<ViewKey>(() => getViewForPath(window.location.pathname));
+  const [activeView, setActiveViewState] = useState<ViewKey>(() =>
+    /^#\/household-invite\/[A-Za-z0-9_-]{40,128}$/u.test(window.location.hash)
+      ? "settings"
+      : getViewForPath(window.location.pathname)
+  );
   const [reviewPlanYear, setReviewPlanYear] = useState<number | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [accessState, setAccessState] = useState<AccessState>(() => defaultAccessState);
@@ -467,6 +471,8 @@ function App() {
             requestBrowserNotifications={requestBrowserNotifications}
             setActiveView={setActiveView}
             refreshAccessState={refreshAccessState}
+            plan={plan}
+            commitPlan={commitPlan}
           />
         );
       case "legal":

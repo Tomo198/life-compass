@@ -5,6 +5,7 @@ import { AuthError, parseBoundedJsonBody, sameOrigin } from "./security.js";
 const MAX_SHARED_PLAN_BODY_BYTES = 7 * 1024 * 1024;
 const MAX_SHARED_PLAN_CIPHERTEXT_BYTES = 5 * 1024 * 1024 + 16;
 const MAX_REVISIONS = 10;
+const FRESH_SESSION_MAX_AGE_SECONDS = 10 * 60;
 const SHARED_PLAN_FORMAT = "life-compass-shared-plan";
 const SHARED_PLAN_VERSION = 1;
 const PBKDF2_ITERATIONS = 600_000;
@@ -267,12 +268,24 @@ const cleanupOldRevisions = async (env, householdId) => {
   }
 };
 
-const savePlan = async (request, env, jsonResponse) => {
+const savePlan = async (request, env, jsonResponse, rotateKey = false) => {
   if (!sameOrigin(request)) {
     throw new AuthError(403, "invalid_origin", "Shared plan request origin is invalid.");
   }
-  const { user, access } = await requireAccess(request, env, true);
-  await requireRateLimit(request, user, env, "shared-plan-save");
+  const { user, access } = await requireAccess(request, env, !rotateKey);
+  await requireRateLimit(request, user, env, rotateKey ? "shared-plan-rotate-key" : "shared-plan-save");
+  if (rotateKey) {
+    const now = Math.floor(Date.now() / 1000);
+    if (access.role !== "owner") {
+      throw new AuthError(403, "household_owner_required", "Only the household owner can change the shared key.");
+    }
+    if (!access.ownerProActive) {
+      throw new AuthError(403, "pro_required", "An active Pro subscription is required to change the shared key.");
+    }
+    if (!user.sessionCreatedAt || now - user.sessionCreatedAt > FRESH_SESSION_MAX_AGE_SECONDS) {
+      throw new AuthError(401, "fresh_authentication_required", "Sign out and sign in again before changing the shared key.");
+    }
+  }
   const body = await parseBody(request);
   const expectedRevision = Number(body.expectedRevision);
   const planVersion = Number(body.planVersion);
@@ -287,7 +300,10 @@ const savePlan = async (request, env, jsonResponse) => {
   }
 
   const revision = expectedRevision + 1;
-  const keyEpoch = Number(access.keyEpoch);
+  const previousKeyEpoch = Number(access.keyEpoch);
+  const keyEpoch = rotateKey && access.status === "active"
+    ? previousKeyEpoch + 1
+    : previousKeyEpoch;
   const envelope = normalizeEnvelope(body.envelope, {
     householdId: access.householdId,
     revision,
@@ -313,8 +329,38 @@ const savePlan = async (request, env, jsonResponse) => {
 
   let results;
   try {
-    results = await env.DB.batch([
-      env.DB.prepare(
+    const updateHousehold = rotateKey
+      ? env.DB.prepare(
+        `UPDATE shared_households
+            SET current_revision = ?,
+                key_epoch = ?,
+                status = 'active',
+                updated_at = CURRENT_TIMESTAMP
+          WHERE id = ?
+            AND owner_user_id = ?
+            AND status = ?
+            AND key_epoch = ?
+            AND current_revision = ?
+            AND deleted_at IS NULL
+            AND EXISTS (
+              SELECT 1
+                FROM household_memberships
+               WHERE household_id = shared_households.id
+                 AND user_id = ?
+                 AND role = 'owner'
+                 AND status = 'active'
+            )`
+      ).bind(
+        revision,
+        keyEpoch,
+        access.householdId,
+        user.id,
+        access.status,
+        previousKeyEpoch,
+        expectedRevision,
+        user.id
+      )
+      : env.DB.prepare(
         `UPDATE shared_households
             SET current_revision = ?,
                 updated_at = CURRENT_TIMESTAMP
@@ -330,7 +376,9 @@ const savePlan = async (request, env, jsonResponse) => {
                  AND user_id = ?
                  AND status = 'active'
             )`
-      ).bind(revision, access.householdId, keyEpoch, expectedRevision, user.id),
+      ).bind(revision, access.householdId, keyEpoch, expectedRevision, user.id);
+    results = await env.DB.batch([
+      updateHousehold,
       env.DB.prepare(
         `INSERT INTO shared_plan_revisions
           (household_id, revision, key_epoch, r2_object_key, envelope_version,
@@ -414,6 +462,10 @@ const savePlan = async (request, env, jsonResponse) => {
 
 export const handleSharedPlanRequest = async (request, env, jsonResponse) => {
   const pathname = new URL(request.url).pathname;
+  if (pathname === "/api/shared-household/plan/rotate-key") {
+    if (request.method === "PUT") return savePlan(request, env, jsonResponse, true);
+    throw new AuthError(405, "method_not_allowed", "Shared plan key endpoint does not support this method.");
+  }
   if (pathname === "/api/shared-household/plan") {
     if (request.method === "GET") return getCurrentPlan(request, env, jsonResponse);
     if (request.method === "PUT") return savePlan(request, env, jsonResponse);

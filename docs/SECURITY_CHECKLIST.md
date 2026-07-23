@@ -103,7 +103,7 @@ Life Compassは、収入、支出、資産、家族、目標、ライフイベ�
 
 ### 既知の依存関係警告
 
-- 2026-07-23時点で、開発用`wrangler -> miniflare -> sharp`に修正版のないHigh警告が3件ある
+- 2026-07-24時点で、開発用`wrangler 4.112.0 -> miniflare -> sharp 0.34.5`に修正版のないHigh警告が3件ある
 - `npm audit --omit=dev --audit-level=high`では本番依存の脆弱性は0件
 - `sharp`は公開SPAやWorkerの本番バンドルへ含めず、Wrangler更新時に解消状況を再確認する
 

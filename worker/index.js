@@ -270,6 +270,7 @@ async function handleApiRequest(request, env, services) {
   if (pathname === "/api/shared-household" || pathname.startsWith("/api/shared-household/")) {
     try {
       const sharedPlanPath = pathname === "/api/shared-household/plan"
+        || pathname === "/api/shared-household/plan/rotate-key"
         || pathname === "/api/shared-household/revisions"
         || pathname.startsWith("/api/shared-household/revisions/");
       return sharedPlanPath

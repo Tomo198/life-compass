@@ -64,7 +64,7 @@ export const getActiveHouseholdMembership = async (env, userId) => {
       WHERE memberships.user_id = ?
         AND memberships.status = 'active'
         AND households.deleted_at IS NULL
-        AND households.status IN ('active', 'read_only')
+        AND households.status IN ('active', 'read_only', 'deleting')
         AND owners.deleted_at IS NULL
       LIMIT 1`
   ).bind(userId).first();
@@ -109,6 +109,7 @@ export const resolveHouseholdAccess = async (user, env) => {
   const ownerAccess = await resolvePersonalAccess(owner, env);
   const ownerProActive = ownerAccess.tier === "pro";
   const householdActive = membership.household_status === "active";
+  const householdReadable = membership.household_status !== "deleting";
 
   return {
     mode,
@@ -126,7 +127,7 @@ export const resolveHouseholdAccess = async (user, env) => {
         ? "household-operator"
         : "none",
     effectiveTier: ownerProActive ? "pro" : "free",
-    readAllowed: true,
+    readAllowed: householdReadable,
     writeAllowed: ownerProActive && householdActive,
     ownerProActive
   };

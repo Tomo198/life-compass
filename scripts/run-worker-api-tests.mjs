@@ -344,10 +344,14 @@ class FakeD1 {
             return { success: true, meta: { changes: 1 } };
           }
           if (normalized.startsWith("UPDATE household_memberships")) {
-            const [householdId, userId] = args;
+            const [householdId, memberIdentifier] = args;
             const membership = [...this.householdMemberships.values()].find((item) => (
               item.household_id === householdId
-              && item.user_id === userId
+              && (
+                normalized.includes("AND id = ?")
+                  ? item.id === memberIdentifier
+                  : item.user_id === memberIdentifier
+              )
               && item.role === "editor"
               && item.status === "active"
             ));
@@ -408,32 +412,76 @@ class FakeD1 {
           }
           if (normalized.startsWith("UPDATE shared_households")) {
             if (normalized.includes("SET current_revision")) {
-              const [revision, householdId, keyEpoch, expectedRevision, userId] = args;
+              const rotating = normalized.includes("SET current_revision = ?, key_epoch = ?");
+              const [
+                revision,
+                targetKeyEpochOrHouseholdId,
+                householdIdOrOwnerUserId,
+                ownerUserIdOrStatus,
+                statusOrKeyEpoch,
+                keyEpochOrExpectedRevision,
+                expectedRevisionOrUserId,
+                rotationUserId
+              ] = args;
+              const householdId = rotating ? householdIdOrOwnerUserId : targetKeyEpochOrHouseholdId;
+              const ownerUserId = rotating ? ownerUserIdOrStatus : null;
+              const expectedStatus = rotating ? statusOrKeyEpoch : "active";
+              const keyEpoch = rotating ? keyEpochOrExpectedRevision : householdIdOrOwnerUserId;
+              const expectedRevision = rotating ? expectedRevisionOrUserId : ownerUserIdOrStatus;
+              const userId = rotating ? rotationUserId : statusOrKeyEpoch;
+              const targetKeyEpoch = rotating ? targetKeyEpochOrHouseholdId : keyEpoch;
               const household = this.sharedHouseholds.get(householdId);
               const membership = [...this.householdMemberships.values()].find((item) => (
                 item.household_id === householdId
                 && item.user_id === userId
                 && item.status === "active"
+                && (!rotating || item.role === "owner")
               ));
               if (
                 !household
-                || household.status !== "active"
+                || household.status !== expectedStatus
                 || household.deleted_at
                 || household.key_epoch !== keyEpoch
                 || household.current_revision !== expectedRevision
                 || !membership
+                || (rotating && household.owner_user_id !== ownerUserId)
               ) {
                 return { success: true, meta: { changes: 0 } };
               }
               household.current_revision = revision;
+              household.key_epoch = targetKeyEpoch;
+              if (rotating) household.status = "active";
               household.updated_at = new Date().toISOString();
               return { success: true, meta: { changes: 1 } };
             }
             const [householdId] = args;
             const household = this.sharedHouseholds.get(householdId);
             if (!household || household.deleted_at) return { success: true, meta: { changes: 0 } };
-            household.status = "read_only";
-            household.key_epoch += 1;
+            if (normalized.includes("SET status = 'deleting'")) {
+              household.status = "deleting";
+            } else {
+              const memberIdentifier = args[1];
+              const activeEditor = [...this.householdMemberships.values()].find((item) => (
+                item.household_id === householdId
+                && item.role === "editor"
+                && item.status === "active"
+                && (
+                  normalized.includes("AND id = ?")
+                    ? item.id === memberIdentifier
+                    : normalized.includes("AND user_id = ?")
+                      ? item.user_id === memberIdentifier
+                      : true
+                )
+              ));
+              if (
+                normalized.includes("AND status = 'active'")
+                && (household.status !== "active" || !activeEditor)
+              ) {
+                return { success: true, meta: { changes: 0 } };
+              }
+              household.status = "read_only";
+              household.key_epoch += 1;
+            }
             household.updated_at = new Date().toISOString();
             return { success: true, meta: { changes: 1 } };
           }
@@ -449,6 +497,9 @@ class FakeD1 {
             }
             for (const [id, invitation] of this.householdInvitations) {
               if (invitation.household_id === householdId) this.householdInvitations.delete(id);
+            }
+            for (const [key, revision] of this.sharedPlanRevisions) {
+              if (revision.household_id === householdId) this.sharedPlanRevisions.delete(key);
             }
             return { success: true, meta: { changes: 1 } };
           }
@@ -550,7 +601,7 @@ class FakeD1 {
               !membership
               || !household
               || household.deleted_at
-              || !["active", "read_only"].includes(household.status)
+              || !["active", "read_only", "deleting"].includes(household.status)
               || !owner
               || owner.deleted_at
             ) {
@@ -591,11 +642,15 @@ class FakeD1 {
           if (
             normalized.includes("FROM household_memberships")
             && normalized.includes("WHERE household_id = ?")
-            && normalized.includes("user_id = ?")
+            && (normalized.includes("user_id = ?") || normalized.includes("AND id = ?"))
           ) {
             return [...this.householdMemberships.values()].find((item) => (
               item.household_id === args[0]
-              && item.user_id === args[1]
+              && (
+                normalized.includes("AND id = ?")
+                  ? item.id === args[1]
+                  : item.user_id === args[1]
+              )
               && item.status === "active"
             )) || null;
           }
@@ -624,6 +679,44 @@ class FakeD1 {
           if (normalized.includes("FROM cloud_backups") && normalized.includes("WHERE user_id = ?")) {
             return { results: [...this.cloudBackups.values()].filter((backup) => backup.user_id === args[0]) };
           }
+          if (
+            normalized.includes("FROM household_memberships AS memberships")
+            && normalized.includes("JOIN users")
+            && normalized.includes("memberships.household_id = ?")
+          ) {
+            return {
+              results: [...this.householdMemberships.values()]
+                .filter((membership) => (
+                  membership.household_id === args[0]
+                  && membership.status === "active"
+                ))
+                .sort((left, right) => left.role === right.role ? 0 : left.role === "owner" ? -1 : 1)
+                .map((membership) => {
+                  const user = this.usersById.get(membership.user_id);
+                  return {
+                    ...membership,
+                    email: user?.email || null,
+                    email_verified: user?.email_verified || 0
+                  };
+                })
+            };
+          }
+          if (
+            normalized.includes("FROM household_invitations")
+            && normalized.includes("accepted_at IS NULL")
+            && normalized.includes("expires_at > unixepoch()")
+          ) {
+            return {
+              results: [...this.householdInvitations.values()]
+                .filter((invitation) => (
+                  invitation.household_id === args[0]
+                  && !invitation.accepted_at
+                  && !invitation.revoked_at
+                  && invitation.expires_at > Math.floor(Date.now() / 1000)
+                ))
+                .sort((left, right) => right.created_at.localeCompare(left.created_at))
+            };
+          }
           if (normalized.includes("FROM shared_plan_revisions") && normalized.includes("WHERE household_id = ?")) {
             const rows = [...this.sharedPlanRevisions.values()]
               .filter((revision) => revision.household_id === args[0])
@@ -641,6 +734,7 @@ class FakeD1 {
 class FakeR2 {
   constructor() {
     this.objects = new Map();
+    this.failDeletes = false;
   }
 
   async put(key, value) {
@@ -656,6 +750,7 @@ class FakeR2 {
   }
 
   async delete(keyOrKeys) {
+    if (this.failDeletes) throw new Error("simulated R2 deletion failure");
     const keys = Array.isArray(keyOrKeys) ? keyOrKeys : [keyOrKeys];
     keys.forEach((key) => this.objects.delete(key));
   }
@@ -870,6 +965,7 @@ test("household sharing remains unavailable until explicitly enabled", async () 
 
 test("one paid owner can securely share household Pro access with one verified editor", async () => {
   const DB = new FakeD1();
+  const SHARED_PLANS = new FakeR2();
   const secureWorker = createWorker({
     verifyGoogleToken: async ({ credential }) => ({
       sub: credential,
@@ -880,6 +976,7 @@ test("one paid owner can securely share household Pro access with one verified e
   const authEnv = {
     ...env,
     DB,
+    SHARED_PLANS,
     GOOGLE_CLIENT_ID: "google-client-id",
     ACCESS_MODE: "enforced",
     HOUSEHOLD_SHARING_MODE: "enforced",
@@ -944,6 +1041,7 @@ test("one paid owner can securely share household Pro access with one verified e
     body: JSON.stringify({ confirmation: "CREATE_SHARED_HOUSEHOLD" })
   });
   const created = await json(createResponse);
+  const householdId = created.household.id;
   assert.equal(createResponse.status, 201);
   assert.equal(created.household.role, "owner");
   assert.equal(created.household.memberCount, 1);
@@ -982,6 +1080,15 @@ test("one paid owner can securely share household Pro access with one verified e
   assert.notEqual(storedInvitation.token_hash, inviteToken);
   assert.notEqual(storedInvitation.invitee_email_hmac, "partner@example.com");
   assert.equal(JSON.stringify([...DB.householdInvitations.values()]).includes("partner@example.com"), false);
+
+  const ownerInvitationOverview = await json(await authRequest("/api/shared-household", {
+    headers: { Cookie: `__Host-lc_session=${ownerCookie}` }
+  }));
+  assert.deepEqual(ownerInvitationOverview.household.pendingInvitations.map((item) => item.id), [
+    invitationBody.invitation.id
+  ]);
+  assert.equal(JSON.stringify(ownerInvitationOverview).includes("partner@example.com"), false);
+  assert.equal(JSON.stringify(ownerInvitationOverview).includes("invitee_email_hmac"), false);
 
   const attackerRevoke = await authRequest(
     `/api/shared-household/invitations/${invitationBody.invitation.id}`,
@@ -1034,6 +1141,20 @@ test("one paid owner can securely share household Pro access with one verified e
   assert.equal(partnerAccept.status, 200);
   assert.equal(partnerHousehold.household.role, "editor");
   assert.equal(partnerHousehold.household.memberCount, 2);
+  assert.equal(partnerHousehold.household.pendingInvitations.length, 0);
+
+  const ownerHouseholdBeforeRemoval = await json(await authRequest("/api/shared-household", {
+    headers: { Cookie: `__Host-lc_session=${ownerCookie}` }
+  }));
+  const editorMembership = ownerHouseholdBeforeRemoval.household.members.find(
+    (member) => member.role === "editor"
+  );
+  assert.ok(editorMembership?.id);
+  assert.equal(editorMembership.email, "partner@example.com");
+  assert.equal(editorMembership.isCurrentUser, false);
+  assert.equal(JSON.stringify(ownerHouseholdBeforeRemoval).includes(partner.id), false);
+  assert.equal(JSON.stringify(ownerHouseholdBeforeRemoval).includes("token_hash"), false);
+  assert.equal(JSON.stringify(ownerHouseholdBeforeRemoval).includes("invitee_email_hmac"), false);
 
   const overLimitInvite = await authRequest("/api/shared-household/invitations", {
     method: "POST",
@@ -1055,6 +1176,56 @@ test("one paid owner can securely share household Pro access with one verified e
   assert.equal(partnerEntitlement.access.household.source, "household-subscription");
   assert.equal(partnerEntitlement.access.household.writeAllowed, true);
 
+  const makeEnvelope = (revision, keyEpoch) => ({
+    format: "life-compass-shared-plan",
+    version: 1,
+    householdId,
+    revision,
+    keyEpoch,
+    encryption: {
+      name: "AES-GCM",
+      keyLength: 256,
+      iv: Buffer.alloc(12, revision).toString("base64")
+    },
+    keyDerivation: {
+      name: "PBKDF2",
+      hash: "SHA-256",
+      iterations: 600_000,
+      salt: Buffer.alloc(16, keyEpoch).toString("base64")
+    },
+    ciphertext: Buffer.alloc(32, revision + keyEpoch).toString("base64")
+  });
+  const firstSharedSave = await authRequest("/api/shared-household/plan", {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Origin: "https://life.example",
+      Cookie: `__Host-lc_session=${ownerCookie}`
+    },
+    body: JSON.stringify({
+      expectedRevision: 0,
+      planVersion: 9,
+      envelope: makeEnvelope(1, 1)
+    })
+  });
+  assert.equal(firstSharedSave.status, 201);
+
+  const editorRotateDenied = await authRequest("/api/shared-household/plan/rotate-key", {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Origin: "https://life.example",
+      Cookie: `__Host-lc_session=${partnerCookie}`
+    },
+    body: JSON.stringify({
+      expectedRevision: 1,
+      planVersion: 9,
+      envelope: makeEnvelope(2, 2)
+    })
+  });
+  assert.equal(editorRotateDenied.status, 403);
+  assert.equal((await json(editorRotateDenied)).error.code, "household_owner_required");
+
   ownerSubscription.current_period_end = utcDateAfter(-1);
   const expiredEntitlement = await json(await authRequest("/api/entitlement", {
     headers: { Cookie: `__Host-lc_session=${partnerCookie}` }
@@ -1064,7 +1235,7 @@ test("one paid owner can securely share household Pro access with one verified e
   assert.equal(expiredEntitlement.access.household.writeAllowed, false);
   ownerSubscription.current_period_end = utcDateAfter(30);
 
-  const removeResponse = await authRequest(`/api/shared-household/members/${partner.id}`, {
+  const removeResponse = await authRequest(`/api/shared-household/members/${editorMembership.id}`, {
     method: "DELETE",
     headers: {
       Origin: "https://life.example",
@@ -1074,6 +1245,16 @@ test("one paid owner can securely share household Pro access with one verified e
   const removed = await json(removeResponse);
   assert.equal(removeResponse.status, 200);
   assert.equal(removed.requiresKeyRotation, true);
+  const keyEpochAfterRemoval = DB.sharedHouseholds.get(householdId).key_epoch;
+  const duplicateRemove = await authRequest(`/api/shared-household/members/${editorMembership.id}`, {
+    method: "DELETE",
+    headers: {
+      Origin: "https://life.example",
+      Cookie: `__Host-lc_session=${ownerCookie}`
+    }
+  });
+  assert.equal(duplicateRemove.status, 404);
+  assert.equal(DB.sharedHouseholds.get(householdId).key_epoch, keyEpochAfterRemoval);
 
   const removedPartnerEntitlement = await json(await authRequest("/api/entitlement", {
     headers: { Cookie: `__Host-lc_session=${partnerCookie}` }
@@ -1091,12 +1272,48 @@ test("one paid owner can securely share household Pro access with one verified e
   });
   assert.equal(replayResponse.status, 400);
 
-  const ownerHousehold = await json(await authRequest("/api/shared-household", {
+  const lockedOwnerHousehold = await json(await authRequest("/api/shared-household", {
     headers: { Cookie: `__Host-lc_session=${ownerCookie}` }
   }));
-  assert.equal(ownerHousehold.household.status, "read_only");
-  assert.equal(ownerHousehold.household.keyEpoch, 2);
-  assert.equal(ownerHousehold.household.writeAllowed, false);
+  assert.equal(lockedOwnerHousehold.household.status, "read_only");
+  assert.equal(lockedOwnerHousehold.household.keyEpoch, 2);
+  assert.equal(lockedOwnerHousehold.household.writeAllowed, false);
+
+  const lockedNormalSave = await authRequest("/api/shared-household/plan", {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Origin: "https://life.example",
+      Cookie: `__Host-lc_session=${ownerCookie}`
+    },
+    body: JSON.stringify({
+      expectedRevision: 1,
+      planVersion: 9,
+      envelope: makeEnvelope(2, 2)
+    })
+  });
+  assert.equal(lockedNormalSave.status, 403);
+  assert.equal((await json(lockedNormalSave)).error.code, "household_write_locked");
+
+  const rotated = await authRequest("/api/shared-household/plan/rotate-key", {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Origin: "https://life.example",
+      Cookie: `__Host-lc_session=${ownerCookie}`
+    },
+    body: JSON.stringify({
+      expectedRevision: 1,
+      planVersion: 9,
+      envelope: makeEnvelope(2, 2)
+    })
+  });
+  const rotatedBody = await json(rotated);
+  assert.equal(rotated.status, 201);
+  assert.equal(rotatedBody.currentRevision, 2);
+  assert.equal(rotatedBody.keyEpoch, 2);
+  assert.equal(DB.sharedHouseholds.get(householdId).status, "active");
+  assert.equal(DB.sharedHouseholds.get(householdId).current_revision, 2);
 
   const deleteResponse = await authRequest("/api/shared-household", {
     method: "DELETE",
@@ -1110,6 +1327,8 @@ test("one paid owner can securely share household Pro access with one verified e
   assert.equal(deleteResponse.status, 200);
   assert.equal(DB.sharedHouseholds.size, 0);
   assert.equal(DB.householdMemberships.size, 0);
+  assert.equal(DB.sharedPlanRevisions.size, 0);
+  assert.equal(SHARED_PLANS.objects.size, 0);
 });
 
 test("encrypted shared plans enforce membership, integrity, concurrency, and revision retention", async () => {
@@ -1279,6 +1498,42 @@ test("encrypted shared plans enforce membership, integrity, concurrency, and rev
   });
   assert.equal(deniedResponse.status, 403);
   assert.equal((await json(deniedResponse)).error.code, "household_access_denied");
+
+  SHARED_PLANS.failDeletes = true;
+  const failedDelete = await authRequest("/api/shared-household", {
+    method: "DELETE",
+    headers: {
+      "Content-Type": "application/json",
+      Origin: "https://life.example",
+      Cookie: `__Host-lc_session=${ownerCookie}`
+    },
+    body: JSON.stringify({ confirmation: "DELETE_SHARED_HOUSEHOLD" })
+  });
+  assert.equal(failedDelete.status, 503);
+  assert.equal((await json(failedDelete)).error.code, "shared_plan_deletion_failed");
+  assert.equal(DB.sharedHouseholds.get(householdId).status, "deleting");
+  assert.equal(SHARED_PLANS.objects.size, 10);
+
+  const deletingPlanRead = await authRequest("/api/shared-household/plan", {
+    headers: { Cookie: `__Host-lc_session=${ownerCookie}` }
+  });
+  assert.equal(deletingPlanRead.status, 403);
+  assert.equal((await json(deletingPlanRead)).error.code, "household_access_denied");
+
+  SHARED_PLANS.failDeletes = false;
+  const retriedDelete = await authRequest("/api/shared-household", {
+    method: "DELETE",
+    headers: {
+      "Content-Type": "application/json",
+      Origin: "https://life.example",
+      Cookie: `__Host-lc_session=${ownerCookie}`
+    },
+    body: JSON.stringify({ confirmation: "DELETE_SHARED_HOUSEHOLD" })
+  });
+  assert.equal(retriedDelete.status, 200);
+  assert.equal(DB.sharedHouseholds.size, 0);
+  assert.equal(DB.sharedPlanRevisions.size, 0);
+  assert.equal(SHARED_PLANS.objects.size, 0);
 });
 
 test("editor account deletion revokes membership and locks the household for key rotation", async () => {

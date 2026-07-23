@@ -4648,6 +4648,152 @@ td select {
   color: var(--muted);
 }
 
+.household-sharing-panel {
+  display: grid;
+  gap: 1rem;
+}
+
+.household-sharing-panel .section-heading-row,
+.household-sharing-panel .notice-band,
+.household-sharing-panel .inline-message,
+.household-sharing-panel .household-sharing-footnote {
+  margin: 0;
+}
+
+.household-security-note,
+.household-invite-accept,
+.household-empty-state,
+.household-password-section,
+.household-invite-section,
+.household-members,
+.household-danger-zone {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.household-invite-accept,
+.household-empty-state,
+.household-password-section,
+.household-invite-section,
+.household-members,
+.household-danger-zone,
+.household-key-rotation {
+  padding-top: 1rem;
+  border-top: 1px solid var(--line);
+}
+
+.household-invite-accept h3,
+.household-invite-accept p,
+.household-empty-state p,
+.household-invite-section h3,
+.household-members h3,
+.household-danger-zone h3,
+.household-danger-zone p {
+  margin: 0;
+}
+
+.household-invite-accept p,
+.household-empty-state p,
+.household-danger-zone p,
+.household-password-section small,
+.household-sharing-footnote {
+  color: var(--muted);
+}
+
+.household-status-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.household-status-grid > div {
+  min-width: 0;
+  padding: 0.85rem 1rem;
+}
+
+.household-status-grid > div + div {
+  border-left: 1px solid var(--line);
+}
+
+.household-status-grid dt {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.household-status-grid dd {
+  margin: 0.2rem 0 0;
+  overflow-wrap: anywhere;
+  font-weight: 800;
+}
+
+.household-password-section {
+  max-width: 42rem;
+}
+
+.household-password-section label,
+.household-invite-section label,
+.household-danger-zone label {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.household-plan-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+}
+
+.household-revisions .recovery-list {
+  margin-top: 0.85rem;
+}
+
+.household-invite-section {
+  max-width: 48rem;
+}
+
+.household-invite-link {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.55rem;
+}
+
+.household-invite-link small {
+  grid-column: 1 / -1;
+  color: var(--muted);
+}
+
+.household-invite-section .notice-band {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.household-invite-section .notice-band span {
+  grid-column: 1 / -1;
+}
+
+.household-key-rotation > div,
+.household-key-rotation > button {
+  margin-top: 0.85rem;
+}
+
+.household-key-rotation .cloud-password-warning {
+  margin-bottom: 0;
+}
+
+.household-danger-zone {
+  color: var(--text);
+}
+
+.household-danger-zone label {
+  max-width: 22rem;
+}
+
+.household-sharing-footnote {
+  font-size: 0.82rem;
+}
+
 .pro-item span {
   color: var(--accent);
   font-weight: 700;
@@ -6394,6 +6540,57 @@ td select {
 
   .budget-composition-legend {
     grid-template-columns: 1fr;
+  }
+
+  .household-sharing-panel .section-heading-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .household-status-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .household-status-grid > div:nth-child(3) {
+    border-left: 0;
+  }
+
+  .household-status-grid > div:nth-child(n + 3) {
+    border-top: 1px solid var(--line);
+  }
+
+  .household-plan-actions,
+  .household-plan-actions button,
+  .household-invite-accept button,
+  .household-empty-state button,
+  .household-key-rotation > button,
+  .household-danger-zone > button {
+    width: 100%;
+  }
+
+  .household-invite-link {
+    grid-template-columns: 1fr;
+  }
+
+  .household-invite-link small {
+    grid-column: auto;
+  }
+
+  .household-invite-section .notice-band {
+    grid-template-columns: 1fr;
+  }
+
+  .household-invite-section .notice-band span {
+    grid-column: auto;
+  }
+
+  .household-sharing-panel .recovery-item {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .household-sharing-panel .recovery-item button {
+    align-self: stretch;
   }
 }
 

@@ -2,7 +2,7 @@
 
 ## 1. 状態
 
-この文書は世帯共有の設計と段階的な実装状態を管理します。D1、Worker、ブラウザ暗号化、暗号化共同プラン保存APIの非公開基盤は実装済みですが、専用R2バインディングと利用者向けUIは本番利用者へ公開しません。
+この文書は世帯共有の設計と段階的な実装状態を管理します。D1、Worker、ブラウザ暗号化、暗号化共同プラン保存API、運営者テスト用UIのローカル実装は完了しています。専用R2バインディングとリモートD1設定は未実施で、利用者向けには公開しません。
 
 実装は`disabled`、運営者限定の`preview`、本番用の`enforced`の順で進めます。セキュリティ受入条件をすべて満たすまで`enforced`へ切り替えません。
 
@@ -179,7 +179,7 @@ Life Compass shared plan v1|householdId|revision|keyEpoch
 | id | UUID |
 | household_id | 対象世帯 |
 | actor_user_id | 操作した利用者 |
-| event_type | created、invited、joined、saved、restored、removed、left、deleted |
+| event_type | created、invited、invitation_revoked、joined、saved、restored、removed、left |
 | revision | 関連する場合だけ |
 | created_at | 日時 |
 
@@ -232,9 +232,10 @@ GET    /api/shared-household/plan
 PUT    /api/shared-household/plan
 GET    /api/shared-household/revisions
 GET    /api/shared-household/revisions/:revision
-DELETE /api/shared-household/members/:userId
+DELETE /api/shared-household/members/:membershipId
 POST   /api/shared-household/leave
 DELETE /api/shared-household
+PUT    /api/shared-household/plan/rotate-key
 ```
 
 共通要件:
@@ -274,6 +275,7 @@ DELETE /api/shared-household
 - membershipを即時revokedにする
 - 以後のAPIはすべて拒否する
 - 既存セッションを維持していてもmembershipを毎回再確認する
+- 解除前にownerのブラウザで現在版を復号できることを確認する
 - 新しい共有パスワードとkeyEpochへの更新が完了するまで、新規保存を停止する
 
 ### editorの退出
@@ -318,6 +320,7 @@ ownerが共同利用者を残したままアカウント削除する場合は、
 - 共有パスワードを忘れた場合、運営者は復旧できない
 - 初期版は同時編集を自動マージしない
 - 共有パスワードを安全に伝える責任は利用者にもある
+- パスワード変更前の過去版を開くには、変更前の共有パスワードが必要になる
 
 これらは利用開始前の説明とプライバシーポリシーに明記します。
 
@@ -345,19 +348,23 @@ ownerが共同利用者を残したままアカウント削除する場合は、
 
 ### 第4段階: 運営者限定UI
 
-- 世帯作成、招待、受諾
-- 共有へ保存、共有から取得
-- 更新者、更新日時、revision
-- 共有解除、退出、世帯削除
+- [x] 世帯作成、招待、受諾
+- [x] 共有へ保存、共有から取得
+- [x] 更新日時、revision、鍵世代
+- [x] 共有解除、退出、世帯削除
+- [x] 共有パスワード変更と解除後の鍵更新
+- [x] 一般利用者にはUIを表示しない
 
 ### 第5段階: セキュリティ検証
 
-- 他利用者、他世帯の全API否定テスト
-- 招待総当たり、再利用、メール不一致
-- 解除直後、アカウント削除、契約失効
-- R2、D1の部分失敗と孤立データ回収
-- CSP、ログ、Rate Limiting、サイズ上限
-- PC、スマホE2E
+- [x] 他利用者、他世帯のAPI否定テスト
+- [x] 招待再利用、期限切れ、メール不一致
+- [x] 解除直後、アカウント削除、契約失効
+- [x] R2削除失敗時の操作停止と削除再試行
+- [x] CSP、Rate Limiting、サイズ上限
+- [x] PC、スマホの暗号化保存E2E
+- [ ] リモートpreview環境での招待から削除までの通し確認
+- [ ] ログに個人情報や暗号文が出ないことのリモート確認
 
 ### 第6段階: 本番有効化
 
@@ -385,10 +392,11 @@ DELETE /api/shared-household
 POST   /api/shared-household/invitations
 DELETE /api/shared-household/invitations/:id
 POST   /api/shared-household/invitations/accept
-DELETE /api/shared-household/members/:userId
+DELETE /api/shared-household/members/:membershipId
 POST   /api/shared-household/leave
 GET    /api/shared-household/plan
 PUT    /api/shared-household/plan
+PUT    /api/shared-household/plan/rotate-key
 GET    /api/shared-household/revisions
 GET    /api/shared-household/revisions/:revision
 ```
@@ -404,7 +412,7 @@ GET    /api/shared-household/revisions/:revision
 - ownerの契約状態をサーバーで再確認し、editorへは共同世帯内だけのPro権限を返す
 - editorの解除または退出後はmembershipを即時無効化し、世帯を読取専用にして鍵世代を進める
 
-共同プラン保存APIは暗号化済みJSONだけを受け付けます。共有パスワード、復号鍵、平文プランをWorkerへ送るAPIはありません。利用者向けUI、鍵ローテーション、世帯削除時の全R2削除は未実装なので、`HOUSEHOLD_SHARING_MODE`はまだ有効にしません。
+共同プラン保存APIは暗号化済みJSONだけを受け付けます。共有パスワード、復号鍵、平文プランをWorkerへ送るAPIはありません。運営者テスト用UI、鍵ローテーション、世帯削除時の全R2削除と失敗時の再試行はローカル実装済みです。専用R2、リモートD1、Secret、リモート環境での通し試験が未完了なので、`HOUSEHOLD_SHARING_MODE`はまだ有効にしません。
 
 ## 18. 非公開基盤の設定
 
@@ -418,4 +426,4 @@ npx.cmd wrangler secret put HOUSEHOLD_INVITE_PEPPER
 
 暗号化共同プランは個人バックアップとは別の非公開R2バケットへ保存し、Workerへ`SHARED_PLANS`としてバインドします。バケットの公開アクセスと独自ドメインは有効にしません。
 
-この段階では`HOUSEHOLD_SHARING_MODE`を`disabled`のまま維持します。専用R2、リモートD1、Secret、運営者限定UI、削除と鍵ローテーションを確認した後だけ、Cloudflareの変数を`preview`へ変更します。
+この段階では`HOUSEHOLD_SHARING_MODE`を`disabled`のまま維持します。専用R2、リモートD1、Secretを設定し、ローカルで実装済みの運営者限定UI、削除、鍵ローテーションをリモート環境でも確認した後だけ、Cloudflareの変数を`preview`へ変更します。

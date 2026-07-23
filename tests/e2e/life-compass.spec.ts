@@ -803,6 +803,7 @@ test("設定画面でログインが任意でありクラウド保存を開始�
   await page.getByRole("button", { name: "設定", exact: true }).click();
   const accountPanel = page.getByTestId("account-panel");
   await expect(accountPanel).toBeVisible();
+  await expect(page.getByTestId("household-sharing-panel")).toHaveCount(0);
   await expect(accountPanel).toContainText("無料版はログインなしで利用できます");
   await expect(accountPanel).toContainText("ログインしても自動でクラウド保存しません");
   await expect(accountPanel).toContainText("Googleログインは設定中です");
@@ -810,6 +811,126 @@ test("設定画面でログインが任意でありクラウド保存を開始�
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
   await page.reload();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+});
+
+test("運営者テストでは世帯共有を表示し、平文を送信・保存せず暗号化できる", async ({ page }) => {
+  const householdId = "7f3c6fa0-21b5-4f8d-bbf5-32208c557619";
+  const sharedPassword = "household-test-password";
+  const plaintextMarker = "共有平文を送らない確認プラン";
+  let currentRevision = 0;
+  let savedRequestBody = "";
+
+  await page.route("**/api/auth/config", (route) => route.fulfill({
+    json: { configured: true, clientId: "test-client-id" }
+  }));
+  await page.route("**/api/me", (route) => route.fulfill({
+    json: {
+      authenticated: true,
+      user: { id: "owner-user", email: "owner@example.com", emailVerified: true }
+    }
+  }));
+  await page.route("**/api/entitlement", (route) => route.fulfill({
+    json: { access: { tier: "pro", mode: "enforced", source: "operator" } }
+  }));
+  await page.route("**/api/shared-household/revisions", (route) => route.fulfill({
+    json: {
+      currentRevision,
+      revisions: currentRevision > 0
+        ? [{
+            revision: currentRevision,
+            keyEpoch: 1,
+            planVersion: 9,
+            sizeBytes: 1024,
+            createdAt: new Date().toISOString()
+          }]
+        : [],
+      limit: 10
+    }
+  }));
+  await page.route("**/api/shared-household/plan", async (route) => {
+    if (route.request().method() !== "PUT") {
+      await route.fulfill({ status: 404, json: { error: { code: "shared_plan_object_not_found" } } });
+      return;
+    }
+    savedRequestBody = route.request().postData() || "";
+    currentRevision = 1;
+    await route.fulfill({
+      status: 201,
+      json: {
+        currentRevision,
+        keyEpoch: 1,
+        revision: {
+          revision: currentRevision,
+          keyEpoch: 1,
+          planVersion: 9,
+          sizeBytes: savedRequestBody.length,
+          createdAt: new Date().toISOString()
+        }
+      }
+    });
+  });
+  await page.route("**/api/shared-household", (route) => route.fulfill({
+    json: {
+      mode: "preview",
+      canCreate: false,
+      household: {
+        id: householdId,
+        role: "owner",
+        status: "active",
+        keyEpoch: 1,
+        currentRevision,
+        memberCount: 1,
+        members: [{
+          id: "owner-membership",
+          role: "owner",
+          email: "owner@example.com",
+          isCurrentUser: true,
+          joinedAt: new Date().toISOString()
+        }],
+        pendingInvitations: [],
+        readAllowed: true,
+        writeAllowed: true,
+        ownerProActive: true,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      }
+    }
+  }));
+
+  await page.reload();
+  await openView(page, "profile");
+  await page.getByLabel("プラン名").fill(plaintextMarker);
+  await page.getByRole("button", { name: "設定", exact: true }).click();
+
+  const sharingPanel = page.getByTestId("household-sharing-panel");
+  await expect(sharingPanel).toBeVisible();
+  await expect(sharingPanel).toContainText("一般利用者向けにはまだ有効化していません");
+  await sharingPanel.getByLabel("現在の共有パスワード").fill(sharedPassword);
+  await sharingPanel.getByRole("button", { name: "現在のプランを共有へ保存", exact: true }).click();
+  await expect(sharingPanel.getByRole("status")).toContainText("版1として暗号化保存しました");
+
+  await expect.poll(() => savedRequestBody.length).toBeGreaterThan(0);
+  const savedBody = JSON.parse(savedRequestBody) as {
+    envelope?: { ciphertext?: string; householdId?: string; revision?: number; keyEpoch?: number };
+  };
+  expect(savedBody.envelope?.householdId).toBe(householdId);
+  expect(savedBody.envelope?.revision).toBe(1);
+  expect(savedBody.envelope?.keyEpoch).toBe(1);
+  expect(savedBody.envelope?.ciphertext?.length).toBeGreaterThan(100);
+  expect(savedRequestBody).not.toContain(plaintextMarker);
+  expect(savedRequestBody).not.toContain(sharedPassword);
+
+  const browserStorage = await page.evaluate(() => ({
+    local: JSON.stringify(localStorage),
+    session: JSON.stringify(sessionStorage)
+  }));
+  expect(browserStorage.local).not.toContain(sharedPassword);
+  expect(browserStorage.session).not.toContain(sharedPassword);
+
+  const overflow = await page.evaluate(() =>
+    document.documentElement.scrollWidth - document.documentElement.clientWidth
+  );
+  expect(overflow).toBeLessThanOrEqual(1);
 });
 
 test("ログアウトとアカウント削除後にGoogleログインボタンを再表示できる", async ({ page }) => {

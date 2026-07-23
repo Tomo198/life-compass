@@ -1,6 +1,8 @@
+import { useState } from "react";
 import { AccountPanel } from "../components/AccountPanel";
+import { HouseholdSharingPanel } from "../components/HouseholdSharingPanel";
 import { NumericInput, StepTitle } from "../components/CommonUi";
-import type { ViewKey } from "../types";
+import type { LifePlan, ViewKey } from "../types";
 import type {
   AppReminder,
   AppSettings,
@@ -16,6 +18,8 @@ type SettingsViewProps = {
   requestBrowserNotifications: () => Promise<void>;
   setActiveView: (view: ViewKey) => void;
   refreshAccessState: () => Promise<void>;
+  plan: LifePlan;
+  commitPlan: (nextPlan: LifePlan) => boolean;
 };
 
 export function SettingsView({
@@ -25,11 +29,25 @@ export function SettingsView({
   updateSettings,
   requestBrowserNotifications,
   setActiveView,
-  refreshAccessState
+  refreshAccessState,
+  plan,
+  commitPlan
 }: SettingsViewProps) {
+  const [accountVersion, setAccountVersion] = useState(0);
+  const handleAccountChange = async () => {
+    setAccountVersion((value) => value + 1);
+    await refreshAccessState();
+  };
+
   return (
     <div className="view-stack">
-      <AccountPanel onAccountChange={refreshAccessState} />
+      <AccountPanel onAccountChange={handleAccountChange} />
+      <HouseholdSharingPanel
+        plan={plan}
+        commitPlan={commitPlan}
+        accountVersion={accountVersion}
+        refreshAccessState={refreshAccessState}
+      />
 
       <section className="panel">
         <StepTitle step="1" title="表示スタイル" description="ライト、ダーク、端末設定に合わせる表示を選べます。" />
@@ -125,7 +143,7 @@ export function SettingsView({
         </div>
         <div className="panel">
           <h2>Pro機能・料金</h2>
-          <p>複数シナリオ比較、固定費見直しインパクト、見直し履歴の拡張などを予定しています。初期版では課金処理は実装していません。</p>
+          <p>複数シナリオ比較、見直し履歴、詳細試算、暗号化クラウド保存などを扱います。現在は正式な課金開始前のため、契約導線を準備しています。</p>
           <button type="button" className="secondary" onClick={() => setActiveView("pricing")}>
             Pro機能・料金を見る
           </button>
