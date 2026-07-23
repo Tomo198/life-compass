@@ -1,31 +1,23 @@
 import { createRemoteJWKSet, jwtVerify } from "jose";
+import {
+  AuthError,
+  parseBoundedJsonBody,
+  randomToken,
+  sameOrigin,
+  secureEqualText,
+  sha256Base64Url
+} from "./security.js";
+
+export { AuthError } from "./security.js";
 
 const SESSION_COOKIE = "lc_session";
 const OAUTH_NONCE_COOKIE = "lc_oauth_nonce";
 const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
 const NONCE_MAX_AGE_SECONDS = 60 * 10;
 const MAX_AUTH_BODY_BYTES = 24 * 1024;
+const MAX_ACTIVE_SESSIONS = 5;
 const SENSITIVE_ACTION_MAX_SESSION_AGE_SECONDS = 60 * 10;
 const googleJwks = createRemoteJWKSet(new URL("https://www.googleapis.com/oauth2/v3/certs"));
-
-const base64Url = (bytes) => {
-  let binary = "";
-  bytes.forEach((value) => {
-    binary += String.fromCharCode(value);
-  });
-  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/u, "");
-};
-
-const randomToken = (length = 32) => {
-  const bytes = new Uint8Array(length);
-  crypto.getRandomValues(bytes);
-  return base64Url(bytes);
-};
-
-const sha256 = async (value) => {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
-  return base64Url(new Uint8Array(digest));
-};
 
 const parseCookies = (request) => {
   const cookies = new Map();
@@ -52,41 +44,11 @@ const clearCookie = (request, name, sameSite = "Lax") => cookie(request, name, "
 
 const authConfigured = (env) => Boolean(env?.DB && env?.GOOGLE_CLIENT_ID);
 
-const sameOrigin = (request) => request.headers.get("Origin") === new URL(request.url).origin;
-
-const parseJsonBody = async (request) => {
-  const contentType = request.headers.get("Content-Type") || "";
-  if (!contentType.toLowerCase().includes("application/json")) {
-    throw new AuthError(415, "unsupported_media_type", "JSON request body required.");
-  }
-
-  const declaredLength = Number(request.headers.get("Content-Length") || 0);
-  if (declaredLength > MAX_AUTH_BODY_BYTES) {
-    throw new AuthError(413, "request_too_large", "Authentication request is too large.");
-  }
-
-  const text = await request.text();
-  if (new TextEncoder().encode(text).byteLength > MAX_AUTH_BODY_BYTES) {
-    throw new AuthError(413, "request_too_large", "Authentication request is too large.");
-  }
-
-  try {
-    const body = JSON.parse(text);
-    if (!body || typeof body !== "object" || Array.isArray(body)) throw new Error("invalid");
-    return body;
-  } catch {
-    throw new AuthError(400, "invalid_json", "Authentication request is invalid.");
-  }
-};
-
-export class AuthError extends Error {
-  constructor(status, code, message) {
-    super(message);
-    this.name = "AuthError";
-    this.status = status;
-    this.code = code;
-  }
-}
+const parseJsonBody = (request) => parseBoundedJsonBody(request, {
+  maxBytes: MAX_AUTH_BODY_BYTES,
+  tooLargeMessage: "Authentication request is too large.",
+  invalidMessage: "Authentication request is invalid."
+});
 
 export const verifyGoogleIdToken = async ({ credential, clientId, nonce }) => {
   const { payload } = await jwtVerify(credential, googleJwks, {
@@ -114,7 +76,7 @@ export const getCurrentUser = async (request, env) => {
   const token = getSessionToken(request);
   if (!token) return null;
 
-  const tokenHash = await sha256(token);
+  const tokenHash = await sha256Base64Url(token);
   const row = await env.DB.prepare(
     `SELECT users.id, users.google_sub, users.email, users.email_verified,
             unixepoch(sessions.created_at) AS session_created_at
@@ -167,7 +129,13 @@ export const loginWithGoogle = async (request, env, verifyGoogleToken, jsonRespo
   const nonceCookieName = cookieName(request, OAUTH_NONCE_COOKIE);
   const sessionCookieName = cookieName(request, SESSION_COOKIE);
   const cookieNonce = parseCookies(request).get(nonceCookieName) || "";
-  if (!credential || !nonce || nonce.length > 256 || !cookieNonce || cookieNonce !== nonce) {
+  if (
+    !credential
+    || !nonce
+    || nonce.length > 256
+    || !cookieNonce
+    || !(await secureEqualText(cookieNonce, nonce))
+  ) {
     throw new AuthError(400, "invalid_login_request", "Google sign-in request is invalid or expired.");
   }
 
@@ -196,12 +164,33 @@ export const loginWithGoogle = async (request, env, verifyGoogleToken, jsonRespo
   if (!user) throw new AuthError(500, "account_creation_failed", "Account could not be created.");
 
   const sessionToken = randomToken(48);
-  const tokenHash = await sha256(sessionToken);
+  const tokenHash = await sha256Base64Url(sessionToken);
   const expiresAt = Math.floor(Date.now() / 1000) + SESSION_MAX_AGE_SECONDS;
-  await env.DB.prepare(
-    `INSERT INTO sessions (id, user_id, token_hash, expires_at)
-     VALUES (?, ?, ?, ?)`
-  ).bind(crypto.randomUUID(), user.id, tokenHash, expiresAt).run();
+  const sessionId = crypto.randomUUID();
+  await env.DB.batch([
+    env.DB.prepare(
+      `INSERT INTO sessions (id, user_id, token_hash, expires_at)
+       VALUES (?, ?, ?, ?)`
+    ).bind(sessionId, user.id, tokenHash, expiresAt),
+    env.DB.prepare(
+      `UPDATE sessions
+          SET revoked_at = CURRENT_TIMESTAMP
+        WHERE user_id = ?
+          AND revoked_at IS NULL
+          AND expires_at > unixepoch()
+          AND id <> ?
+          AND id NOT IN (
+            SELECT id
+              FROM sessions
+             WHERE user_id = ?
+               AND revoked_at IS NULL
+               AND expires_at > unixepoch()
+               AND id <> ?
+             ORDER BY rowid DESC
+             LIMIT ?
+          )`
+    ).bind(user.id, sessionId, user.id, sessionId, MAX_ACTIVE_SESSIONS - 1)
+  ]);
 
   const response = jsonResponse({
     ok: true,
@@ -224,7 +213,7 @@ export const logout = async (request, env, jsonResponse) => {
 
   const token = getSessionToken(request);
   if (token && env?.DB) {
-    const tokenHash = await sha256(token);
+    const tokenHash = await sha256Base64Url(token);
     await env.DB.prepare(
       `UPDATE sessions SET revoked_at = CURRENT_TIMESTAMP WHERE token_hash = ? AND revoked_at IS NULL`
     ).bind(tokenHash).run();

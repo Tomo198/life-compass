@@ -2,11 +2,11 @@
 
 ## 1. 状態
 
-この文書は世帯共有の設計と段階的な実装状態を管理します。D1とWorkerの非公開基盤は実装済みですが、共同プラン保存、共同編集、利用者向けUIは本番利用者へ公開しません。
+この文書は世帯共有の設計と段階的な実装状態を管理します。D1、Worker、ブラウザ暗号化、暗号化共同プラン保存APIの非公開基盤は実装済みですが、専用R2バインディングと利用者向けUIは本番利用者へ公開しません。
 
 実装は`disabled`、運営者限定の`preview`、本番用の`enforced`の順で進めます。セキュリティ受入条件をすべて満たすまで`enforced`へ切り替えません。
 
-現在の既定値は`HOUSEHOLD_SHARING_MODE=disabled`です。リモートD1へマイグレーションを適用し、招待用Secretを設定し、否定テストと運営者確認を終えるまで変更しません。
+現在の既定値は`HOUSEHOLD_SHARING_MODE=disabled`です。リモートD1へマイグレーションを適用し、招待用Secretと専用R2バインディングを設定し、否定テストと運営者確認を終えるまで変更しません。
 
 ## 2. 目的
 
@@ -108,7 +108,7 @@ Life Compass shared plan v1|householdId|revision|keyEpoch
 
 ## 7. D1データモデル
 
-次段階で新しいマイグレーションとして追加します。既存テーブルの意味は変更しません。
+`migrations/0005_household_sharing_foundation.sql`として追加済みです。既存テーブルの意味は変更しません。
 
 ### shared_households
 
@@ -231,7 +231,7 @@ POST   /api/shared-household/invitations/accept
 GET    /api/shared-household/plan
 PUT    /api/shared-household/plan
 GET    /api/shared-household/revisions
-POST   /api/shared-household/revisions/:revision/restore
+GET    /api/shared-household/revisions/:revision
 DELETE /api/shared-household/members/:userId
 POST   /api/shared-household/leave
 DELETE /api/shared-household
@@ -263,6 +263,8 @@ DELETE /api/shared-household
 7. D1登録に失敗した場合は新しいR2オブジェクトを削除する
 
 409の場合は自動上書きせず、利用者へ「別の端末または共同利用者が更新しました」と表示します。
+
+過去版の復元は、対象版をブラウザで復号し、現在の世帯ID、次のrevision、現在のkeyEpochを使って再暗号化して新しい版として保存します。古い暗号文を別revisionへそのままコピーしません。
 
 ## 12. 共有解除、退出、削除
 
@@ -334,10 +336,12 @@ ownerが共同利用者を残したままアカウント削除する場合は、
 
 ### 第3段階: 共同プラン暗号化
 
-- 共有暗号化形式v1
-- 世帯ID、revision、keyEpochをAADへ含める
-- 誤パスワード、改ざん、別世帯差し替えのテスト
-- R2保存、取得、版管理、競合検知
+- [x] 共有暗号化形式v1
+- [x] 世帯ID、revision、keyEpochをAADへ含める
+- [x] 誤パスワード、改ざん、別世帯、別revision、別keyEpoch差し替えのテスト
+- [x] 暗号文だけを受け付けるR2保存、取得、版管理、競合検知API
+- [x] 最大10版の保持とR2キーを露出しない履歴一覧
+- [ ] 専用の非公開R2バケットと`SHARED_PLANS`バインディング
 
 ### 第4段階: 運営者限定UI
 
@@ -370,7 +374,7 @@ ownerが共同利用者を残したままアカウント削除する場合は、
 - ownerとeditorの権限表がある
 - 招待、保存、競合、解除、削除の安全条件がある
 - 未決定事項がある間は本番公開しない条件がある
-- 次段階で追加するD1テーブルとAPIが定義されている
+- 追加するD1テーブルとAPIが定義されている
 
 ## 17. 現在実装されている非公開API
 
@@ -383,6 +387,10 @@ DELETE /api/shared-household/invitations/:id
 POST   /api/shared-household/invitations/accept
 DELETE /api/shared-household/members/:userId
 POST   /api/shared-household/leave
+GET    /api/shared-household/plan
+PUT    /api/shared-household/plan
+GET    /api/shared-household/revisions
+GET    /api/shared-household/revisions/:revision
 ```
 
 現在は次の安全策を実装しています。
@@ -396,7 +404,7 @@ POST   /api/shared-household/leave
 - ownerの契約状態をサーバーで再確認し、editorへは共同世帯内だけのPro権限を返す
 - editorの解除または退出後はmembershipを即時無効化し、世帯を読取専用にして鍵世代を進める
 
-共同プラン本文を保存するAPIとUIはまだ存在しません。`HOUSEHOLD_SHARING_MODE`を有効にしても、暗号化共同プラン保存まで完成したことにはなりません。
+共同プラン保存APIは暗号化済みJSONだけを受け付けます。共有パスワード、復号鍵、平文プランをWorkerへ送るAPIはありません。利用者向けUI、鍵ローテーション、世帯削除時の全R2削除は未実装なので、`HOUSEHOLD_SHARING_MODE`はまだ有効にしません。
 
 ## 18. 非公開基盤の設定
 
@@ -408,4 +416,6 @@ npx.cmd wrangler d1 migrations apply life-compass-auth --remote
 npx.cmd wrangler secret put HOUSEHOLD_INVITE_PEPPER
 ```
 
-この段階では`HOUSEHOLD_SHARING_MODE`を`disabled`のまま維持します。運営者限定テストを始めるときだけCloudflareの変数を`preview`へ変更します。
+暗号化共同プランは個人バックアップとは別の非公開R2バケットへ保存し、Workerへ`SHARED_PLANS`としてバインドします。バケットの公開アクセスと独自ドメインは有効にしません。
+
+この段階では`HOUSEHOLD_SHARING_MODE`を`disabled`のまま維持します。専用R2、リモートD1、Secret、運営者限定UI、削除と鍵ローテーションを確認した後だけ、Cloudflareの変数を`preview`へ変更します。

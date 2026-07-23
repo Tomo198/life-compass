@@ -6,31 +6,20 @@ import {
   resolveHouseholdAccess,
   resolvePersonalAccess
 } from "./access.js";
+import {
+  bytesToBase64Url,
+  parseBoundedJsonBody,
+  randomToken,
+  sameOrigin,
+  secureEqualText,
+  sha256Base64Url
+} from "./security.js";
 
 const MAX_BODY_BYTES = 4 * 1024;
 const INVITATION_TTL_SECONDS = 24 * 60 * 60;
 const FRESH_SESSION_MAX_AGE_SECONDS = 10 * 60;
 const inviteTokenPattern = /^[A-Za-z0-9_-]{40,128}$/u;
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u;
-
-const base64Url = (bytes) => {
-  let binary = "";
-  bytes.forEach((value) => {
-    binary += String.fromCharCode(value);
-  });
-  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/u, "");
-};
-
-const randomToken = (length = 32) => {
-  const bytes = new Uint8Array(length);
-  crypto.getRandomValues(bytes);
-  return base64Url(bytes);
-};
-
-const sha256 = async (value) => {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
-  return base64Url(new Uint8Array(digest));
-};
 
 const emailHmac = async (email, pepper) => {
   const encoder = new TextEncoder();
@@ -42,67 +31,14 @@ const emailHmac = async (email, pepper) => {
     ["sign"]
   );
   const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(email));
-  return base64Url(new Uint8Array(signature));
+  return bytesToBase64Url(new Uint8Array(signature));
 };
 
-const constantTimeEqual = (left, right) => {
-  if (typeof left !== "string" || typeof right !== "string" || left.length !== right.length) return false;
-  let difference = 0;
-  for (let index = 0; index < left.length; index += 1) {
-    difference |= left.charCodeAt(index) ^ right.charCodeAt(index);
-  }
-  return difference === 0;
-};
-
-const sameOrigin = (request) => request.headers.get("Origin") === new URL(request.url).origin;
-
-const readBodyWithLimit = async (request, limit) => {
-  if (!request.body) return "";
-  const reader = request.body.getReader();
-  const chunks = [];
-  let totalBytes = 0;
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    totalBytes += value.byteLength;
-    if (totalBytes > limit) {
-      await reader.cancel();
-      throw new AuthError(413, "request_too_large", "Household request is too large.");
-    }
-    chunks.push(value);
-  }
-
-  const body = new Uint8Array(totalBytes);
-  let offset = 0;
-  chunks.forEach((chunk) => {
-    body.set(chunk, offset);
-    offset += chunk.byteLength;
-  });
-  return new TextDecoder().decode(body);
-};
-
-const parseJsonBody = async (request) => {
-  const contentType = request.headers.get("Content-Type") || "";
-  if (!contentType.toLowerCase().includes("application/json")) {
-    throw new AuthError(415, "unsupported_media_type", "JSON request body required.");
-  }
-
-  const declaredLength = Number(request.headers.get("Content-Length") || 0);
-  if (declaredLength > MAX_BODY_BYTES) {
-    throw new AuthError(413, "request_too_large", "Household request is too large.");
-  }
-
-  const text = await readBodyWithLimit(request, MAX_BODY_BYTES);
-
-  try {
-    const body = JSON.parse(text);
-    if (!body || typeof body !== "object" || Array.isArray(body)) throw new Error("invalid");
-    return body;
-  } catch {
-    throw new AuthError(400, "invalid_json", "Household request is invalid.");
-  }
-};
+const parseJsonBody = (request) => parseBoundedJsonBody(request, {
+  maxBytes: MAX_BODY_BYTES,
+  tooLargeMessage: "Household request is too large.",
+  invalidMessage: "Household request is invalid."
+});
 
 const requireSharingEnabled = (env) => {
   const mode = getHouseholdSharingMode(env);
@@ -295,7 +231,7 @@ const createInvitation = async (request, env, jsonResponse) => {
 
   const pepper = requireInvitePepper(env);
   const token = randomToken(32);
-  const tokenHash = await sha256(token);
+  const tokenHash = await sha256Base64Url(token);
   const inviteeEmailHmac = await emailHmac(inviteeEmail, pepper);
   const invitationId = crypto.randomUUID();
   const expiresAt = Math.floor(Date.now() / 1000) + INVITATION_TTL_SECONDS;
@@ -396,7 +332,7 @@ const acceptInvitation = async (request, env, jsonResponse) => {
     throw new AuthError(409, "active_household_exists", "This account already belongs to a shared household.");
   }
 
-  const tokenHash = await sha256(token);
+  const tokenHash = await sha256Base64Url(token);
   const invitation = await env.DB.prepare(
     `SELECT invitations.id,
             invitations.household_id,
@@ -418,7 +354,7 @@ const acceptInvitation = async (request, env, jsonResponse) => {
   }
 
   const expectedEmailHmac = await emailHmac(normalizeEmail(user.email), requireInvitePepper(env));
-  if (!constantTimeEqual(expectedEmailHmac, invitation.invitee_email_hmac)) {
+  if (!(await secureEqualText(expectedEmailHmac, invitation.invitee_email_hmac))) {
     throw new AuthError(400, "invalid_invitation", "Invitation is invalid or expired.");
   }
 

@@ -31,6 +31,7 @@ import { createEmptyPlan } from "../src/hooks/useLifePlanEditor";
 import { createScenarioFromTemplate, scenarioTemplates } from "../src/data/scenarios";
 import type { LifePlan } from "../src/types";
 import { decryptCloudBackup, encryptCloudBackup } from "../src/utils/cloudBackupCrypto";
+import { decryptSharedPlan, encryptSharedPlan } from "../src/utils/sharedPlanCrypto";
 import { convertBasicCashflowToDetailedItems } from "../src/utils/detailedCashflow";
 import {
   buildPlanFromScenario,
@@ -3185,4 +3186,78 @@ test("cloud backups use unique randomness and reject wrong passwords or tamperin
 
 test("cloud backup encryption rejects weak recovery passwords", async () => {
   await assert.rejects(() => encryptCloudBackup(basePlan, "short"), /12文字以上/);
+});
+
+test("shared plan encryption round-trips without exposing household data", async () => {
+  const password = "shared household password";
+  const context = {
+    householdId: "7adc57af-1302-4d4d-93c5-f4fd8f52af81",
+    revision: 1,
+    keyEpoch: 1
+  };
+  const envelope = await encryptSharedPlan(basePlan, password, context);
+  const restored = await decryptSharedPlan(envelope, password, context);
+
+  assert.equal(restored.profile.name, basePlan.profile.name);
+  assert.equal(restored.household.monthlyIncome, basePlan.household.monthlyIncome);
+  assert.equal(JSON.stringify(envelope).includes(basePlan.profile.name), false);
+  assert.equal(envelope.householdId, context.householdId);
+  assert.equal(envelope.revision, 1);
+  assert.equal(envelope.keyEpoch, 1);
+});
+
+test("shared plan encryption rejects wrong passwords, tampering, and context substitution", async () => {
+  const password = "another shared household password";
+  const context = {
+    householdId: "7adc57af-1302-4d4d-93c5-f4fd8f52af81",
+    revision: 4,
+    keyEpoch: 2
+  };
+  const envelope = await encryptSharedPlan(basePlan, password, context);
+
+  await assert.rejects(
+    () => decryptSharedPlan(envelope, "incorrect shared password", context),
+    /違うか、共有プランが改ざんまたは破損/
+  );
+  await assert.rejects(
+    () => decryptSharedPlan(envelope, password, { ...context, revision: 5 }),
+    /保存先または版情報が一致/
+  );
+  await assert.rejects(
+    () => decryptSharedPlan(envelope, password, {
+      ...context,
+      householdId: "f6cf35ef-f8d4-452e-b827-88475350b89d"
+    }),
+    /保存先または版情報が一致/
+  );
+  await assert.rejects(
+    () => decryptSharedPlan(envelope, password, { ...context, keyEpoch: 3 }),
+    /保存先または版情報が一致/
+  );
+
+  const replacement = envelope.ciphertext.endsWith("A") ? "B" : "A";
+  const tampered = {
+    ...envelope,
+    ciphertext: `${envelope.ciphertext.slice(0, -1)}${replacement}`
+  };
+  await assert.rejects(
+    () => decryptSharedPlan(tampered, password, context),
+    /違うか、共有プランが改ざんまたは破損|暗号化形式が正しくありません/
+  );
+});
+
+test("shared plan encryption uses unique randomness and rejects weak passwords", async () => {
+  const context = {
+    householdId: "7adc57af-1302-4d4d-93c5-f4fd8f52af81",
+    revision: 1,
+    keyEpoch: 1
+  };
+  const password = "shared household password";
+  const first = await encryptSharedPlan(basePlan, password, context);
+  const second = await encryptSharedPlan(basePlan, password, context);
+
+  assert.notEqual(first.keyDerivation.salt, second.keyDerivation.salt);
+  assert.notEqual(first.encryption.iv, second.encryption.iv);
+  assert.notEqual(first.ciphertext, second.ciphertext);
+  await assert.rejects(() => encryptSharedPlan(basePlan, "short", context), /12文字以上/);
 });

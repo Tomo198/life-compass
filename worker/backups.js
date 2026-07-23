@@ -1,5 +1,6 @@
 import { AuthError, getCurrentUser } from "./auth.js";
 import { isOwnerTestUser, resolvePersonalAccess } from "./access.js";
+import { parseBoundedJsonBody, sameOrigin } from "./security.js";
 
 const MAX_BACKUP_BODY_BYTES = 7 * 1024 * 1024;
 const MAX_BACKUPS_PER_USER = 5;
@@ -15,8 +16,6 @@ const base64ByteLength = (value) => {
     return -1;
   }
 };
-
-const sameOrigin = (request) => request.headers.get("Origin") === new URL(request.url).origin;
 
 const requireUser = async (request, env) => {
   const user = await getCurrentUser(request, env);
@@ -52,27 +51,12 @@ const requireBackupRateLimit = async (request, user, env) => {
   if (!result.success) throw new AuthError(429, "rate_limited", "Too many backup requests. Try again later.");
 };
 
-const parseBody = async (request) => {
-  const contentType = request.headers.get("Content-Type") || "";
-  if (!contentType.toLowerCase().includes("application/json")) {
-    throw new AuthError(415, "unsupported_media_type", "JSON request body required.");
-  }
-  const declaredLength = Number(request.headers.get("Content-Length") || 0);
-  if (declaredLength > MAX_BACKUP_BODY_BYTES) {
-    throw new AuthError(413, "backup_too_large", "Encrypted backup is too large.");
-  }
-  const text = await request.text();
-  if (new TextEncoder().encode(text).byteLength > MAX_BACKUP_BODY_BYTES) {
-    throw new AuthError(413, "backup_too_large", "Encrypted backup is too large.");
-  }
-  try {
-    const body = JSON.parse(text);
-    if (!body || typeof body !== "object" || Array.isArray(body)) throw new Error("invalid");
-    return body;
-  } catch {
-    throw new AuthError(400, "invalid_json", "Backup request is invalid.");
-  }
-};
+const parseBody = (request) => parseBoundedJsonBody(request, {
+  maxBytes: MAX_BACKUP_BODY_BYTES,
+  tooLargeCode: "backup_too_large",
+  tooLargeMessage: "Encrypted backup is too large.",
+  invalidMessage: "Backup request is invalid."
+});
 
 const normalizeEnvelope = (value) => {
   const envelope = value && typeof value === "object" && !Array.isArray(value) ? value : {};

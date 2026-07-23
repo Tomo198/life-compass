@@ -22,6 +22,7 @@ class FakeD1 {
     this.usersBySub = new Map();
     this.usersById = new Map();
     this.sessionsByHash = new Map();
+    this.sessionSequence = 0;
     this.cloudBackups = new Map();
     this.subscriptionsByProviderId = new Map();
     this.billingWebhookEvents = new Map();
@@ -63,12 +64,38 @@ class FakeD1 {
               token_hash: tokenHash,
               expires_at: expiresAt,
               created_at: Math.floor(Date.now() / 1000),
+              created_sequence: this.sessionSequence += 1,
               revoked_at: null
             });
             return { success: true };
           }
           if (normalized.startsWith("UPDATE sessions SET revoked_at")) {
-            if (normalized.includes("WHERE user_id")) {
+            if (normalized.includes("id NOT IN")) {
+              const [userId, preservedId, selectedUserId, excludedId, keepCount] = args;
+              const keepIds = new Set(
+                [...this.sessionsByHash.values()]
+                  .filter((session) => (
+                    session.user_id === selectedUserId
+                    && session.id !== excludedId
+                    && !session.revoked_at
+                    && session.expires_at > Math.floor(Date.now() / 1000)
+                  ))
+                  .sort((left, right) => right.created_sequence - left.created_sequence)
+                  .slice(0, keepCount)
+                  .map((session) => session.id)
+              );
+              for (const session of this.sessionsByHash.values()) {
+                if (
+                  session.user_id === userId
+                  && session.id !== preservedId
+                  && !session.revoked_at
+                  && session.expires_at > Math.floor(Date.now() / 1000)
+                  && !keepIds.has(session.id)
+                ) {
+                  session.revoked_at = new Date().toISOString();
+                }
+              }
+            } else if (normalized.includes("WHERE user_id")) {
               const [userId] = args;
               for (const session of this.sessionsByHash.values()) {
                 if (session.user_id === userId && !session.revoked_at) session.revoked_at = new Date().toISOString();
@@ -291,7 +318,7 @@ class FakeD1 {
           }
           if (normalized.startsWith("INSERT INTO household_audit_events")) {
             const eventType = normalized.match(
-              /'(created|invited|invitation_revoked|joined|removed|left)'/u
+              /'(created|invited|invitation_revoked|joined|removed|left|saved)'/u
             )?.[1] || "unknown";
             let id = args[0];
             let householdId = args[1];
@@ -311,6 +338,7 @@ class FakeD1 {
               household_id: householdId,
               actor_user_id: actorUserId,
               event_type: eventType,
+              revision: eventType === "saved" ? args[3] : null,
               created_at: new Date().toISOString()
             });
             return { success: true, meta: { changes: 1 } };
@@ -328,7 +356,79 @@ class FakeD1 {
             membership.revoked_at = new Date().toISOString();
             return { success: true, meta: { changes: 1 } };
           }
+          if (normalized.startsWith("INSERT INTO shared_plan_revisions")) {
+            const [
+              householdId,
+              revision,
+              keyEpoch,
+              objectKey,
+              envelopeVersion,
+              planVersion,
+              sizeBytes,
+              checksum,
+              createdBy,
+              expectedHouseholdId,
+              expectedKeyEpoch,
+              expectedRevision,
+              membershipUserId
+            ] = args;
+            const household = this.sharedHouseholds.get(expectedHouseholdId);
+            const membership = [...this.householdMemberships.values()].find((item) => (
+              item.household_id === expectedHouseholdId
+              && item.user_id === membershipUserId
+              && item.status === "active"
+            ));
+            const key = `${householdId}:${revision}`;
+            if (this.sharedPlanRevisions.has(key)) throw new Error("unique shared revision");
+            if (
+              !household
+              || household.id !== householdId
+              || household.status !== "active"
+              || household.deleted_at
+              || household.key_epoch !== expectedKeyEpoch
+              || household.current_revision !== expectedRevision
+              || !membership
+            ) {
+              return { success: true, meta: { changes: 0 } };
+            }
+            const row = {
+              household_id: householdId,
+              revision,
+              key_epoch: keyEpoch,
+              r2_object_key: objectKey,
+              envelope_version: envelopeVersion,
+              plan_version: planVersion,
+              size_bytes: sizeBytes,
+              checksum_sha256: checksum,
+              created_by: createdBy,
+              created_at: new Date().toISOString()
+            };
+            this.sharedPlanRevisions.set(key, row);
+            return { success: true, meta: { changes: 1 } };
+          }
           if (normalized.startsWith("UPDATE shared_households")) {
+            if (normalized.includes("SET current_revision")) {
+              const [revision, householdId, keyEpoch, expectedRevision, userId] = args;
+              const household = this.sharedHouseholds.get(householdId);
+              const membership = [...this.householdMemberships.values()].find((item) => (
+                item.household_id === householdId
+                && item.user_id === userId
+                && item.status === "active"
+              ));
+              if (
+                !household
+                || household.status !== "active"
+                || household.deleted_at
+                || household.key_epoch !== keyEpoch
+                || household.current_revision !== expectedRevision
+                || !membership
+              ) {
+                return { success: true, meta: { changes: 0 } };
+              }
+              household.current_revision = revision;
+              household.updated_at = new Date().toISOString();
+              return { success: true, meta: { changes: 1 } };
+            }
             const [householdId] = args;
             const household = this.sharedHouseholds.get(householdId);
             if (!household || household.deleted_at) return { success: true, meta: { changes: 0 } };
@@ -351,6 +451,11 @@ class FakeD1 {
               if (invitation.household_id === householdId) this.householdInvitations.delete(id);
             }
             return { success: true, meta: { changes: 1 } };
+          }
+          if (normalized.startsWith("DELETE FROM shared_plan_revisions")) {
+            const [householdId, revision] = args;
+            const deleted = this.sharedPlanRevisions.delete(`${householdId}:${revision}`);
+            return { success: true, meta: { changes: deleted ? 1 : 0 } };
           }
           if (normalized.startsWith("DELETE FROM cloud_backups")) {
             const [id, userId] = args;
@@ -501,6 +606,13 @@ class FakeD1 {
               )).length
             };
           }
+          if (
+            normalized.includes("FROM shared_plan_revisions")
+            && normalized.includes("revision = ?")
+            && normalized.includes("r2_object_key")
+          ) {
+            return this.sharedPlanRevisions.get(`${args[0]}:${args[1]}`) || null;
+          }
           if (normalized.includes("FROM shared_households") && normalized.includes("owner_user_id = ?")) {
             return [...this.sharedHouseholds.values()].find((item) => (
               item.owner_user_id === args[0] && !item.deleted_at
@@ -511,6 +623,13 @@ class FakeD1 {
         all: async () => {
           if (normalized.includes("FROM cloud_backups") && normalized.includes("WHERE user_id = ?")) {
             return { results: [...this.cloudBackups.values()].filter((backup) => backup.user_id === args[0]) };
+          }
+          if (normalized.includes("FROM shared_plan_revisions") && normalized.includes("WHERE household_id = ?")) {
+            const rows = [...this.sharedPlanRevisions.values()]
+              .filter((revision) => revision.household_id === args[0])
+              .sort((left, right) => right.revision - left.revision);
+            const limit = normalized.includes("LIMIT ?") ? Number(args[1]) : rows.length;
+            return { results: rows.slice(0, limit) };
           }
           throw new Error(`Unexpected D1 all query: ${normalized}`);
         }
@@ -531,7 +650,9 @@ class FakeR2 {
 
   async get(key) {
     const value = this.objects.get(key);
-    return value === undefined ? null : { text: async () => value };
+    return value === undefined
+      ? null
+      : { size: new TextEncoder().encode(value).byteLength, text: async () => value };
   }
 
   async delete(keyOrKeys) {
@@ -650,6 +771,73 @@ test("enforced access grants test Pro only to the configured Google owner", asyn
   }));
   assert.equal(unverified.access.tier, "free");
   assert.equal(unverified.access.source, "anonymous");
+});
+
+test("authentication rejects oversized streamed JSON and limits active sessions per account", async () => {
+  const DB = new FakeD1();
+  const secureWorker = createWorker({
+    verifyGoogleToken: async ({ credential }) => ({
+      sub: credential,
+      email: `${credential}@example.com`,
+      emailVerified: true
+    })
+  });
+  const authEnv = {
+    ...env,
+    DB,
+    GOOGLE_CLIENT_ID: "google-client-id",
+    ACCESS_MODE: "enforced"
+  };
+  const authRequest = (path, init) => secureWorker.fetch(
+    new Request(`https://life.example${path}`, init),
+    authEnv,
+    {}
+  );
+  const loginAs = async (identity) => {
+    const nonceResponse = await authRequest("/api/auth/nonce");
+    const nonce = await json(nonceResponse);
+    return authRequest("/api/auth/google", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "https://life.example",
+        Cookie: `__Host-lc_oauth_nonce=${nonce.nonce}`
+      },
+      body: JSON.stringify({ credential: identity, nonce: nonce.nonce })
+    });
+  };
+
+  const nonceResponse = await authRequest("/api/auth/nonce");
+  const nonce = await json(nonceResponse);
+  const oversized = await authRequest("/api/auth/google", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Origin: "https://life.example",
+      Cookie: `__Host-lc_oauth_nonce=${nonce.nonce}`
+    },
+    body: JSON.stringify({ credential: "x".repeat(25 * 1024), nonce: nonce.nonce })
+  });
+  assert.equal(oversized.status, 413);
+  assert.equal((await json(oversized)).error.code, "request_too_large");
+
+  const cookies = [];
+  for (let index = 0; index < 7; index += 1) {
+    const loginResponse = await loginAs("session-user");
+    assert.equal(loginResponse.status, 200);
+    cookies.push(cookieValue(loginResponse, "__Host-lc_session"));
+  }
+
+  const activeSessions = [...DB.sessionsByHash.values()].filter((session) => !session.revoked_at);
+  assert.equal(activeSessions.length, 5);
+  const oldestSession = await json(await authRequest("/api/me", {
+    headers: { Cookie: `__Host-lc_session=${cookies[0]}` }
+  }));
+  const newestSession = await json(await authRequest("/api/me", {
+    headers: { Cookie: `__Host-lc_session=${cookies.at(-1)}` }
+  }));
+  assert.equal(oldestSession.authenticated, false);
+  assert.equal(newestSession.authenticated, true);
 });
 
 test("household sharing remains unavailable until explicitly enabled", async () => {
@@ -922,6 +1110,175 @@ test("one paid owner can securely share household Pro access with one verified e
   assert.equal(deleteResponse.status, 200);
   assert.equal(DB.sharedHouseholds.size, 0);
   assert.equal(DB.householdMemberships.size, 0);
+});
+
+test("encrypted shared plans enforce membership, integrity, concurrency, and revision retention", async () => {
+  const DB = new FakeD1();
+  const SHARED_PLANS = new FakeR2();
+  const secureWorker = createWorker({
+    verifyGoogleToken: async ({ credential }) => ({
+      sub: credential,
+      email: `${credential}@example.com`,
+      emailVerified: true
+    })
+  });
+  const authEnv = {
+    ...env,
+    DB,
+    SHARED_PLANS,
+    GOOGLE_CLIENT_ID: "google-client-id",
+    ACCESS_MODE: "enforced",
+    HOUSEHOLD_SHARING_MODE: "preview",
+    OWNER_GOOGLE_SUB: "shared-owner"
+  };
+  const authRequest = (path, init, overrideEnv = authEnv) => secureWorker.fetch(
+    new Request(`https://life.example${path}`, init),
+    overrideEnv,
+    {}
+  );
+  const loginAs = async (identity) => {
+    const nonceResponse = await authRequest("/api/auth/nonce");
+    const nonce = await json(nonceResponse);
+    const loginResponse = await authRequest("/api/auth/google", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "https://life.example",
+        Cookie: `__Host-lc_oauth_nonce=${nonce.nonce}`
+      },
+      body: JSON.stringify({ credential: identity, nonce: nonce.nonce })
+    });
+    return cookieValue(loginResponse, "__Host-lc_session");
+  };
+  const ownerCookie = await loginAs("shared-owner");
+  const otherCookie = await loginAs("shared-other");
+  const createResponse = await authRequest("/api/shared-household", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Origin: "https://life.example",
+      Cookie: `__Host-lc_session=${ownerCookie}`
+    },
+    body: JSON.stringify({ confirmation: "CREATE_SHARED_HOUSEHOLD" })
+  });
+  assert.equal(createResponse.status, 201);
+  const householdId = (await json(createResponse)).household.id;
+  const makeEnvelope = (revision, household = householdId) => ({
+    format: "life-compass-shared-plan",
+    version: 1,
+    householdId: household,
+    revision,
+    keyEpoch: 1,
+    encryption: {
+      name: "AES-GCM",
+      keyLength: 256,
+      iv: Buffer.alloc(12, revision).toString("base64")
+    },
+    keyDerivation: {
+      name: "PBKDF2",
+      hash: "SHA-256",
+      iterations: 600_000,
+      salt: Buffer.alloc(16, revision).toString("base64")
+    },
+    ciphertext: Buffer.alloc(32, revision).toString("base64"),
+    leakedPlaintext: "must not be stored"
+  });
+  const saveRevision = (expectedRevision, envelope = makeEnvelope(expectedRevision + 1)) => authRequest(
+    "/api/shared-household/plan",
+    {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "https://life.example",
+        Cookie: `__Host-lc_session=${ownerCookie}`
+      },
+      body: JSON.stringify({
+        expectedRevision,
+        planVersion: 9,
+        envelope
+      })
+    }
+  );
+
+  const unavailable = await authRequest(
+    "/api/shared-household/plan",
+    { headers: { Cookie: `__Host-lc_session=${ownerCookie}` } },
+    { ...authEnv, SHARED_PLANS: undefined }
+  );
+  assert.equal(unavailable.status, 503);
+
+  const crossOrigin = await authRequest("/api/shared-household/plan", {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Origin: "https://attacker.example",
+      Cookie: `__Host-lc_session=${ownerCookie}`
+    },
+    body: JSON.stringify({ expectedRevision: 0, planVersion: 9, envelope: makeEnvelope(1) })
+  });
+  assert.equal(crossOrigin.status, 403);
+
+  const firstSave = await saveRevision(0);
+  assert.equal(firstSave.status, 201);
+  assert.equal((await json(firstSave)).currentRevision, 1);
+  assert.equal(SHARED_PLANS.objects.size, 1);
+  assert.equal(JSON.stringify([...SHARED_PLANS.objects.values()]).includes("must not be stored"), false);
+
+  const conflict = await saveRevision(0);
+  assert.equal(conflict.status, 409);
+  assert.equal((await json(conflict)).error.code, "shared_plan_conflict");
+  assert.equal(SHARED_PLANS.objects.size, 1);
+
+  const wrongHousehold = await saveRevision(
+    1,
+    makeEnvelope(2, "f6cf35ef-f8d4-452e-b827-88475350b89d")
+  );
+  assert.equal(wrongHousehold.status, 400);
+  assert.equal((await json(wrongHousehold)).error.code, "invalid_shared_plan_envelope");
+
+  for (let expectedRevision = 1; expectedRevision < 11; expectedRevision += 1) {
+    const response = await saveRevision(expectedRevision);
+    assert.equal(response.status, 201);
+  }
+  assert.equal(DB.sharedHouseholds.get(householdId).current_revision, 11);
+  assert.equal(DB.sharedPlanRevisions.size, 10);
+  assert.equal(DB.sharedPlanRevisions.has(`${householdId}:1`), false);
+  assert.equal(SHARED_PLANS.objects.size, 10);
+
+  const currentResponse = await authRequest("/api/shared-household/plan", {
+    headers: { Cookie: `__Host-lc_session=${ownerCookie}` }
+  });
+  const current = await json(currentResponse);
+  assert.equal(currentResponse.status, 200);
+  assert.equal(current.currentRevision, 11);
+  assert.equal(current.envelope.revision, 11);
+
+  const currentRow = DB.sharedPlanRevisions.get(`${householdId}:11`);
+  const currentObject = SHARED_PLANS.objects.get(currentRow.r2_object_key);
+  SHARED_PLANS.objects.set(currentRow.r2_object_key, `${currentObject} `);
+  const tamperedResponse = await authRequest("/api/shared-household/plan", {
+    headers: { Cookie: `__Host-lc_session=${ownerCookie}` }
+  });
+  assert.equal(tamperedResponse.status, 409);
+  assert.equal((await json(tamperedResponse)).error.code, "shared_plan_integrity_failed");
+  SHARED_PLANS.objects.set(currentRow.r2_object_key, currentObject);
+
+  const revisionsResponse = await authRequest("/api/shared-household/revisions", {
+    headers: { Cookie: `__Host-lc_session=${ownerCookie}` }
+  });
+  const revisions = await json(revisionsResponse);
+  assert.equal(revisionsResponse.status, 200);
+  assert.equal(revisions.revisions.length, 10);
+  assert.equal(revisions.revisions[0].revision, 11);
+  assert.equal(revisions.revisions.at(-1).revision, 2);
+  assert.equal(JSON.stringify(revisions).includes("r2_object_key"), false);
+  assert.equal(JSON.stringify(revisions).includes("checksum_sha256"), false);
+
+  const deniedResponse = await authRequest("/api/shared-household/plan", {
+    headers: { Cookie: `__Host-lc_session=${otherCookie}` }
+  });
+  assert.equal(deniedResponse.status, 403);
+  assert.equal((await json(deniedResponse)).error.code, "household_access_denied");
 });
 
 test("editor account deletion revokes membership and locks the household for key rotation", async () => {

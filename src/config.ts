@@ -5,6 +5,7 @@ export const RECOVERY_STORAGE_KEY = "life-compass-recovery-v2";
 export const MAX_RECOVERY_BACKUPS = 3;
 export const MAX_IMPORT_FILE_BYTES = 5 * 1024 * 1024;
 export const MAX_CLOUD_BACKUP_PLAINTEXT_BYTES = 5 * 1024 * 1024;
+export const MAX_SHARED_PLAN_PLAINTEXT_BYTES = 5 * 1024 * 1024;
 export const MAX_CLOUD_BACKUPS = 5;
 export const MAX_PLAN_REVISIONS = 8;
 export const MAX_HOUSEHOLD_MEMBERS = 20;

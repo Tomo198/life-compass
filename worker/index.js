@@ -24,6 +24,7 @@ import {
   resolvePersonalAccess
 } from "./access.js";
 import { handleHouseholdRequest } from "./households.js";
+import { handleSharedPlanRequest } from "./sharedPlans.js";
 
 const securityHeaders = {
   "Cache-Control": "no-store",
@@ -31,6 +32,7 @@ const securityHeaders = {
   "X-Content-Type-Options": "nosniff",
   "Referrer-Policy": "strict-origin-when-cross-origin",
   "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=()",
+  "Cross-Origin-Resource-Policy": "same-origin",
   "X-Frame-Options": "DENY"
 };
 
@@ -54,6 +56,7 @@ const secureStaticResponse = (request, response) => {
   headers.set("Cross-Origin-Opener-Policy", "same-origin-allow-popups");
   headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
   headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()");
+  headers.set("Cross-Origin-Resource-Policy", "same-origin");
   headers.set("X-Content-Type-Options", "nosniff");
   headers.set("X-Frame-Options", "DENY");
   if (new URL(request.url).protocol === "https:") {
@@ -266,7 +269,12 @@ async function handleApiRequest(request, env, services) {
 
   if (pathname === "/api/shared-household" || pathname.startsWith("/api/shared-household/")) {
     try {
-      return await handleHouseholdRequest(request, env, jsonResponse);
+      const sharedPlanPath = pathname === "/api/shared-household/plan"
+        || pathname === "/api/shared-household/revisions"
+        || pathname.startsWith("/api/shared-household/revisions/");
+      return sharedPlanPath
+        ? await handleSharedPlanRequest(request, env, jsonResponse)
+        : await handleHouseholdRequest(request, env, jsonResponse);
     } catch (error) {
       return error instanceof AuthError
         ? authErrorResponse(error)
@@ -317,6 +325,7 @@ async function handleApiRequest(request, env, services) {
 
   if (pathname === "/api/auth/logout-all") {
     if (request.method !== "POST") return methodNotAllowed("POST, OPTIONS");
+    if (await authRateLimited(request, env, "logout-all")) return rateLimitResponse();
     try {
       return await logoutAll(request, env, jsonResponse);
     } catch (error) {
@@ -328,6 +337,7 @@ async function handleApiRequest(request, env, services) {
 
   if (pathname === "/api/account") {
     if (request.method !== "DELETE") return methodNotAllowed("DELETE, OPTIONS");
+    if (await authRateLimited(request, env, "account-delete")) return rateLimitResponse();
     try {
       return await deleteAccount(request, env, jsonResponse);
     } catch (error) {
