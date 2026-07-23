@@ -1,5 +1,5 @@
 import { AuthError, getCurrentUser } from "./auth.js";
-import { isOwnerTestUser } from "./access.js";
+import { isOwnerTestUser, resolvePersonalAccess } from "./access.js";
 
 const MAX_BACKUP_BODY_BYTES = 7 * 1024 * 1024;
 const MAX_BACKUPS_PER_USER = 5;
@@ -39,18 +39,11 @@ const requireBackupReadAccess = (user, env) => {
 
 const requireBackupWriteAccess = async (user, env) => {
   requireBackupReadAccess(user, env);
-  if (backupMode(env) === "preview" || isOwnerTestUser(user, env)) return;
-  const subscription = await env.DB.prepare(
-    `SELECT status
-       FROM subscriptions
-      WHERE user_id = ?
-        AND tier = 'pro'
-        AND status IN ('active', 'trialing')
-        AND payment_status = 'paid'
-        AND date(current_period_end) >= date('now')
-      LIMIT 1`
-  ).bind(user.id).first();
-  if (!subscription) throw new AuthError(403, "pro_required", "An active Pro subscription is required.");
+  if (backupMode(env) === "preview") return;
+  const access = await resolvePersonalAccess(user, env);
+  if (access.tier !== "pro") {
+    throw new AuthError(403, "pro_required", "An active Pro subscription is required.");
+  }
 };
 
 const requireBackupRateLimit = async (request, user, env) => {

@@ -282,6 +282,27 @@ export const deleteAccount = async (request, env, jsonResponse) => {
     throw new AuthError(409, "active_subscription", "Cancel the active subscription before deleting the account.");
   }
 
+  let householdMembership = null;
+  if (["preview", "enforced"].includes(env?.HOUSEHOLD_SHARING_MODE)) {
+    householdMembership = await env.DB.prepare(
+      `SELECT memberships.household_id, memberships.role
+         FROM household_memberships AS memberships
+         JOIN shared_households AS households
+           ON households.id = memberships.household_id
+        WHERE memberships.user_id = ?
+          AND memberships.status = 'active'
+          AND households.deleted_at IS NULL
+        LIMIT 1`
+    ).bind(user.id).first();
+    if (householdMembership?.role === "owner") {
+      throw new AuthError(
+        409,
+        "active_household_owner",
+        "Delete the shared household before deleting the owner account."
+      );
+    }
+  }
+
   const backupResult = await env.DB.prepare(
     "SELECT r2_object_key FROM cloud_backups WHERE user_id = ?"
   ).bind(user.id).all();
@@ -291,7 +312,35 @@ export const deleteAccount = async (request, env, jsonResponse) => {
   }
   if (objectKeys.length > 0) await env.BACKUPS.delete(objectKeys);
 
-  await env.DB.prepare("DELETE FROM users WHERE id = ?").bind(user.id).run();
+  if (householdMembership?.role === "editor") {
+    await env.DB.batch([
+      env.DB.prepare(
+        `UPDATE shared_households
+            SET status = 'read_only',
+                key_epoch = key_epoch + 1,
+                updated_at = CURRENT_TIMESTAMP
+          WHERE id = ?
+            AND deleted_at IS NULL`
+      ).bind(householdMembership.household_id),
+      env.DB.prepare(
+        `UPDATE household_memberships
+            SET status = 'left',
+                revoked_at = CURRENT_TIMESTAMP
+          WHERE household_id = ?
+            AND user_id = ?
+            AND role = 'editor'
+            AND status = 'active'`
+      ).bind(householdMembership.household_id, user.id),
+      env.DB.prepare(
+        `INSERT INTO household_audit_events
+          (id, household_id, actor_user_id, event_type)
+         VALUES (?, ?, ?, 'left')`
+      ).bind(crypto.randomUUID(), householdMembership.household_id, user.id),
+      env.DB.prepare("DELETE FROM users WHERE id = ?").bind(user.id)
+    ]);
+  } else {
+    await env.DB.prepare("DELETE FROM users WHERE id = ?").bind(user.id).run();
+  }
   const response = jsonResponse({ ok: true, authenticated: false, user: null, accountDeleted: true });
   response.headers.append("Set-Cookie", clearCookie(request, cookieName(request, SESSION_COOKIE)));
   return response;

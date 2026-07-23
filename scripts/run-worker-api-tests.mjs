@@ -25,7 +25,20 @@ class FakeD1 {
     this.cloudBackups = new Map();
     this.subscriptionsByProviderId = new Map();
     this.billingWebhookEvents = new Map();
+    this.sharedHouseholds = new Map();
+    this.householdMemberships = new Map();
+    this.householdInvitations = new Map();
+    this.householdAuditEvents = new Map();
+    this.sharedPlanRevisions = new Map();
     this.failCloudBackupInsert = false;
+  }
+
+  async batch(statements) {
+    const results = [];
+    for (const statement of statements) {
+      results.push(await statement.run());
+    }
+    return results;
   }
 
   prepare(sql) {
@@ -134,6 +147,211 @@ class FakeD1 {
             });
             return { success: true };
           }
+          if (normalized.startsWith("INSERT INTO shared_households")) {
+            const [id, ownerUserId] = args;
+            if ([...this.sharedHouseholds.values()].some((item) => (
+              item.owner_user_id === ownerUserId && !item.deleted_at
+            ))) {
+              throw new Error("unique active household owner");
+            }
+            const timestamp = new Date().toISOString();
+            this.sharedHouseholds.set(id, {
+              id,
+              owner_user_id: ownerUserId,
+              status: "active",
+              key_epoch: 1,
+              current_revision: 0,
+              created_at: timestamp,
+              updated_at: timestamp,
+              deleted_at: null
+            });
+            return { success: true, meta: { changes: 1 } };
+          }
+          if (normalized.startsWith("INSERT INTO household_memberships") && normalized.includes("VALUES")) {
+            const [id, householdId, userId] = args;
+            if ([...this.householdMemberships.values()].some((item) => (
+              item.user_id === userId && item.status === "active"
+            ))) {
+              throw new Error("unique active household membership");
+            }
+            this.householdMemberships.set(id, {
+              id,
+              household_id: householdId,
+              user_id: userId,
+              role: normalized.includes("'owner'") ? "owner" : "editor",
+              status: "active",
+              joined_at: new Date().toISOString(),
+              revoked_at: null
+            });
+            return { success: true, meta: { changes: 1 } };
+          }
+          if (normalized.startsWith("INSERT INTO household_memberships") && normalized.includes("SELECT")) {
+            const [id, userId, invitationId, tokenHash, inviteeEmailHmac] = args;
+            const invitation = this.householdInvitations.get(invitationId);
+            const household = invitation ? this.sharedHouseholds.get(invitation.household_id) : null;
+            const activeMemberCount = invitation
+              ? [...this.householdMemberships.values()].filter((item) => (
+                item.household_id === invitation.household_id && item.status === "active"
+              )).length
+              : 0;
+            const alreadyActive = [...this.householdMemberships.values()].some((item) => (
+              item.user_id === userId && item.status === "active"
+            ));
+            const valid = Boolean(
+              invitation
+              && household?.status === "active"
+              && !household.deleted_at
+              && invitation.token_hash === tokenHash
+              && invitation.invitee_email_hmac === inviteeEmailHmac
+              && !invitation.accepted_at
+              && !invitation.revoked_at
+              && invitation.expires_at > Math.floor(Date.now() / 1000)
+              && activeMemberCount < 2
+              && !alreadyActive
+            );
+            if (!valid) return { success: true, meta: { changes: 0 } };
+            this.householdMemberships.set(id, {
+              id,
+              household_id: invitation.household_id,
+              user_id: userId,
+              role: "editor",
+              status: "active",
+              joined_at: new Date().toISOString(),
+              revoked_at: null
+            });
+            return { success: true, meta: { changes: 1 } };
+          }
+          if (normalized.startsWith("INSERT INTO household_invitations")) {
+            const [id, householdId, createdBy, tokenHash, inviteeEmailHmac, expiresAt] = args;
+            this.householdInvitations.set(id, {
+              id,
+              household_id: householdId,
+              created_by: createdBy,
+              token_hash: tokenHash,
+              invitee_email_hmac: inviteeEmailHmac,
+              role: "editor",
+              expires_at: expiresAt,
+              accepted_at: null,
+              accepted_by: null,
+              revoked_at: null,
+              created_at: new Date().toISOString()
+            });
+            return { success: true, meta: { changes: 1 } };
+          }
+          if (normalized.startsWith("UPDATE household_invitations") && normalized.includes("SET revoked_at")) {
+            let changes = 0;
+            if (normalized.includes("WHERE id = ?")) {
+              const [invitationId, householdId] = args;
+              const invitation = this.householdInvitations.get(invitationId);
+              if (
+                invitation?.household_id === householdId
+                && !invitation.accepted_at
+                && !invitation.revoked_at
+              ) {
+                invitation.revoked_at = new Date().toISOString();
+                changes = 1;
+              }
+            } else {
+              const [householdId] = args;
+              for (const invitation of this.householdInvitations.values()) {
+                if (
+                  invitation.household_id === householdId
+                  && !invitation.accepted_at
+                  && !invitation.revoked_at
+                ) {
+                  invitation.revoked_at = new Date().toISOString();
+                  changes += 1;
+                }
+              }
+            }
+            return { success: true, meta: { changes } };
+          }
+          if (normalized.startsWith("UPDATE household_invitations") && normalized.includes("SET accepted_at")) {
+            const [userId, invitationId] = args;
+            const invitation = this.householdInvitations.get(invitationId);
+            const membership = invitation
+              ? [...this.householdMemberships.values()].find((item) => (
+                item.household_id === invitation.household_id
+                && item.user_id === userId
+                && item.status === "active"
+              ))
+              : null;
+            if (
+              !invitation
+              || invitation.accepted_at
+              || invitation.revoked_at
+              || invitation.expires_at <= Math.floor(Date.now() / 1000)
+              || !membership
+            ) {
+              return { success: true, meta: { changes: 0 } };
+            }
+            invitation.accepted_at = new Date().toISOString();
+            invitation.accepted_by = userId;
+            return { success: true, meta: { changes: 1 } };
+          }
+          if (normalized.startsWith("INSERT INTO household_audit_events")) {
+            const eventType = normalized.match(
+              /'(created|invited|invitation_revoked|joined|removed|left)'/u
+            )?.[1] || "unknown";
+            let id = args[0];
+            let householdId = args[1];
+            let actorUserId = args[2];
+            if (eventType === "joined") {
+              const invitation = this.householdInvitations.get(args[2]);
+              if (!invitation?.accepted_at) return { success: true, meta: { changes: 0 } };
+              householdId = invitation.household_id;
+              actorUserId = args[1];
+            }
+            if (eventType === "invitation_revoked") {
+              const invitation = this.householdInvitations.get(args[3]);
+              if (!invitation?.revoked_at) return { success: true, meta: { changes: 0 } };
+            }
+            this.householdAuditEvents.set(id, {
+              id,
+              household_id: householdId,
+              actor_user_id: actorUserId,
+              event_type: eventType,
+              created_at: new Date().toISOString()
+            });
+            return { success: true, meta: { changes: 1 } };
+          }
+          if (normalized.startsWith("UPDATE household_memberships")) {
+            const [householdId, userId] = args;
+            const membership = [...this.householdMemberships.values()].find((item) => (
+              item.household_id === householdId
+              && item.user_id === userId
+              && item.role === "editor"
+              && item.status === "active"
+            ));
+            if (!membership) return { success: true, meta: { changes: 0 } };
+            membership.status = normalized.includes("'revoked'") ? "revoked" : "left";
+            membership.revoked_at = new Date().toISOString();
+            return { success: true, meta: { changes: 1 } };
+          }
+          if (normalized.startsWith("UPDATE shared_households")) {
+            const [householdId] = args;
+            const household = this.sharedHouseholds.get(householdId);
+            if (!household || household.deleted_at) return { success: true, meta: { changes: 0 } };
+            household.status = "read_only";
+            household.key_epoch += 1;
+            household.updated_at = new Date().toISOString();
+            return { success: true, meta: { changes: 1 } };
+          }
+          if (normalized.startsWith("DELETE FROM shared_households")) {
+            const [householdId, ownerUserId] = args;
+            const household = this.sharedHouseholds.get(householdId);
+            if (!household || household.owner_user_id !== ownerUserId) {
+              return { success: true, meta: { changes: 0 } };
+            }
+            this.sharedHouseholds.delete(householdId);
+            for (const [id, membership] of this.householdMemberships) {
+              if (membership.household_id === householdId) this.householdMemberships.delete(id);
+            }
+            for (const [id, invitation] of this.householdInvitations) {
+              if (invitation.household_id === householdId) this.householdInvitations.delete(id);
+            }
+            return { success: true, meta: { changes: 1 } };
+          }
           if (normalized.startsWith("DELETE FROM cloud_backups")) {
             const [id, userId] = args;
             const backup = this.cloudBackups.get(id);
@@ -150,6 +368,9 @@ class FakeD1 {
             }
             for (const [id, backup] of this.cloudBackups) {
               if (backup.user_id === userId) this.cloudBackups.delete(id);
+            }
+            for (const [id, membership] of this.householdMemberships) {
+              if (membership.user_id === userId) this.householdMemberships.delete(id);
             }
             return { success: true };
           }
@@ -206,9 +427,85 @@ class FakeD1 {
                 && subscription.current_period_end >= today
               )) || null;
             }
+            if (normalized.includes("'past_due'") && normalized.includes("'unpaid'")) {
+              return subscriptions.find((subscription) => (
+                ["active", "trialing", "past_due", "unpaid"].includes(subscription.status)
+              )) || null;
+            }
             return subscriptions[0] || null;
           }
           if (normalized.includes("FROM subscriptions")) return null;
+          if (normalized.includes("FROM household_memberships AS memberships")) {
+            const membership = [...this.householdMemberships.values()].find((item) => (
+              item.user_id === args[0] && item.status === "active"
+            ));
+            const household = membership ? this.sharedHouseholds.get(membership.household_id) : null;
+            const owner = household ? this.usersById.get(household.owner_user_id) : null;
+            if (
+              !membership
+              || !household
+              || household.deleted_at
+              || !["active", "read_only"].includes(household.status)
+              || !owner
+              || owner.deleted_at
+            ) {
+              return null;
+            }
+            return {
+              household_id: household.id,
+              role: membership.role,
+              owner_user_id: household.owner_user_id,
+              household_status: household.status,
+              key_epoch: household.key_epoch,
+              current_revision: household.current_revision,
+              created_at: household.created_at,
+              updated_at: household.updated_at,
+              owner_google_sub: owner.google_sub,
+              owner_email_verified: owner.email_verified
+            };
+          }
+          if (normalized.startsWith("SELECT COUNT(*) AS count FROM household_memberships")) {
+            return {
+              count: [...this.householdMemberships.values()].filter((item) => (
+                item.household_id === args[0] && item.status === "active"
+              )).length
+            };
+          }
+          if (normalized.includes("FROM household_invitations AS invitations")) {
+            const invitation = [...this.householdInvitations.values()].find((item) => (
+              item.token_hash === args[0]
+              && !item.accepted_at
+              && !item.revoked_at
+              && item.expires_at > Math.floor(Date.now() / 1000)
+            ));
+            const household = invitation ? this.sharedHouseholds.get(invitation.household_id) : null;
+            return invitation && household?.status === "active" && !household.deleted_at
+              ? { ...invitation }
+              : null;
+          }
+          if (
+            normalized.includes("FROM household_memberships")
+            && normalized.includes("WHERE household_id = ?")
+            && normalized.includes("user_id = ?")
+          ) {
+            return [...this.householdMemberships.values()].find((item) => (
+              item.household_id === args[0]
+              && item.user_id === args[1]
+              && item.status === "active"
+            )) || null;
+          }
+          if (normalized.startsWith("SELECT COUNT(*) AS count FROM shared_plan_revisions")) {
+            return {
+              count: [...this.sharedPlanRevisions.values()].filter((item) => (
+                item.household_id === args[0]
+              )).length
+            };
+          }
+          if (normalized.includes("FROM shared_households") && normalized.includes("owner_user_id = ?")) {
+            return [...this.sharedHouseholds.values()].find((item) => (
+              item.owner_user_id === args[0] && !item.deleted_at
+            )) || null;
+          }
           throw new Error(`Unexpected D1 first query: ${normalized}`);
         },
         all: async () => {
@@ -353,6 +650,361 @@ test("enforced access grants test Pro only to the configured Google owner", asyn
   }));
   assert.equal(unverified.access.tier, "free");
   assert.equal(unverified.access.source, "anonymous");
+});
+
+test("household sharing remains unavailable until explicitly enabled", async () => {
+  const response = await worker.fetch(
+    new Request("https://life.example/api/shared-household"),
+    { ...env, DB: new FakeD1(), GOOGLE_CLIENT_ID: "google-client-id" },
+    {}
+  );
+  const body = await json(response);
+  assert.equal(response.status, 501);
+  assert.equal(body.error.code, "household_sharing_disabled");
+
+  const entitlement = await json(await worker.fetch(
+    new Request("https://life.example/api/entitlement"),
+    { ...env, DB: new FakeD1(), GOOGLE_CLIENT_ID: "google-client-id" },
+    {}
+  ));
+  assert.deepEqual(entitlement.access.household, {
+    mode: "disabled",
+    available: false,
+    householdId: null,
+    role: null,
+    status: null,
+    source: "none",
+    effectiveTier: "free",
+    readAllowed: false,
+    writeAllowed: false
+  });
+});
+
+test("one paid owner can securely share household Pro access with one verified editor", async () => {
+  const DB = new FakeD1();
+  const secureWorker = createWorker({
+    verifyGoogleToken: async ({ credential }) => ({
+      sub: credential,
+      email: `${credential}@example.com`,
+      emailVerified: true
+    })
+  });
+  const authEnv = {
+    ...env,
+    DB,
+    GOOGLE_CLIENT_ID: "google-client-id",
+    ACCESS_MODE: "enforced",
+    HOUSEHOLD_SHARING_MODE: "enforced",
+    HOUSEHOLD_INVITE_PEPPER: "test-only-household-invite-pepper-with-more-than-32-characters"
+  };
+  const authRequest = (path, init) => secureWorker.fetch(
+    new Request(`https://life.example${path}`, init),
+    authEnv,
+    {}
+  );
+  const loginAs = async (identity) => {
+    const nonceResponse = await authRequest("/api/auth/nonce");
+    const nonce = await json(nonceResponse);
+    const loginResponse = await authRequest("/api/auth/google", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "https://life.example",
+        Cookie: `__Host-lc_oauth_nonce=${nonce.nonce}`
+      },
+      body: JSON.stringify({ credential: identity, nonce: nonce.nonce })
+    });
+    return cookieValue(loginResponse, "__Host-lc_session");
+  };
+
+  const ownerCookie = await loginAs("owner");
+  const partnerCookie = await loginAs("partner");
+  const attackerCookie = await loginAs("attacker");
+  const owner = DB.usersBySub.get("owner");
+  const partner = DB.usersBySub.get("partner");
+  const ownerSubscription = {
+    id: "owner-subscription",
+    user_id: owner.id,
+    billing_provider: "square",
+    provider_subscription_id: "owner-subscription",
+    tier: "pro",
+    status: "active",
+    payment_status: "paid",
+    current_period_end: utcDateAfter(30),
+    cancel_at_period_end: 0
+  };
+  DB.subscriptionsByProviderId.set("square:owner-subscription", ownerSubscription);
+
+  const crossOriginCreate = await authRequest("/api/shared-household", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Origin: "https://attacker.example",
+      Cookie: `__Host-lc_session=${ownerCookie}`
+    },
+    body: JSON.stringify({ confirmation: "CREATE_SHARED_HOUSEHOLD" })
+  });
+  assert.equal(crossOriginCreate.status, 403);
+
+  const createResponse = await authRequest("/api/shared-household", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Origin: "https://life.example",
+      Cookie: `__Host-lc_session=${ownerCookie}`
+    },
+    body: JSON.stringify({ confirmation: "CREATE_SHARED_HOUSEHOLD" })
+  });
+  const created = await json(createResponse);
+  assert.equal(createResponse.status, 201);
+  assert.equal(created.household.role, "owner");
+  assert.equal(created.household.memberCount, 1);
+  assert.equal(created.household.writeAllowed, true);
+
+  ownerSubscription.status = "canceled";
+  const ownerAccountDelete = await authRequest("/api/account", {
+    method: "DELETE",
+    headers: {
+      "Content-Type": "application/json",
+      Origin: "https://life.example",
+      Cookie: `__Host-lc_session=${ownerCookie}`
+    },
+    body: JSON.stringify({ confirmation: "DELETE_ACCOUNT" })
+  });
+  const ownerAccountDeleteBody = await json(ownerAccountDelete);
+  assert.equal(ownerAccountDelete.status, 409);
+  assert.equal(ownerAccountDeleteBody.error.code, "active_household_owner");
+  ownerSubscription.status = "active";
+
+  const invitationResponse = await authRequest("/api/shared-household/invitations", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Origin: "https://life.example",
+      Cookie: `__Host-lc_session=${ownerCookie}`
+    },
+    body: JSON.stringify({ email: "partner@example.com" })
+  });
+  const invitationBody = await json(invitationResponse);
+  assert.equal(invitationResponse.status, 201);
+  const invitationUrl = new URL(invitationBody.invitation.inviteUrl);
+  const inviteToken = invitationUrl.hash.split("/").at(-1);
+  assert.match(inviteToken, /^[A-Za-z0-9_-]{43}$/u);
+  const storedInvitation = DB.householdInvitations.get(invitationBody.invitation.id);
+  assert.notEqual(storedInvitation.token_hash, inviteToken);
+  assert.notEqual(storedInvitation.invitee_email_hmac, "partner@example.com");
+  assert.equal(JSON.stringify([...DB.householdInvitations.values()]).includes("partner@example.com"), false);
+
+  const attackerRevoke = await authRequest(
+    `/api/shared-household/invitations/${invitationBody.invitation.id}`,
+    {
+      method: "DELETE",
+      headers: {
+        Origin: "https://life.example",
+        Cookie: `__Host-lc_session=${attackerCookie}`
+      }
+    }
+  );
+  assert.equal(attackerRevoke.status, 403);
+
+  storedInvitation.expires_at = Math.floor(Date.now() / 1000) - 1;
+  const expiredAccept = await authRequest("/api/shared-household/invitations/accept", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Origin: "https://life.example",
+      Cookie: `__Host-lc_session=${partnerCookie}`
+    },
+    body: JSON.stringify({ token: inviteToken })
+  });
+  assert.equal(expiredAccept.status, 400);
+  storedInvitation.expires_at = Math.floor(Date.now() / 1000) + 3600;
+
+  const attackerAccept = await authRequest("/api/shared-household/invitations/accept", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Origin: "https://life.example",
+      Cookie: `__Host-lc_session=${attackerCookie}`
+    },
+    body: JSON.stringify({ token: inviteToken })
+  });
+  const attackerBody = await json(attackerAccept);
+  assert.equal(attackerAccept.status, 400);
+  assert.equal(attackerBody.error.code, "invalid_invitation");
+
+  const partnerAccept = await authRequest("/api/shared-household/invitations/accept", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Origin: "https://life.example",
+      Cookie: `__Host-lc_session=${partnerCookie}`
+    },
+    body: JSON.stringify({ token: inviteToken })
+  });
+  const partnerHousehold = await json(partnerAccept);
+  assert.equal(partnerAccept.status, 200);
+  assert.equal(partnerHousehold.household.role, "editor");
+  assert.equal(partnerHousehold.household.memberCount, 2);
+
+  const overLimitInvite = await authRequest("/api/shared-household/invitations", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Origin: "https://life.example",
+      Cookie: `__Host-lc_session=${ownerCookie}`
+    },
+    body: JSON.stringify({ email: "another@example.com" })
+  });
+  assert.equal(overLimitInvite.status, 409);
+
+  const partnerEntitlement = await json(await authRequest("/api/entitlement", {
+    headers: { Cookie: `__Host-lc_session=${partnerCookie}` }
+  }));
+  assert.equal(partnerEntitlement.access.tier, "free");
+  assert.equal(partnerEntitlement.access.source, "anonymous");
+  assert.equal(partnerEntitlement.access.household.effectiveTier, "pro");
+  assert.equal(partnerEntitlement.access.household.source, "household-subscription");
+  assert.equal(partnerEntitlement.access.household.writeAllowed, true);
+
+  ownerSubscription.current_period_end = utcDateAfter(-1);
+  const expiredEntitlement = await json(await authRequest("/api/entitlement", {
+    headers: { Cookie: `__Host-lc_session=${partnerCookie}` }
+  }));
+  assert.equal(expiredEntitlement.access.household.effectiveTier, "free");
+  assert.equal(expiredEntitlement.access.household.readAllowed, true);
+  assert.equal(expiredEntitlement.access.household.writeAllowed, false);
+  ownerSubscription.current_period_end = utcDateAfter(30);
+
+  const removeResponse = await authRequest(`/api/shared-household/members/${partner.id}`, {
+    method: "DELETE",
+    headers: {
+      Origin: "https://life.example",
+      Cookie: `__Host-lc_session=${ownerCookie}`
+    }
+  });
+  const removed = await json(removeResponse);
+  assert.equal(removeResponse.status, 200);
+  assert.equal(removed.requiresKeyRotation, true);
+
+  const removedPartnerEntitlement = await json(await authRequest("/api/entitlement", {
+    headers: { Cookie: `__Host-lc_session=${partnerCookie}` }
+  }));
+  assert.equal(removedPartnerEntitlement.access.household.available, false);
+
+  const replayResponse = await authRequest("/api/shared-household/invitations/accept", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Origin: "https://life.example",
+      Cookie: `__Host-lc_session=${partnerCookie}`
+    },
+    body: JSON.stringify({ token: inviteToken })
+  });
+  assert.equal(replayResponse.status, 400);
+
+  const ownerHousehold = await json(await authRequest("/api/shared-household", {
+    headers: { Cookie: `__Host-lc_session=${ownerCookie}` }
+  }));
+  assert.equal(ownerHousehold.household.status, "read_only");
+  assert.equal(ownerHousehold.household.keyEpoch, 2);
+  assert.equal(ownerHousehold.household.writeAllowed, false);
+
+  const deleteResponse = await authRequest("/api/shared-household", {
+    method: "DELETE",
+    headers: {
+      "Content-Type": "application/json",
+      Origin: "https://life.example",
+      Cookie: `__Host-lc_session=${ownerCookie}`
+    },
+    body: JSON.stringify({ confirmation: "DELETE_SHARED_HOUSEHOLD" })
+  });
+  assert.equal(deleteResponse.status, 200);
+  assert.equal(DB.sharedHouseholds.size, 0);
+  assert.equal(DB.householdMemberships.size, 0);
+});
+
+test("editor account deletion revokes membership and locks the household for key rotation", async () => {
+  const DB = new FakeD1();
+  const secureWorker = createWorker({
+    verifyGoogleToken: async ({ credential }) => ({
+      sub: credential,
+      email: `${credential}@example.com`,
+      emailVerified: true
+    })
+  });
+  const authEnv = {
+    ...env,
+    DB,
+    GOOGLE_CLIENT_ID: "google-client-id",
+    HOUSEHOLD_SHARING_MODE: "enforced"
+  };
+  const authRequest = (path, init) => secureWorker.fetch(
+    new Request(`https://life.example${path}`, init),
+    authEnv,
+    {}
+  );
+  const loginAs = async (identity) => {
+    const nonceResponse = await authRequest("/api/auth/nonce");
+    const nonce = await json(nonceResponse);
+    const loginResponse = await authRequest("/api/auth/google", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "https://life.example",
+        Cookie: `__Host-lc_oauth_nonce=${nonce.nonce}`
+      },
+      body: JSON.stringify({ credential: identity, nonce: nonce.nonce })
+    });
+    return cookieValue(loginResponse, "__Host-lc_session");
+  };
+
+  await loginAs("owner-delete-test");
+  const editorCookie = await loginAs("editor-delete-test");
+  const owner = DB.usersBySub.get("owner-delete-test");
+  const editor = DB.usersBySub.get("editor-delete-test");
+  const householdId = crypto.randomUUID();
+  const timestamp = new Date().toISOString();
+  DB.sharedHouseholds.set(householdId, {
+    id: householdId,
+    owner_user_id: owner.id,
+    status: "active",
+    key_epoch: 1,
+    current_revision: 0,
+    created_at: timestamp,
+    updated_at: timestamp,
+    deleted_at: null
+  });
+  DB.householdMemberships.set("owner-membership", {
+    id: "owner-membership",
+    household_id: householdId,
+    user_id: owner.id,
+    role: "owner",
+    status: "active"
+  });
+  DB.householdMemberships.set("editor-membership", {
+    id: "editor-membership",
+    household_id: householdId,
+    user_id: editor.id,
+    role: "editor",
+    status: "active"
+  });
+
+  const deleteResponse = await authRequest("/api/account", {
+    method: "DELETE",
+    headers: {
+      "Content-Type": "application/json",
+      Origin: "https://life.example",
+      Cookie: `__Host-lc_session=${editorCookie}`
+    },
+    body: JSON.stringify({ confirmation: "DELETE_ACCOUNT" })
+  });
+  assert.equal(deleteResponse.status, 200);
+  assert.equal(DB.usersBySub.has("editor-delete-test"), false);
+  assert.equal(DB.usersBySub.has("owner-delete-test"), true);
+  assert.equal(DB.sharedHouseholds.get(householdId).status, "read_only");
+  assert.equal(DB.sharedHouseholds.get(householdId).key_epoch, 2);
+  assert.equal([...DB.householdMemberships.values()].some((item) => item.user_id === editor.id), false);
 });
 
 test("Square billing stays disabled until all server-side settings are present", async () => {

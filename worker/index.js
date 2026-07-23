@@ -18,7 +18,12 @@ import {
   getBillingConfig,
   handleSquareWebhook
 } from "./billing.js";
-import { isOwnerTestUser } from "./access.js";
+import {
+  getHouseholdSharingMode,
+  resolveHouseholdAccess,
+  resolvePersonalAccess
+} from "./access.js";
+import { handleHouseholdRequest } from "./households.js";
 
 const securityHeaders = {
   "Cache-Control": "no-store",
@@ -127,28 +132,11 @@ async function meResponse(request, env) {
 
 async function entitlementResponse(request, env) {
   const user = await getCurrentUser(request, env);
-  const testAccess = isOwnerTestUser(user, env);
-  let subscription = null;
-  if (user && env?.DB) {
-    subscription = await env.DB.prepare(
-      `SELECT tier, status, payment_status, current_period_end, cancel_at_period_end
-         FROM subscriptions
-        WHERE user_id = ?
-          AND tier = 'pro'
-          AND status IN ('active', 'trialing')
-          AND payment_status = 'paid'
-          AND date(current_period_end) >= date('now')
-        ORDER BY updated_at DESC
-        LIMIT 1`
-    ).bind(user.id).first();
-  }
-
-  const subscriptionActive = subscription?.tier === "pro"
-    && ["active", "trialing"].includes(subscription?.status)
-    && subscription?.payment_status === "paid"
-    && typeof subscription?.current_period_end === "string"
-    && subscription.current_period_end >= new Date().toISOString().slice(0, 10);
-  const tier = subscriptionActive || testAccess ? "pro" : "free";
+  const personalAccess = await resolvePersonalAccess(user, env);
+  const householdAccess = getHouseholdSharingMode(env) === "disabled"
+    ? await resolveHouseholdAccess(null, env)
+    : await resolveHouseholdAccess(user, env);
+  const tier = personalAccess.tier;
   const mode = env?.ACCESS_MODE === "preview" ? "preview" : "enforced";
   const effectiveTier = mode === "preview" ? "pro" : tier;
   const billingConfigured = getBillingConfig(env).configured;
@@ -158,11 +146,14 @@ async function entitlementResponse(request, env) {
     access: {
       tier,
       mode,
-      source: subscriptionActive ? "subscription" : testAccess ? "operator" : mode === "preview" ? "local-preview" : "anonymous",
+      source: personalAccess.source === "anonymous" && mode === "preview"
+        ? "local-preview"
+        : personalAccess.source,
       effectiveTier,
       billingConfigured,
-      currentPeriodEnd: subscription?.current_period_end || null,
-      cancelAtPeriodEnd: subscription?.cancel_at_period_end === 1
+      currentPeriodEnd: personalAccess.currentPeriodEnd,
+      cancelAtPeriodEnd: personalAccess.cancelAtPeriodEnd,
+      household: householdAccess
     },
     limits: {
       planLimit: effectiveTier === "pro" ? 20 : 1,
@@ -270,6 +261,16 @@ async function handleApiRequest(request, env, services) {
       return error instanceof AuthError
         ? authErrorResponse(error)
         : internalErrorResponse(request, "backups", error, "Encrypted backup is temporarily unavailable.");
+    }
+  }
+
+  if (pathname === "/api/shared-household" || pathname.startsWith("/api/shared-household/")) {
+    try {
+      return await handleHouseholdRequest(request, env, jsonResponse);
+    } catch (error) {
+      return error instanceof AuthError
+        ? authErrorResponse(error)
+        : internalErrorResponse(request, "shared_household", error, "Household sharing is temporarily unavailable.");
     }
   }
 
