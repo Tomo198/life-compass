@@ -39,11 +39,15 @@
 		{
 			"binding": "BACKUPS",
 			"bucket_name": "life-compass-backups"
+		},
+		{
+			"binding": "SHARED_PLANS",
+			"bucket_name": "life-compass-shared-plans"
 		}
 	],
 	"vars": {
 		"GOOGLE_CLIENT_ID": "875666861951-90nn38bijltn61p37volprll3e1odi2i.apps.googleusercontent.com",
 		"ACCESS_MODE": "enforced",
-		"HOUSEHOLD_SHARING_MODE": "disabled"
+		"HOUSEHOLD_SHARING_MODE": "preview"
 	}
 }
