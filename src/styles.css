@@ -4732,6 +4732,71 @@ td select {
   max-width: 42rem;
 }
 
+.household-auto-sync {
+  display: grid;
+  gap: 0.75rem;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-left: 0.28rem solid var(--primary);
+  border-radius: 6px;
+  background: var(--surface-soft);
+}
+
+.household-auto-sync.conflict,
+.household-auto-sync.error {
+  border-left-color: var(--danger);
+}
+
+.household-auto-sync.offline,
+.household-auto-sync.pending {
+  border-left-color: var(--accent);
+}
+
+.household-auto-sync-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.household-auto-sync-heading > div {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.household-auto-sync-heading span,
+.household-auto-sync p,
+.household-auto-sync small,
+.household-conflict-actions span {
+  color: var(--muted);
+}
+
+.household-auto-sync p,
+.household-auto-sync .inline-message {
+  margin: 0;
+}
+
+.household-conflict-actions {
+  display: grid;
+  gap: 0.65rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--line);
+}
+
+.household-manual-actions .household-plan-actions {
+  margin-top: 0.85rem;
+}
+
+.household-sync-button {
+  min-width: 7rem;
+}
+
+.household-sync-button.conflict,
+.household-sync-button.error {
+  border-color: color-mix(in srgb, var(--danger) 50%, var(--line));
+  color: var(--danger);
+}
+
 .household-password-section label,
 .household-invite-section label,
 .household-danger-zone label {
@@ -6547,6 +6612,10 @@ td select {
     grid-template-columns: minmax(0, 1fr) auto;
   }
 
+  .household-auto-sync-heading {
+    align-items: flex-start;
+  }
+
   .household-status-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -6591,6 +6660,12 @@ td select {
 
   .household-sharing-panel .recovery-item button {
     align-self: stretch;
+  }
+
+  .household-sync-button {
+    min-width: 0;
+    padding-inline: 0.45rem;
+    font-size: 0.78rem;
   }
 }
 

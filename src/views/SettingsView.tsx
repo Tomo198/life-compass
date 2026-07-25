@@ -1,7 +1,7 @@
-import { useState } from "react";
 import { AccountPanel } from "../components/AccountPanel";
 import { HouseholdSharingPanel } from "../components/HouseholdSharingPanel";
 import { NumericInput, StepTitle } from "../components/CommonUi";
+import type { HouseholdSyncController } from "../hooks/useHouseholdAutoSync";
 import type { LifePlan, ViewKey } from "../types";
 import type {
   AppReminder,
@@ -18,6 +18,9 @@ type SettingsViewProps = {
   requestBrowserNotifications: () => Promise<void>;
   setActiveView: (view: ViewKey) => void;
   refreshAccessState: () => Promise<void>;
+  accountVersion: number;
+  onAccountChange: () => Promise<void>;
+  householdSync: HouseholdSyncController;
   plan: LifePlan;
   commitPlan: (nextPlan: LifePlan) => boolean;
 };
@@ -30,23 +33,21 @@ export function SettingsView({
   requestBrowserNotifications,
   setActiveView,
   refreshAccessState,
+  accountVersion,
+  onAccountChange,
+  householdSync,
   plan,
   commitPlan
 }: SettingsViewProps) {
-  const [accountVersion, setAccountVersion] = useState(0);
-  const handleAccountChange = async () => {
-    setAccountVersion((value) => value + 1);
-    await refreshAccessState();
-  };
-
   return (
     <div className="view-stack">
-      <AccountPanel onAccountChange={handleAccountChange} />
+      <AccountPanel onAccountChange={onAccountChange} />
       <HouseholdSharingPanel
         plan={plan}
         commitPlan={commitPlan}
         accountVersion={accountVersion}
         refreshAccessState={refreshAccessState}
+        householdSync={householdSync}
       />
 
       <section className="panel">
@@ -136,7 +137,7 @@ export function SettingsView({
       <section className="settings-grid">
         <div className="panel">
           <h2>データとプライバシー</h2>
-          <p>入力データは通常このブラウザ内に保存されます。JSONでバックアップ・復元でき、ログイン後に利用者自身が操作した場合だけ暗号化クラウドバックアップを作成できます。自動同期は行いません。</p>
+          <p>入力データは通常このブラウザ内に保存されます。共同世帯で「この端末の自動同期」を有効にした場合だけ、変更内容を暗号化して共同世帯へ同期します。</p>
           <button type="button" className="secondary" onClick={() => setActiveView("data")}>
             データ管理を開く
           </button>

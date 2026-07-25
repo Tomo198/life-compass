@@ -5,6 +5,7 @@ import {
   hasFeatureAccess,
   type AccessState
 } from "./features";
+import { useHouseholdAutoSync, type HouseholdSyncStatus } from "./hooks/useHouseholdAutoSync";
 import { useLifePlanEditor } from "./hooks/useLifePlanEditor";
 import {
   getMobileNavKey,
@@ -77,6 +78,18 @@ const SimulationView = lazy(() =>
 const TimelineView = lazy(() =>
   import("./views/TimelineView").then((module) => ({ default: module.TimelineView }))
 );
+
+const householdSyncLabels: Record<HouseholdSyncStatus, string> = {
+  checking: "共有を確認中",
+  disabled: "共有なし",
+  locked: "共有設定が必要",
+  pending: "共有へ保存待ち",
+  syncing: "共有へ同期中",
+  synced: "共有済み",
+  offline: "オフライン",
+  conflict: "共有を要確認",
+  error: "共有エラー"
+};
 
 function App() {
   const {
@@ -161,9 +174,11 @@ function App() {
   const [reviewPlanYear, setReviewPlanYear] = useState<number | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [accessState, setAccessState] = useState<AccessState>(() => defaultAccessState);
+  const [accountVersion, setAccountVersion] = useState(0);
   const [settings, setSettings] = useState<AppSettings>(() => loadAppSettings());
   const [notificationMessage, setNotificationMessage] = useState("");
   const reminders = useMemo(() => getAppReminders(plan, settings), [plan, settings]);
+  const householdSync = useHouseholdAutoSync({ plan, commitPlan, accountVersion });
 
   const refreshAccessState = useCallback(async () => {
     try {
@@ -185,6 +200,11 @@ function App() {
 
   useEffect(() => {
     void refreshAccessState();
+  }, [refreshAccessState]);
+
+  const handleAccountChange = useCallback(async () => {
+    setAccountVersion((value) => value + 1);
+    await refreshAccessState();
   }, [refreshAccessState]);
 
   const setActiveView = (view: ViewKey) => {
@@ -471,6 +491,9 @@ function App() {
             requestBrowserNotifications={requestBrowserNotifications}
             setActiveView={setActiveView}
             refreshAccessState={refreshAccessState}
+            accountVersion={accountVersion}
+            onAccountChange={handleAccountChange}
+            householdSync={householdSync}
             plan={plan}
             commitPlan={commitPlan}
           />
@@ -543,6 +566,16 @@ function App() {
             <h1>{getViewTitle(activeView)}</h1>
           </div>
           <div className="topbar-actions">
+            {householdSync.enabled && (
+              <button
+                type="button"
+                className={`secondary household-sync-button ${householdSync.status}`}
+                onClick={() => setActiveView("settings")}
+                title={householdSync.message || "共同世帯の同期状態"}
+              >
+                {householdSyncLabels[householdSync.status]}
+              </button>
+            )}
             <button type="button" className="secondary topbar-export" onClick={() => exportPlan(plan)}>
               JSONエクスポート
             </button>

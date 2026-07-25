@@ -276,8 +276,8 @@ export function AccountPanel({ onAccountChange }: { onAccountChange: () => Promi
       )}
 
       <div className="account-privacy-note">
-        <strong>ログインしても自動でクラウド保存しません</strong>
-        <p>収入、支出、資産、家族、目標、イベントは引き続きこのブラウザ内に保存されます。</p>
+        <strong>ログインしただけでは自動でクラウド保存しません</strong>
+        <p>通常はこのブラウザ内に保存されます。共同世帯で、この端末の自動同期を有効にした場合だけ暗号化して同期します。</p>
       </div>
       {message && <p className="inline-message" role="status">{message}</p>}
     </section>

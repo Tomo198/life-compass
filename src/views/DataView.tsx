@@ -136,7 +136,7 @@ export function DataView({
       <section className="panel">
         <StepTitle step="12" title="データ管理" description="収入・支出・資産・家族情報は、通常このブラウザ内に保存します。" />
         <div className="data-status-grid" aria-label="保存状態">
-          <div><span>通常の保存先</span><strong>このブラウザ内</strong><small>自動同期は行いません。クラウド保存は任意の手動バックアップだけです。</small></div>
+          <div><span>通常の保存先</span><strong>このブラウザ内</strong><small>共同世帯の自動同期を有効にした端末だけ、暗号化した変更内容も共有します。</small></div>
           <div><span>最終保存</span><strong>{updatedAt}</strong><small>入力変更時に自動保存されます。</small></div>
           <div><span>バックアップ目安</span><strong>約{backupSizeKb}KB</strong><small>{versionLabel}・JSONとして保存できます。</small></div>
         </div>

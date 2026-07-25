@@ -1,4 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
+import type { LifePlan } from "../../src/types";
+import { encryptSharedPlan } from "../../src/utils/sharedPlanCrypto";
 
 const uncaughtPageErrors = new WeakMap<Page, Error[]>();
 
@@ -799,13 +801,13 @@ test("法務・料金ページをURLから直接開ける", async ({ page }) => 
   }
 });
 
-test("設定画面でログインが任意でありクラウド保存を開始しないと確認できる", async ({ page }) => {
+test("設定画面でログインが任意でありログインだけではクラウド保存を開始しないと確認できる", async ({ page }) => {
   await page.getByRole("button", { name: "設定", exact: true }).click();
   const accountPanel = page.getByTestId("account-panel");
   await expect(accountPanel).toBeVisible();
   await expect(page.getByTestId("household-sharing-panel")).toHaveCount(0);
   await expect(accountPanel).toContainText("無料版はログインなしで利用できます");
-  await expect(accountPanel).toContainText("ログインしても自動でクラウド保存しません");
+  await expect(accountPanel).toContainText("ログインしただけでは自動でクラウド保存しません");
   await expect(accountPanel).toContainText("Googleログインは設定中です");
   await page.getByRole("button", { name: /^ダーク/ }).click();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
@@ -813,12 +815,14 @@ test("設定画面でログインが任意でありクラウド保存を開始�
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
 });
 
-test("運営者テストでは世帯共有を表示し、平文を送信・保存せず暗号化できる", async ({ page }) => {
+test("運営者テストでは端末ごとの暗号化自動同期を有効化し、再読み込み後も利用できる", async ({ page }) => {
   const householdId = "7f3c6fa0-21b5-4f8d-bbf5-32208c557619";
   const sharedPassword = "household-test-password";
   const plaintextMarker = "共有平文を送らない確認プラン";
   let currentRevision = 0;
   let savedRequestBody = "";
+  let savedEnvelope: Record<string, unknown> | null = null;
+  let savedAt = new Date().toISOString();
 
   await page.route("**/api/auth/config", (route) => route.fulfill({
     json: { configured: true, clientId: "test-client-id" }
@@ -848,12 +852,40 @@ test("運営者テストでは世帯共有を表示し、平文を送信・保�
     }
   }));
   await page.route("**/api/shared-household/plan", async (route) => {
-    if (route.request().method() !== "PUT") {
-      await route.fulfill({ status: 404, json: { error: { code: "shared_plan_object_not_found" } } });
+    if (route.request().method() === "GET") {
+      if (!savedEnvelope || currentRevision === 0) {
+        await route.fulfill({ status: 404, json: { error: { code: "shared_plan_object_not_found" } } });
+        return;
+      }
+      await route.fulfill({
+        json: {
+          householdId,
+          currentRevision,
+          keyEpoch: 1,
+          revision: {
+            revision: currentRevision,
+            keyEpoch: 1,
+            planVersion: 9,
+            sizeBytes: savedRequestBody.length,
+            createdAt: savedAt
+          },
+          envelope: savedEnvelope
+        }
+      });
       return;
     }
     savedRequestBody = route.request().postData() || "";
-    currentRevision = 1;
+    const parsed = JSON.parse(savedRequestBody) as {
+      expectedRevision?: number;
+      envelope?: Record<string, unknown>;
+    };
+    if (parsed.expectedRevision !== currentRevision) {
+      await route.fulfill({ status: 409, json: { error: { code: "shared_plan_conflict" } } });
+      return;
+    }
+    currentRevision += 1;
+    savedEnvelope = parsed.envelope || null;
+    savedAt = new Date().toISOString();
     await route.fulfill({
       status: 201,
       json: {
@@ -864,7 +896,7 @@ test("運営者テストでは世帯共有を表示し、平文を送信・保�
           keyEpoch: 1,
           planVersion: 9,
           sizeBytes: savedRequestBody.length,
-          createdAt: new Date().toISOString()
+          createdAt: savedAt
         }
       }
     });
@@ -906,8 +938,12 @@ test("運営者テストでは世帯共有を表示し、平文を送信・保�
   await expect(sharingPanel).toBeVisible();
   await expect(sharingPanel).toContainText("一般利用者向けにはまだ有効化していません");
   await sharingPanel.getByLabel("現在の共有パスワード").fill(sharedPassword);
-  await sharingPanel.getByRole("button", { name: "現在のプランを共有へ保存", exact: true }).click();
-  await expect(sharingPanel.getByRole("status")).toContainText("版1として暗号化保存しました");
+  page.once("dialog", (dialog) => dialog.accept());
+  await sharingPanel.getByRole("button", { name: "この端末で自動同期を始める", exact: true }).click();
+  await expect.poll(() => currentRevision, { timeout: 15_000 }).toBe(1);
+  await expect(sharingPanel).toContainText("同期済み");
+  await expect(sharingPanel.getByLabel("現在の共有パスワード")).toHaveValue("");
+  await expect(sharingPanel.getByRole("button", { name: "今すぐ同期", exact: true })).toBeVisible();
 
   await expect.poll(() => savedRequestBody.length).toBeGreaterThan(0);
   const savedBody = JSON.parse(savedRequestBody) as {
@@ -926,6 +962,80 @@ test("運営者テストでは世帯共有を表示し、平文を送信・保�
   }));
   expect(browserStorage.local).not.toContain(sharedPassword);
   expect(browserStorage.session).not.toContain(sharedPassword);
+  const trustedDeviceRecord = await page.evaluate(async () => {
+    const request = indexedDB.open("life-compass-secure-device");
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const transaction = database.transaction("shared-plan-credentials", "readonly");
+    const getRequest = transaction.objectStore("shared-plan-credentials").getAll();
+    const records = await new Promise<Array<Record<string, unknown>>>((resolve, reject) => {
+      getRequest.onsuccess = () => resolve(getRequest.result);
+      getRequest.onerror = () => reject(getRequest.error);
+    });
+    database.close();
+    const record = records[0] as { deviceKey?: CryptoKey; encryptedCredential?: ArrayBuffer } | undefined;
+    return {
+      count: records.length,
+      hasPlainPasswordProperty: Boolean(record && "password" in record),
+      hasPlainDigestProperty: Boolean(record && "lastPlanDigest" in record),
+      keyExtractable: record?.deviceKey?.extractable,
+      encryptedLength: record?.encryptedCredential?.byteLength || 0
+    };
+  });
+  expect(trustedDeviceRecord.count).toBe(1);
+  expect(trustedDeviceRecord.hasPlainPasswordProperty).toBe(false);
+  expect(trustedDeviceRecord.hasPlainDigestProperty).toBe(false);
+  expect(trustedDeviceRecord.keyExtractable).toBe(false);
+  expect(trustedDeviceRecord.encryptedLength).toBeGreaterThan(sharedPassword.length + 16);
+
+  const autoSavedMarker = "自動同期で保存する確認プラン";
+  await openView(page, "profile");
+  await page.getByLabel("プラン名").fill(autoSavedMarker);
+  await expect.poll(() => currentRevision, { timeout: 20_000 }).toBe(2);
+  expect(savedRequestBody).not.toContain(autoSavedMarker);
+  expect(savedRequestBody).not.toContain(sharedPassword);
+
+  const remotePlan = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem("life-compass-plan-v1") || "{}") as LifePlan
+  );
+  remotePlan.profile.name = "共同利用者が更新したプラン";
+  remotePlan.updatedAt = new Date().toISOString();
+  currentRevision = 3;
+  savedEnvelope = await encryptSharedPlan(remotePlan, sharedPassword, {
+    householdId,
+    revision: currentRevision,
+    keyEpoch: 1
+  });
+  savedAt = new Date().toISOString();
+  await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+  await expect(page.getByLabel("プラン名")).toHaveValue("共同利用者が更新したプラン", { timeout: 15_000 });
+
+  await page.getByLabel("プラン名").fill("この端末で編集中のプラン");
+  const conflictingRemotePlan = structuredClone(remotePlan);
+  conflictingRemotePlan.profile.name = "共同世帯側の競合プラン";
+  conflictingRemotePlan.updatedAt = new Date().toISOString();
+  currentRevision = 4;
+  savedEnvelope = await encryptSharedPlan(conflictingRemotePlan, sharedPassword, {
+    householdId,
+    revision: currentRevision,
+    keyEpoch: 1
+  });
+  savedAt = new Date().toISOString();
+  await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+  await page.getByRole("button", { name: "設定", exact: true }).click();
+  const conflictPanel = page.getByTestId("household-sharing-panel");
+  await expect(conflictPanel).toContainText("両方に未反映の変更があります", { timeout: 15_000 });
+  await conflictPanel.getByRole("button", { name: "共同世帯の内容を使う", exact: true }).click();
+  await openView(page, "profile");
+  await expect(page.getByLabel("プラン名")).toHaveValue("共同世帯側の競合プラン");
+
+  await page.reload();
+  await page.getByRole("button", { name: "設定", exact: true }).click();
+  const reloadedSharingPanel = page.getByTestId("household-sharing-panel");
+  await expect(reloadedSharingPanel).toContainText("同期済み");
+  await expect(reloadedSharingPanel.getByRole("button", { name: "今すぐ同期", exact: true })).toBeVisible();
 
   const overflow = await page.evaluate(() =>
     document.documentElement.scrollWidth - document.documentElement.clientWidth

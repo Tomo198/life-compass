@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CURRENT_PLAN_VERSION } from "../config";
+import type { HouseholdSyncController, HouseholdSyncStatus } from "../hooks/useHouseholdAutoSync";
 import type { LifePlan } from "../types";
 import {
   acceptHouseholdInvitation,
@@ -27,6 +28,19 @@ type HouseholdSharingPanelProps = {
   commitPlan: (nextPlan: LifePlan) => boolean;
   accountVersion: number;
   refreshAccessState: () => Promise<void>;
+  householdSync: HouseholdSyncController;
+};
+
+const syncStatusLabels: Record<HouseholdSyncStatus, string> = {
+  checking: "確認中",
+  disabled: "利用不可",
+  locked: "この端末では未設定",
+  pending: "保存待ち",
+  syncing: "同期中",
+  synced: "同期済み",
+  offline: "オフライン",
+  conflict: "内容の確認が必要",
+  error: "同期エラー"
 };
 
 const invitationToken = () => {
@@ -93,7 +107,8 @@ export function HouseholdSharingPanel({
   plan,
   commitPlan,
   accountVersion,
-  refreshAccessState
+  refreshAccessState,
+  householdSync
 }: HouseholdSharingPanelProps) {
   const [display, setDisplay] = useState<"loading" | "hidden" | "visible">("loading");
   const [overview, setOverview] = useState<HouseholdOverview | null>(null);
@@ -146,6 +161,10 @@ export function HouseholdSharingPanel({
     setDisplay("loading");
     void loadOverview();
   }, [accountVersion, loadOverview]);
+
+  useEffect(() => {
+    if (householdSync.lastSyncedAt) void loadOverview();
+  }, [householdSync.lastSyncedAt, loadOverview]);
 
   const run = async (action: () => Promise<void>) => {
     setBusy(true);
@@ -209,6 +228,23 @@ export function HouseholdSharingPanel({
     await saveSharedPlan(household.currentRevision, CURRENT_PLAN_VERSION, envelope);
     await loadOverview();
     setMessage(`共有プランを版${revision}として暗号化保存しました。`);
+  });
+
+  const handleEnableAutoSync = () => run(async () => {
+    if (!currentPassword) throw new Error("共有パスワードを入力してください。");
+    const hasRemotePlan = Boolean(overview?.household?.currentRevision);
+    const confirmation = hasRemotePlan
+      ? "自分専用で画面ロックを設定した端末であることを確認してください。共同世帯の最新内容をこの端末へ読み込み、以後の変更を自動同期します。現在のブラウザ内プランは復旧用コピーへ残します。続けますか？"
+      : "自分専用で画面ロックを設定した端末であることを確認してください。現在のブラウザ内プランを共同世帯へ暗号化保存し、以後の変更を自動同期します。続けますか？";
+    if (!window.confirm(confirmation)) return;
+    await householdSync.enableAutoSync(currentPassword);
+    setCurrentPassword("");
+    await loadOverview();
+  });
+
+  const handleDisableAutoSync = () => run(async () => {
+    if (!window.confirm("この端末の自動同期を解除しますか？ブラウザ内のプランと共同世帯の暗号化データは削除されません。")) return;
+    await householdSync.disableAutoSync();
   });
 
   const handleInvite = () => run(async () => {
@@ -280,6 +316,11 @@ export function HouseholdSharingPanel({
       keyEpoch: targetKeyEpoch
     });
     await saveSharedPlan(household.currentRevision, CURRENT_PLAN_VERSION, envelope, true);
+    const resumeAutoSync = householdSync.enabled;
+    if (resumeAutoSync) {
+      await householdSync.disableAutoSync();
+      await householdSync.enableAutoSync(newPassword);
+    }
     setCurrentPassword(newPassword);
     setNewPassword("");
     setNewPasswordConfirmation("");
@@ -290,6 +331,7 @@ export function HouseholdSharingPanel({
   const handleLeave = () => run(async () => {
     if (!window.confirm("共同世帯から退出しますか？退出後は共有プランへアクセスできません。")) return;
     await leaveSharedHousehold();
+    await householdSync.disableAutoSync();
     setOverview(null);
     setRevisions([]);
     setCurrentPassword("");
@@ -300,6 +342,7 @@ export function HouseholdSharingPanel({
   const handleDelete = () => run(async () => {
     if (deleteConfirmation !== "削除") throw new Error("確認欄へ「削除」と入力してください。");
     await deleteSharedHousehold();
+    await householdSync.disableAutoSync();
     setDeleteConfirmation("");
     setCurrentPassword("");
     setNewPassword("");
@@ -340,7 +383,7 @@ export function HouseholdSharingPanel({
 
       <div className="notice-band check household-security-note">
         <strong>平文の家計データや共有パスワードはサーバーへ送りません</strong>
-        <span>暗号化と復号はこのブラウザ内で行います。共有パスワードはブラウザにも保存されません。</span>
+        <span>暗号化と復号はこのブラウザ内で行います。自動同期を有効にした端末では、共有パスワードを取り出せない端末鍵で保護します。</span>
       </div>
 
       {token && !household && (
@@ -353,7 +396,7 @@ export function HouseholdSharingPanel({
 
       {!token && !household && overview?.canCreate && (
         <div className="household-empty-state">
-          <p>共同世帯を作成しても、現在のブラウザ内プランは自動送信されません。作成後に共有パスワードを設定して手動保存します。</p>
+          <p>共同世帯の作成後、この端末で自動同期を有効にすると、暗号化した同じプランを2人で確認・更新できます。</p>
           <button type="button" disabled={busy} onClick={() => void handleCreate()}>共同世帯を作成</button>
         </div>
       )}
@@ -401,23 +444,88 @@ export function HouseholdSharingPanel({
           )}
 
           {household.status !== "deleting" && (
-            <div className="household-plan-actions">
-              <button
-                type="button"
-                disabled={busy || !household.readAllowed || household.currentRevision === 0}
-                onClick={() => void run(() => loadIntoBrowser(getCurrentSharedPlan(), "最新の共有プラン"))}
-              >
-                共有から読み込む
-              </button>
-              <button
-                type="button"
-                className="secondary"
-                disabled={busy || !household.writeAllowed}
-                onClick={() => void handleSave()}
-              >
-                現在のプランを共有へ保存
-              </button>
+            <div className={`household-auto-sync ${householdSync.status}`}>
+              <div className="household-auto-sync-heading">
+                <div>
+                  <strong>この端末の自動同期</strong>
+                  <span>{syncStatusLabels[householdSync.status]}</span>
+                </div>
+                <span className={`status-chip${householdSync.status === "synced" ? " complete" : ""}`}>
+                  {householdSync.enabled ? "有効" : "無効"}
+                </span>
+              </div>
+              <p>
+                {householdSync.enabled
+                  ? "ブラウザ内へすぐ保存し、操作が落ち着いた後に暗号化して共同世帯へ同期します。"
+                  : "初回だけ共有パスワードを入力すると、次回からこの端末で自動的に読み込み・保存します。"}
+              </p>
+              <small className="household-trusted-device-note">
+                自分専用で画面ロックを設定した端末でのみ有効にしてください。共有・公共端末では利用しないでください。
+              </small>
+              {householdSync.message && <p className="inline-message" role="status">{householdSync.message}</p>}
+              {householdSync.lastSyncedAt && (
+                <small>最終同期: {formatDateTime(householdSync.lastSyncedAt)}</small>
+              )}
+              <div className="household-plan-actions">
+                {householdSync.enabled ? (
+                  <>
+                    <button type="button" disabled={busy || householdSync.status === "syncing"} onClick={() => void householdSync.syncNow()}>
+                      今すぐ同期
+                    </button>
+                    <button type="button" className="secondary" disabled={busy} onClick={() => void handleDisableAutoSync()}>
+                      この端末の同期を解除
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={
+                      busy
+                      || !currentPassword
+                      || !household.readAllowed
+                      || householdSync.status === "checking"
+                      || householdSync.status === "syncing"
+                    }
+                    onClick={() => void handleEnableAutoSync()}
+                  >
+                    この端末で自動同期を始める
+                  </button>
+                )}
+              </div>
+              {householdSync.status === "conflict" && (
+                <div className="household-conflict-actions">
+                  <strong>どちらの内容を残しますか？</strong>
+                  <span>選ばなかった内容も復旧用コピーへ残します。</span>
+                  <div className="household-plan-actions">
+                    <button type="button" onClick={() => void householdSync.useRemoteVersion()}>共同世帯の内容を使う</button>
+                    <button type="button" className="secondary" onClick={() => void householdSync.keepLocalVersion()}>この端末の内容を使う</button>
+                  </div>
+                </div>
+              )}
             </div>
+          )}
+
+          {!householdSync.enabled && household.status !== "deleting" && (
+            <details className="projection-details household-manual-actions">
+              <summary>手動で読み込み・保存する</summary>
+              <div className="household-plan-actions">
+                <button
+                  type="button"
+                  disabled={busy || !household.readAllowed || household.currentRevision === 0}
+                  onClick={() => void run(() => loadIntoBrowser(getCurrentSharedPlan(), "最新の共有プラン"))}
+                >
+                  共有から読み込む
+                </button>
+                <button
+                  type="button"
+                  className="secondary"
+                  disabled={busy || !household.writeAllowed}
+                  onClick={() => void handleSave()}
+                >
+                  現在のプランを共有へ保存
+                </button>
+              </div>
+            </details>
           )}
 
           {revisions.length > 0 && household.status !== "deleting" && (

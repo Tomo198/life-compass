@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import {
   CURRENT_PLAN_VERSION,
   MAX_DETAILED_CASHFLOW_ITEMS,
@@ -134,18 +134,18 @@ export function useLifePlanEditor() {
   const [importMessage, setImportMessage] = useState("");
   const [storageError, setStorageError] = useState("");
 
-  const commitPlan = (nextPlan: LifePlan) => {
+  const commitPlan = useCallback((nextPlan: LifePlan) => {
     try {
       const saved = savePlan(nextPlan);
       setPlan(saved);
       setStorageError("");
       return true;
     } catch (error) {
-      setPlan({ ...nextPlan, updatedAt: plan.updatedAt });
+      setPlan((currentPlan) => ({ ...nextPlan, updatedAt: currentPlan.updatedAt }));
       setStorageError(error instanceof Error ? error.message : "ブラウザ内に保存できませんでした。");
       return false;
     }
-  };
+  }, []);
 
   const updateProfile = <K extends keyof Profile>(key: K, value: Profile[K]) => {
     const householdMembers = key === "age"
