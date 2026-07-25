@@ -5,6 +5,7 @@ import { AuthError, parseBoundedJsonBody, sameOrigin } from "./security.js";
 const MAX_SHARED_PLAN_BODY_BYTES = 7 * 1024 * 1024;
 const MAX_SHARED_PLAN_CIPHERTEXT_BYTES = 5 * 1024 * 1024 + 16;
 const MAX_REVISIONS = 10;
+const MAX_OBJECT_CLEANUP_BATCH = 100;
 const FRESH_SESSION_MAX_AGE_SECONDS = 10 * 60;
 const SHARED_PLAN_FORMAT = "life-compass-shared-plan";
 const SHARED_PLAN_VERSION = 1;
@@ -227,16 +228,27 @@ const listRevisions = async (request, env, jsonResponse) => {
   });
 };
 
-const deleteStoredObjectsBestEffort = async (env, objectKeys, event) => {
-  const keys = Array.isArray(objectKeys) ? objectKeys : [objectKeys];
-  if (keys.length === 0) return;
+const clearPendingObjectBestEffort = async (env, objectKey) => {
   try {
-    await env.SHARED_PLANS.delete(objectKeys);
+    await env.DB.prepare(
+      `DELETE FROM shared_plan_object_cleanup
+        WHERE r2_object_key = ?`
+    ).bind(objectKey).run();
   } catch {
     console.error(JSON.stringify({
-      event,
-      objectCount: keys.length
+      event: "shared_plan_cleanup_marker_delete_failed"
     }));
+  }
+};
+
+const deletePendingObjectBestEffort = async (env, objectKey, event) => {
+  try {
+    await env.SHARED_PLANS.delete(objectKey);
+    await clearPendingObjectBestEffort(env, objectKey);
+    return true;
+  } catch {
+    console.error(JSON.stringify({ event, objectCount: 1 }));
+    return false;
   }
 };
 
@@ -251,16 +263,22 @@ const cleanupOldRevisions = async (env, householdId) => {
     const stale = (result.results || []).slice(MAX_REVISIONS);
     if (stale.length === 0) return;
 
-    await env.DB.batch(stale.map((row) => env.DB.prepare(
-      `DELETE FROM shared_plan_revisions
-        WHERE household_id = ?
-          AND revision = ?`
-    ).bind(householdId, row.revision)));
-    await deleteStoredObjectsBestEffort(
-      env,
-      stale.map((row) => row.r2_object_key),
-      "shared_plan_retention_object_cleanup_failed"
-    );
+    for (const row of stale) {
+      try {
+        await env.SHARED_PLANS.delete(row.r2_object_key);
+      } catch {
+        console.error(JSON.stringify({
+          event: "shared_plan_retention_object_cleanup_failed",
+          objectCount: 1
+        }));
+        continue;
+      }
+      await env.DB.prepare(
+        `DELETE FROM shared_plan_revisions
+          WHERE household_id = ?
+            AND revision = ?`
+      ).bind(householdId, row.revision).run();
+    }
   } catch {
     console.error(JSON.stringify({
       event: "shared_plan_retention_metadata_cleanup_failed"
@@ -317,15 +335,25 @@ const savePlan = async (request, env, jsonResponse, rotateKey = false) => {
 
   const objectKey = `households/${access.householdId}/revisions/${revision}-${crypto.randomUUID()}.json`;
   const checksum = await sha256Hex(serialized);
-  await env.SHARED_PLANS.put(objectKey, serialized, {
-    httpMetadata: { contentType: "application/json; charset=utf-8", cacheControl: "no-store" },
-    customMetadata: {
-      format: SHARED_PLAN_FORMAT,
-      version: String(SHARED_PLAN_VERSION),
-      revision: String(revision),
-      keyEpoch: String(keyEpoch)
-    }
-  });
+  await env.DB.prepare(
+    `INSERT INTO shared_plan_object_cleanup
+      (r2_object_key, household_id, revision)
+     VALUES (?, ?, ?)`
+  ).bind(objectKey, access.householdId, revision).run();
+  try {
+    await env.SHARED_PLANS.put(objectKey, serialized, {
+      httpMetadata: { contentType: "application/json; charset=utf-8", cacheControl: "no-store" },
+      customMetadata: {
+        format: SHARED_PLAN_FORMAT,
+        version: String(SHARED_PLAN_VERSION),
+        revision: String(revision),
+        keyEpoch: String(keyEpoch)
+      }
+    });
+  } catch (error) {
+    await clearPendingObjectBestEffort(env, objectKey);
+    throw error;
+  }
 
   let results;
   try {
@@ -434,7 +462,7 @@ const savePlan = async (request, env, jsonResponse, rotateKey = false) => {
       )
     ]);
   } catch (error) {
-    await deleteStoredObjectsBestEffort(env, objectKey, "shared_plan_rollback_cleanup_failed");
+    await deletePendingObjectBestEffort(env, objectKey, "shared_plan_rollback_cleanup_failed");
     if (/constraint|unique/iu.test(error instanceof Error ? error.message : "")) {
       throw new AuthError(409, "shared_plan_conflict", "Another device or household member updated the shared plan.");
     }
@@ -445,10 +473,11 @@ const savePlan = async (request, env, jsonResponse, rotateKey = false) => {
     Number(results?.[0]?.meta?.changes || 0) !== 1
     || Number(results?.[1]?.meta?.changes || 0) !== 1
   ) {
-    await deleteStoredObjectsBestEffort(env, objectKey, "shared_plan_conflict_cleanup_failed");
+    await deletePendingObjectBestEffort(env, objectKey, "shared_plan_conflict_cleanup_failed");
     throw new AuthError(409, "shared_plan_conflict", "Another device or household member updated the shared plan.");
   }
 
+  await clearPendingObjectBestEffort(env, objectKey);
   await cleanupOldRevisions(env, access.householdId);
   const row = await readRevisionRow(env, access.householdId, revision);
   return jsonResponse({
@@ -458,6 +487,35 @@ const savePlan = async (request, env, jsonResponse, rotateKey = false) => {
     keyEpoch,
     revision: publicRevision(row)
   }, 201);
+};
+
+export const cleanupPendingSharedPlanObjects = async (env) => {
+  if (!env?.DB || !env?.SHARED_PLANS) return;
+  const result = await env.DB.prepare(
+    `SELECT cleanup.r2_object_key
+       FROM shared_plan_object_cleanup AS cleanup
+      WHERE cleanup.created_at <= datetime('now', '-15 minutes')
+      ORDER BY cleanup.created_at ASC
+      LIMIT ?`
+  ).bind(MAX_OBJECT_CLEANUP_BATCH).all();
+
+  for (const row of result.results || []) {
+    const referenced = await env.DB.prepare(
+      `SELECT 1 AS referenced
+         FROM shared_plan_revisions
+        WHERE r2_object_key = ?
+        LIMIT 1`
+    ).bind(row.r2_object_key).first();
+    if (referenced) {
+      await clearPendingObjectBestEffort(env, row.r2_object_key);
+      continue;
+    }
+    await deletePendingObjectBestEffort(
+      env,
+      row.r2_object_key,
+      "shared_plan_scheduled_object_cleanup_failed"
+    );
+  }
 };
 
 export const handleSharedPlanRequest = async (request, env, jsonResponse) => {

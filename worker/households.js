@@ -18,6 +18,7 @@ import {
 const MAX_BODY_BYTES = 4 * 1024;
 const INVITATION_TTL_SECONDS = 24 * 60 * 60;
 const FRESH_SESSION_MAX_AGE_SECONDS = 10 * 60;
+const EXPIRED_HOUSEHOLD_CLEANUP_LIMIT = 25;
 const inviteTokenPattern = /^[A-Za-z0-9_-]{40,128}$/u;
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u;
 
@@ -655,6 +656,86 @@ const deleteHousehold = async (request, env, jsonResponse) => {
         AND owner_user_id = ?`
   ).bind(household.id, user.id).run();
   return jsonResponse({ ok: true, householdDeleted: true });
+};
+
+export const cleanupExpiredHouseholds = async (env) => {
+  if (!env?.DB || !env?.SHARED_PLANS || getHouseholdSharingMode(env) === "disabled") return;
+  const ownerSubject = typeof env?.OWNER_GOOGLE_SUB === "string"
+    ? env.OWNER_GOOGLE_SUB.trim()
+    : "";
+  const result = await env.DB.prepare(
+    `SELECT households.id, households.owner_user_id
+       FROM shared_households AS households
+       JOIN users AS owners
+         ON owners.id = households.owner_user_id
+      WHERE households.deleted_at IS NULL
+        AND households.status IN ('active', 'read_only', 'deleting')
+        AND (? = '' OR owners.google_sub <> ?)
+        AND NOT EXISTS (
+          SELECT 1
+            FROM subscriptions AS active_subscriptions
+           WHERE active_subscriptions.user_id = households.owner_user_id
+             AND active_subscriptions.tier = 'pro'
+             AND active_subscriptions.status IN ('active', 'trialing')
+             AND active_subscriptions.payment_status = 'paid'
+             AND date(active_subscriptions.current_period_end) >= date('now')
+        )
+        AND (
+          SELECT MAX(date(expired_subscriptions.current_period_end))
+            FROM subscriptions AS expired_subscriptions
+           WHERE expired_subscriptions.user_id = households.owner_user_id
+             AND expired_subscriptions.tier = 'pro'
+             AND expired_subscriptions.current_period_end IS NOT NULL
+        ) < date('now', '-90 days')
+      ORDER BY households.updated_at ASC
+      LIMIT ?`
+  ).bind(ownerSubject, ownerSubject, EXPIRED_HOUSEHOLD_CLEANUP_LIMIT).all();
+
+  for (const household of result.results || []) {
+    try {
+      const claimed = await env.DB.prepare(
+        `UPDATE shared_households
+            SET status = 'deleting',
+                updated_at = CURRENT_TIMESTAMP
+          WHERE id = ?
+            AND owner_user_id = ?
+            AND deleted_at IS NULL
+            AND NOT EXISTS (
+              SELECT 1
+                FROM subscriptions AS active_subscriptions
+               WHERE active_subscriptions.user_id = shared_households.owner_user_id
+                 AND active_subscriptions.tier = 'pro'
+                 AND active_subscriptions.status IN ('active', 'trialing')
+                 AND active_subscriptions.payment_status = 'paid'
+                 AND date(active_subscriptions.current_period_end) >= date('now')
+            )
+            AND (
+              SELECT MAX(date(expired_subscriptions.current_period_end))
+                FROM subscriptions AS expired_subscriptions
+               WHERE expired_subscriptions.user_id = shared_households.owner_user_id
+                 AND expired_subscriptions.tier = 'pro'
+                 AND expired_subscriptions.current_period_end IS NOT NULL
+            ) < date('now', '-90 days')`
+      ).bind(household.id, household.owner_user_id).run();
+      if (Number(claimed?.meta?.changes || 0) !== 1) continue;
+      const revisions = await env.DB.prepare(
+        `SELECT r2_object_key
+           FROM shared_plan_revisions
+          WHERE household_id = ?`
+      ).bind(household.id).all();
+      const objectKeys = (revisions.results || []).map((row) => row.r2_object_key).filter(Boolean);
+      if (objectKeys.length > 0) await env.SHARED_PLANS.delete(objectKeys);
+      await env.DB.prepare(
+        `DELETE FROM shared_households
+          WHERE id = ?
+            AND owner_user_id = ?`
+      ).bind(household.id, household.owner_user_id).run();
+    } catch {
+      console.error(JSON.stringify({
+        event: "expired_shared_household_cleanup_failed"
+      }));
+    }
+  }
 };
 
 export const handleHouseholdRequest = async (request, env, jsonResponse) => {

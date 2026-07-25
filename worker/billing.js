@@ -3,7 +3,7 @@ import { AuthError, getCurrentUser } from "./auth.js";
 const MAX_WEBHOOK_BODY_BYTES = 1024 * 1024;
 const SQUARE_API_VERSION = "2026-05-20";
 const SQUARE_PROVIDER = "square";
-const terminalEventStatuses = new Set(["processed", "ignored", "unmatched"]);
+const terminalEventStatuses = new Set(["processed", "ignored", "unmatched", "ownership_mismatch"]);
 
 const sameOrigin = (request) => request.headers.get("Origin") === new URL(request.url).origin;
 const normalizedEmail = (value) => typeof value === "string" ? value.trim().toLowerCase() : "";
@@ -125,7 +125,7 @@ const findVerifiedUserByEmail = async (env, email) => {
 };
 
 const findSubscription = async (env, subscriptionId) => env.DB.prepare(
-  `SELECT id, user_id, payment_status
+  `SELECT id, user_id, provider_customer_id, payment_status
      FROM subscriptions
     WHERE billing_provider = ?
       AND provider_subscription_id = ?
@@ -140,6 +140,15 @@ const saveSquareSubscription = async (env, user, subscription, paymentStatus) =>
   const nextPaymentStatus = paymentStatus || existing?.payment_status || "unknown";
 
   if (existing) {
+    if (
+      existing.user_id !== user.id
+      || (
+        existing.provider_customer_id
+        && existing.provider_customer_id !== subscription.customer_id
+      )
+    ) {
+      return { status: "ownership_mismatch", subscriptionId: existing.id };
+    }
     await env.DB.prepare(
       `UPDATE subscriptions
           SET user_id = ?, provider_customer_id = ?, provider_plan_id = ?, tier = 'pro',
@@ -156,7 +165,7 @@ const saveSquareSubscription = async (env, user, subscription, paymentStatus) =>
       cancelAtPeriodEnd,
       existing.id
     ).run();
-    return existing.id;
+    return { status: "processed", subscriptionId: existing.id };
   }
 
   const id = crypto.randomUUID();
@@ -177,7 +186,7 @@ const saveSquareSubscription = async (env, user, subscription, paymentStatus) =>
     currentPeriodEnd,
     cancelAtPeriodEnd
   ).run();
-  return id;
+  return { status: "processed", subscriptionId: id };
 };
 
 const syncSquareSubscription = async (env, subscription, squareFetch, paymentStatus) => {
@@ -191,8 +200,7 @@ const syncSquareSubscription = async (env, subscription, squareFetch, paymentSta
   const user = await findVerifiedUserByEmail(env, email);
   if (!user) return { status: "unmatched" };
 
-  await saveSquareSubscription(env, user, subscription, paymentStatus);
-  return { status: "processed" };
+  return saveSquareSubscription(env, user, subscription, paymentStatus);
 };
 
 const getInvoiceSubscriptionId = (event) => event?.data?.object?.invoice?.subscription_id || "";

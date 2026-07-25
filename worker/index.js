@@ -23,8 +23,8 @@ import {
   resolveHouseholdAccess,
   resolvePersonalAccess
 } from "./access.js";
-import { handleHouseholdRequest } from "./households.js";
-import { handleSharedPlanRequest } from "./sharedPlans.js";
+import { cleanupExpiredHouseholds, handleHouseholdRequest } from "./households.js";
+import { cleanupPendingSharedPlanObjects, handleSharedPlanRequest } from "./sharedPlans.js";
 
 const securityHeaders = {
   "Cache-Control": "no-store",
@@ -378,6 +378,8 @@ export const createWorker = ({ verifyGoogleToken = verifyGoogleIdToken, squareFe
   },
   async scheduled(_controller, env) {
     await cleanupSessions(env);
+    await cleanupPendingSharedPlanObjects(env);
+    await cleanupExpiredHouseholds(env);
   }
 });
 

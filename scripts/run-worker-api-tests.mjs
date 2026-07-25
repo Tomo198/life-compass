@@ -31,10 +31,21 @@ class FakeD1 {
     this.householdInvitations = new Map();
     this.householdAuditEvents = new Map();
     this.sharedPlanRevisions = new Map();
+    this.sharedPlanObjectCleanup = new Map();
     this.failCloudBackupInsert = false;
+    this.failNextBatch = false;
+    this.conflictNextBatch = false;
   }
 
   async batch(statements) {
+    if (this.failNextBatch) {
+      this.failNextBatch = false;
+      throw new Error("simulated D1 batch failure");
+    }
+    if (this.conflictNextBatch) {
+      this.conflictNextBatch = false;
+      return statements.map(() => ({ success: true, meta: { changes: 0 } }));
+    }
     const results = [];
     for (const statement of statements) {
       results.push(await statement.run());
@@ -410,6 +421,16 @@ class FakeD1 {
             this.sharedPlanRevisions.set(key, row);
             return { success: true, meta: { changes: 1 } };
           }
+          if (normalized.startsWith("INSERT INTO shared_plan_object_cleanup")) {
+            const [objectKey, householdId, revision] = args;
+            this.sharedPlanObjectCleanup.set(objectKey, {
+              r2_object_key: objectKey,
+              household_id: householdId,
+              revision,
+              created_at: new Date(Date.now() - 16 * 60 * 1000).toISOString()
+            });
+            return { success: true, meta: { changes: 1 } };
+          }
           if (normalized.startsWith("UPDATE shared_households")) {
             if (normalized.includes("SET current_revision")) {
               const rotating = normalized.includes("SET current_revision = ?, key_epoch = ?");
@@ -506,6 +527,10 @@ class FakeD1 {
           if (normalized.startsWith("DELETE FROM shared_plan_revisions")) {
             const [householdId, revision] = args;
             const deleted = this.sharedPlanRevisions.delete(`${householdId}:${revision}`);
+            return { success: true, meta: { changes: deleted ? 1 : 0 } };
+          }
+          if (normalized.startsWith("DELETE FROM shared_plan_object_cleanup")) {
+            const deleted = this.sharedPlanObjectCleanup.delete(args[0]);
             return { success: true, meta: { changes: deleted ? 1 : 0 } };
           }
           if (normalized.startsWith("DELETE FROM cloud_backups")) {
@@ -668,6 +693,16 @@ class FakeD1 {
           ) {
             return this.sharedPlanRevisions.get(`${args[0]}:${args[1]}`) || null;
           }
+          if (
+            normalized.startsWith("SELECT 1 AS referenced")
+            && normalized.includes("FROM shared_plan_revisions")
+          ) {
+            return [...this.sharedPlanRevisions.values()].some((revision) => (
+              revision.r2_object_key === args[0]
+            ))
+              ? { referenced: 1 }
+              : null;
+          }
           if (normalized.includes("FROM shared_households") && normalized.includes("owner_user_id = ?")) {
             return [...this.sharedHouseholds.values()].find((item) => (
               item.owner_user_id === args[0] && !item.deleted_at
@@ -676,6 +711,52 @@ class FakeD1 {
           throw new Error(`Unexpected D1 first query: ${normalized}`);
         },
         all: async () => {
+          if (normalized.includes("FROM shared_plan_object_cleanup AS cleanup")) {
+            return {
+              results: [...this.sharedPlanObjectCleanup.values()]
+                .sort((left, right) => left.created_at.localeCompare(right.created_at))
+                .slice(0, Number(args[0]))
+            };
+          }
+          if (
+            normalized.includes("FROM shared_households AS households")
+            && normalized.includes("date('now', '-90 days')")
+          ) {
+            const [ownerSubject, , limit] = args;
+            const today = new Date().toISOString().slice(0, 10);
+            const cutoff = utcDateAfter(-90);
+            const rows = [...this.sharedHouseholds.values()].filter((household) => {
+              const owner = this.usersById.get(household.owner_user_id);
+              const subscriptions = [...this.subscriptionsByProviderId.values()].filter((subscription) => (
+                subscription.user_id === household.owner_user_id
+                && subscription.tier === "pro"
+                && subscription.current_period_end
+              ));
+              const hasActive = subscriptions.some((subscription) => (
+                ["active", "trialing"].includes(subscription.status)
+                && subscription.payment_status === "paid"
+                && subscription.current_period_end >= today
+              ));
+              const latestEnd = subscriptions
+                .map((subscription) => subscription.current_period_end)
+                .sort()
+                .at(-1);
+              return (
+                !household.deleted_at
+                && ["active", "read_only", "deleting"].includes(household.status)
+                && (!ownerSubject || owner?.google_sub !== ownerSubject)
+                && !hasActive
+                && latestEnd
+                && latestEnd < cutoff
+              );
+            });
+            return {
+              results: rows.slice(0, Number(limit)).map((household) => ({
+                id: household.id,
+                owner_user_id: household.owner_user_id
+              }))
+            };
+          }
           if (normalized.includes("FROM cloud_backups") && normalized.includes("WHERE user_id = ?")) {
             return { results: [...this.cloudBackups.values()].filter((backup) => backup.user_id === args[0]) };
           }
@@ -1233,6 +1314,12 @@ test("one paid owner can securely share household Pro access with one verified e
   assert.equal(expiredEntitlement.access.household.effectiveTier, "free");
   assert.equal(expiredEntitlement.access.household.readAllowed, true);
   assert.equal(expiredEntitlement.access.household.writeAllowed, false);
+  ownerSubscription.current_period_end = utcDateAfter(-91);
+  const retentionEndedEntitlement = await json(await authRequest("/api/entitlement", {
+    headers: { Cookie: `__Host-lc_session=${partnerCookie}` }
+  }));
+  assert.equal(retentionEndedEntitlement.access.household.readAllowed, false);
+  assert.equal(retentionEndedEntitlement.access.household.writeAllowed, false);
   ownerSubscription.current_period_end = utcDateAfter(30);
 
   const removeResponse = await authRequest(`/api/shared-household/members/${editorMembership.id}`, {
@@ -1441,12 +1528,36 @@ test("encrypted shared plans enforce membership, integrity, concurrency, and rev
   assert.equal(firstSave.status, 201);
   assert.equal((await json(firstSave)).currentRevision, 1);
   assert.equal(SHARED_PLANS.objects.size, 1);
+  assert.equal(DB.sharedPlanObjectCleanup.size, 0);
   assert.equal(JSON.stringify([...SHARED_PLANS.objects.values()]).includes("must not be stored"), false);
 
   const conflict = await saveRevision(0);
   assert.equal(conflict.status, 409);
   assert.equal((await json(conflict)).error.code, "shared_plan_conflict");
   assert.equal(SHARED_PLANS.objects.size, 1);
+  assert.equal(DB.sharedPlanObjectCleanup.size, 0);
+
+  DB.conflictNextBatch = true;
+  SHARED_PLANS.failDeletes = true;
+  const concurrentConflict = await saveRevision(1);
+  assert.equal(concurrentConflict.status, 409);
+  assert.equal(SHARED_PLANS.objects.size, 2);
+  assert.equal(DB.sharedPlanObjectCleanup.size, 1);
+  SHARED_PLANS.failDeletes = false;
+  await secureWorker.scheduled({}, authEnv);
+  assert.equal(SHARED_PLANS.objects.size, 1);
+  assert.equal(DB.sharedPlanObjectCleanup.size, 0);
+
+  DB.failNextBatch = true;
+  SHARED_PLANS.failDeletes = true;
+  const failedBatch = await saveRevision(1);
+  assert.equal(failedBatch.status, 500);
+  assert.equal(SHARED_PLANS.objects.size, 2);
+  assert.equal(DB.sharedPlanObjectCleanup.size, 1);
+  SHARED_PLANS.failDeletes = false;
+  await secureWorker.scheduled({}, authEnv);
+  assert.equal(SHARED_PLANS.objects.size, 1);
+  assert.equal(DB.sharedPlanObjectCleanup.size, 0);
 
   const wrongHousehold = await saveRevision(
     1,
@@ -1456,12 +1567,22 @@ test("encrypted shared plans enforce membership, integrity, concurrency, and rev
   assert.equal((await json(wrongHousehold)).error.code, "invalid_shared_plan_envelope");
 
   for (let expectedRevision = 1; expectedRevision < 11; expectedRevision += 1) {
+    if (expectedRevision === 10) SHARED_PLANS.failDeletes = true;
     const response = await saveRevision(expectedRevision);
     assert.equal(response.status, 201);
   }
   assert.equal(DB.sharedHouseholds.get(householdId).current_revision, 11);
+  assert.equal(DB.sharedPlanRevisions.size, 11);
+  assert.equal(DB.sharedPlanRevisions.has(`${householdId}:1`), true);
+  assert.equal(SHARED_PLANS.objects.size, 11);
+
+  SHARED_PLANS.failDeletes = false;
+  const retentionRetry = await saveRevision(11);
+  assert.equal(retentionRetry.status, 201);
+  assert.equal(DB.sharedHouseholds.get(householdId).current_revision, 12);
   assert.equal(DB.sharedPlanRevisions.size, 10);
   assert.equal(DB.sharedPlanRevisions.has(`${householdId}:1`), false);
+  assert.equal(DB.sharedPlanRevisions.has(`${householdId}:2`), false);
   assert.equal(SHARED_PLANS.objects.size, 10);
 
   const currentResponse = await authRequest("/api/shared-household/plan", {
@@ -1469,10 +1590,10 @@ test("encrypted shared plans enforce membership, integrity, concurrency, and rev
   });
   const current = await json(currentResponse);
   assert.equal(currentResponse.status, 200);
-  assert.equal(current.currentRevision, 11);
-  assert.equal(current.envelope.revision, 11);
+  assert.equal(current.currentRevision, 12);
+  assert.equal(current.envelope.revision, 12);
 
-  const currentRow = DB.sharedPlanRevisions.get(`${householdId}:11`);
+  const currentRow = DB.sharedPlanRevisions.get(`${householdId}:12`);
   const currentObject = SHARED_PLANS.objects.get(currentRow.r2_object_key);
   SHARED_PLANS.objects.set(currentRow.r2_object_key, `${currentObject} `);
   const tamperedResponse = await authRequest("/api/shared-household/plan", {
@@ -1488,8 +1609,8 @@ test("encrypted shared plans enforce membership, integrity, concurrency, and rev
   const revisions = await json(revisionsResponse);
   assert.equal(revisionsResponse.status, 200);
   assert.equal(revisions.revisions.length, 10);
-  assert.equal(revisions.revisions[0].revision, 11);
-  assert.equal(revisions.revisions.at(-1).revision, 2);
+  assert.equal(revisions.revisions[0].revision, 12);
+  assert.equal(revisions.revisions.at(-1).revision, 3);
   assert.equal(JSON.stringify(revisions).includes("r2_object_key"), false);
   assert.equal(JSON.stringify(revisions).includes("checksum_sha256"), false);
 
@@ -1531,6 +1652,73 @@ test("encrypted shared plans enforce membership, integrity, concurrency, and rev
     body: JSON.stringify({ confirmation: "DELETE_SHARED_HOUSEHOLD" })
   });
   assert.equal(retriedDelete.status, 200);
+  assert.equal(DB.sharedHouseholds.size, 0);
+  assert.equal(DB.sharedPlanRevisions.size, 0);
+  assert.equal(SHARED_PLANS.objects.size, 0);
+});
+
+test("expired household data is denied after 90 days and scheduled deletion is retryable", async () => {
+  const DB = new FakeD1();
+  const SHARED_PLANS = new FakeR2();
+  const ownerId = crypto.randomUUID();
+  const householdId = crypto.randomUUID();
+  const objectKey = `households/${householdId}/revisions/1-test.json`;
+  DB.usersById.set(ownerId, {
+    id: ownerId,
+    google_sub: "expired-household-owner",
+    email: "expired-household-owner@example.com",
+    email_verified: 1,
+    deleted_at: null
+  });
+  DB.sharedHouseholds.set(householdId, {
+    id: householdId,
+    owner_user_id: ownerId,
+    status: "active",
+    key_epoch: 1,
+    current_revision: 1,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    deleted_at: null
+  });
+  DB.householdMemberships.set("expired-owner-membership", {
+    id: "expired-owner-membership",
+    household_id: householdId,
+    user_id: ownerId,
+    role: "owner",
+    status: "active",
+    joined_at: new Date().toISOString(),
+    revoked_at: null
+  });
+  DB.subscriptionsByProviderId.set("square:expired-household-subscription", {
+    id: "expired-household-subscription",
+    user_id: ownerId,
+    billing_provider: "square",
+    provider_subscription_id: "expired-household-subscription",
+    tier: "pro",
+    status: "canceled",
+    payment_status: "paid",
+    current_period_end: utcDateAfter(-91),
+    cancel_at_period_end: 0
+  });
+  DB.sharedPlanRevisions.set(`${householdId}:1`, {
+    household_id: householdId,
+    revision: 1,
+    r2_object_key: objectKey
+  });
+  await SHARED_PLANS.put(objectKey, "encrypted");
+  const scheduledEnv = {
+    DB,
+    SHARED_PLANS,
+    HOUSEHOLD_SHARING_MODE: "enforced"
+  };
+
+  SHARED_PLANS.failDeletes = true;
+  await createWorker().scheduled({}, scheduledEnv);
+  assert.equal(DB.sharedHouseholds.get(householdId).status, "deleting");
+  assert.equal(SHARED_PLANS.objects.size, 1);
+
+  SHARED_PLANS.failDeletes = false;
+  await createWorker().scheduled({}, scheduledEnv);
   assert.equal(DB.sharedHouseholds.size, 0);
   assert.equal(DB.sharedPlanRevisions.size, 0);
   assert.equal(SHARED_PLANS.objects.size, 0);
@@ -1640,6 +1828,7 @@ test("Square webhook verifies signatures, links verified email and waits for suc
   const DB = new FakeD1();
   const notificationUrl = "https://life.example/api/billing/square/webhook";
   const futurePeriodEnd = utcDateAfter(45);
+  let customerEmail = "owner@example.com";
   const subscription = {
     id: "subscription-1",
     customer_id: "customer-1",
@@ -1650,7 +1839,7 @@ test("Square webhook verifies signatures, links verified email and waits for suc
   };
   const squareFetch = async (url) => {
     if (url.endsWith("/v2/customers/customer-1")) {
-      return Response.json({ customer: { id: "customer-1", email_address: "owner@example.com" } });
+      return Response.json({ customer: { id: "customer-1", email_address: customerEmail } });
     }
     if (url.endsWith("/v2/customers/customer-unmatched")) {
       return Response.json({ customer: { id: "customer-unmatched", email_address: "unmatched@example.com" } });
@@ -1661,7 +1850,11 @@ test("Square webhook verifies signatures, links verified email and waits for suc
     return new Response("not found", { status: 404 });
   };
   const secureWorker = createWorker({
-    verifyGoogleToken: async () => ({ sub: "owner", email: "owner@example.com", emailVerified: true }),
+    verifyGoogleToken: async ({ credential }) => ({
+      sub: credential === "other" ? "other" : "owner",
+      email: credential === "other" ? "other@example.com" : "owner@example.com",
+      emailVerified: true
+    }),
     squareFetch
   });
   const billingEnv = {
@@ -1778,6 +1971,34 @@ test("Square webhook verifies signatures, links verified email and waits for suc
 
   const duplicate = await json(await sendEvent(paidEvent));
   assert.equal(duplicate.duplicate, true);
+
+  const otherNonce = await json(await billingRequest("/api/auth/nonce"));
+  const otherLoginResponse = await billingRequest("/api/auth/google", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Origin: "https://life.example",
+      Cookie: `__Host-lc_oauth_nonce=${otherNonce.nonce}`
+    },
+    body: JSON.stringify({ credential: "other", nonce: otherNonce.nonce })
+  });
+  const otherCookie = cookieValue(otherLoginResponse, "__Host-lc_session");
+  const ownerUserId = storedSubscription.user_id;
+  customerEmail = "other@example.com";
+  const reassignmentResponse = await sendEvent({
+    merchant_id: "merchant-1",
+    type: "subscription.updated",
+    event_id: "event-reassignment",
+    data: { object: { subscription } }
+  });
+  assert.equal(reassignmentResponse.status, 200);
+  assert.equal(storedSubscription.user_id, ownerUserId);
+  assert.equal(DB.billingWebhookEvents.get("square:event-reassignment").status, "ownership_mismatch");
+  const otherEntitlement = await json(await billingRequest("/api/entitlement", {
+    headers: { Cookie: `__Host-lc_session=${otherCookie}` }
+  }));
+  assert.equal(otherEntitlement.access.tier, "free");
+  customerEmail = "owner@example.com";
 
   const unmatchedSubscription = {
     ...subscription,

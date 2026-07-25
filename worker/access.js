@@ -1,4 +1,27 @@
 const normalizeSubject = (value) => typeof value === "string" ? value.trim() : "";
+const HOUSEHOLD_RETENTION_DAYS = 90;
+
+const addUtcDays = (value, days) => {
+  if (typeof value !== "string" || !value) return null;
+  const date = new Date(`${value.slice(0, 10)}T00:00:00.000Z`);
+  if (Number.isNaN(date.getTime())) return null;
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+};
+
+const getLatestProPeriodEnd = async (env, userId) => {
+  if (!env?.DB || !userId) return null;
+  const subscription = await env.DB.prepare(
+    `SELECT current_period_end
+       FROM subscriptions
+      WHERE user_id = ?
+        AND tier = 'pro'
+        AND current_period_end IS NOT NULL
+      ORDER BY date(current_period_end) DESC, updated_at DESC
+      LIMIT 1`
+  ).bind(userId).first();
+  return subscription?.current_period_end || null;
+};
 
 export const isOwnerTestUser = (user, env) => {
   const ownerSubject = normalizeSubject(env?.OWNER_GOOGLE_SUB);
@@ -110,6 +133,16 @@ export const resolveHouseholdAccess = async (user, env) => {
   const ownerProActive = ownerAccess.tier === "pro";
   const householdActive = membership.household_status === "active";
   const householdReadable = membership.household_status !== "deleting";
+  const latestPeriodEnd = ownerProActive
+    ? ownerAccess.currentPeriodEnd
+    : await getLatestProPeriodEnd(env, owner.id);
+  const retentionUntil = ownerProActive
+    ? null
+    : addUtcDays(latestPeriodEnd, HOUSEHOLD_RETENTION_DAYS);
+  const withinRetention = Boolean(
+    retentionUntil
+    && retentionUntil >= new Date().toISOString().slice(0, 10)
+  );
 
   return {
     mode,
@@ -127,8 +160,9 @@ export const resolveHouseholdAccess = async (user, env) => {
         ? "household-operator"
         : "none",
     effectiveTier: ownerProActive ? "pro" : "free",
-    readAllowed: householdReadable,
+    readAllowed: householdReadable && (ownerProActive || withinRetention),
     writeAllowed: ownerProActive && householdActive,
-    ownerProActive
+    ownerProActive,
+    retentionUntil
   };
 };

@@ -102,7 +102,7 @@
 
 ## D1スキーマ
 
-初期スキーマは `migrations/0001_auth_billing_backup.sql`、セッションは `migrations/0002_auth_sessions.sql`、暗号化形式バージョンは `migrations/0003_cloud_backup_encryption_version.sql`、決済事業者共通列は `migrations/0004_provider_neutral_billing.sql` に置きます。
+初期スキーマは `migrations/0001_auth_billing_backup.sql`、セッションは `migrations/0002_auth_sessions.sql`、暗号化形式バージョンは `migrations/0003_cloud_backup_encryption_version.sql`、決済事業者共通列は `migrations/0004_provider_neutral_billing.sql`、世帯共有は `migrations/0005_household_sharing_foundation.sql`、共有保存の削除再試行管理は `migrations/0006_shared_plan_cleanup.sql` に置きます。
 
 主なテーブル:
 
