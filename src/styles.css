@@ -3748,6 +3748,33 @@ td select {
   min-width: min(18rem, 100%);
 }
 
+.budget-period-selectors {
+  display: grid;
+  grid-template-columns: minmax(8rem, 1fr) minmax(7rem, 0.8fr);
+  gap: 0.6rem;
+  min-width: min(20rem, 100%);
+}
+
+.budget-period-selectors label,
+.budget-toolbar .budget-year-navigation > label {
+  min-width: 0;
+}
+
+.budget-period-selectors label {
+  display: grid;
+  gap: 0.25rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.budget-period-selectors select {
+  font-weight: 700;
+}
+
+.budget-year-navigation {
+  flex: 0 1 26rem;
+}
+
 .budget-toolbar span {
   color: var(--muted);
   line-height: 1.5;
@@ -3888,7 +3915,12 @@ td select {
 }
 
 .budget-item-toolbar {
+  grid-template-columns: minmax(16rem, 2fr) minmax(10rem, 1fr);
   margin-bottom: 0.9rem;
+}
+
+.budget-zero-actual-note {
+  margin-top: 0.9rem;
 }
 
 .budget-scalable-list,
@@ -3995,6 +4027,34 @@ td select {
   margin-top: 1rem;
 }
 
+.budget-comparison-chart {
+  display: grid;
+  gap: 0.7rem;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+
+.budget-comparison-row {
+  display: grid;
+  grid-template-columns: minmax(8rem, 0.7fr) minmax(12rem, 1.5fr) minmax(12rem, auto);
+  gap: 0.8rem;
+  align-items: center;
+}
+
+.budget-comparison-row > small {
+  color: var(--muted);
+  text-align: right;
+}
+
+.budget-comparison-note {
+  margin: 0.8rem 0 1rem;
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.55;
+}
+
 .budget-list {
   display: grid;
   gap: 0;
@@ -4007,13 +4067,12 @@ td select {
 .budget-row {
   display: grid;
   grid-template-columns:
-    minmax(8rem, 0.85fr)
+    minmax(8rem, 0.9fr)
     minmax(8rem, 0.75fr)
     minmax(8rem, 0.75fr)
     minmax(8rem, 0.75fr)
-    minmax(8rem, 0.75fr)
-    minmax(7rem, 0.55fr)
-    minmax(10rem, 1fr)
+    minmax(8rem, 0.7fr)
+    minmax(12rem, 1.1fr)
     auto;
   gap: 0.75rem;
   align-items: end;
@@ -6714,4 +6773,103 @@ td select {
 
 .app-error-fallback h1 {
   margin: 8px 0 12px;
+}
+
+@media (max-width: 760px) {
+  .budget-view-tabs {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .budget-view-tabs button {
+    width: 100%;
+    border-top: 1px solid var(--line);
+    border-left: 0;
+  }
+
+  .budget-view-tabs button:nth-child(-n + 2) {
+    border-top: 0;
+  }
+
+  .budget-view-tabs button:nth-child(even) {
+    border-left: 1px solid var(--line);
+  }
+
+  .budget-month-actions {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .budget-month-actions button {
+    width: 100%;
+  }
+
+  .budget-period-selectors,
+  .budget-year-navigation {
+    width: 100%;
+  }
+
+  .budget-comparison-row {
+    grid-template-columns: 1fr;
+    gap: 0.4rem;
+  }
+
+  .budget-comparison-row > small {
+    text-align: left;
+  }
+
+  .budget-comparison-table {
+    max-height: none;
+    overflow: visible;
+    border: 0;
+    background: transparent;
+  }
+
+  .budget-comparison-table table {
+    display: block;
+    min-width: 0;
+  }
+
+  .budget-comparison-table thead {
+    display: none;
+  }
+
+  .budget-comparison-table tbody {
+    display: grid;
+    gap: 0.75rem;
+  }
+
+  .budget-comparison-table tr {
+    display: grid;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface);
+  }
+
+  .budget-comparison-table td {
+    display: grid;
+    grid-template-columns: minmax(7rem, 0.9fr) minmax(0, 1.1fr);
+    gap: 0.75rem;
+    align-items: center;
+    padding: 0.7rem 0.75rem;
+    text-align: right;
+  }
+
+  .budget-comparison-table td::before {
+    content: attr(data-label);
+    color: var(--muted);
+    font-size: 0.78rem;
+    font-weight: 600;
+    text-align: left;
+  }
+
+  .budget-comparison-table td:last-child {
+    border-bottom: 0;
+  }
+
+  .budget-comparison-table .budget-category-label {
+    justify-self: end;
+  }
 }

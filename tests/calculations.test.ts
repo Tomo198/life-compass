@@ -989,6 +989,37 @@ test("budget category summary exposes incomplete actual entry counts", () => {
   assert.equal(food?.actualEntryCount, 1);
 });
 
+test("budget summary distinguishes a zero actual from an unentered actual", () => {
+  const summary = getBudgetSummary(
+    [
+      {
+        id: "food-zero",
+        name: "groceries",
+        category: "food",
+        frequency: "monthlyVariable",
+        budgetAmount: 40000,
+        actuals: { "2026-06": 0 },
+        memo: ""
+      },
+      {
+        id: "daily-empty",
+        name: "daily goods",
+        category: "daily",
+        frequency: "monthlyVariable",
+        budgetAmount: 10000,
+        actuals: {},
+        memo: ""
+      }
+    ],
+    "2026-06"
+  );
+
+  assert.equal(summary.actual, 0);
+  assert.equal(summary.actualEntryCount, 1);
+  assert.equal(summary.categoryRows.find((row) => row.category === "food")?.actualEntryCount, 1);
+  assert.equal(summary.categoryRows.find((row) => row.category === "daily")?.actualEntryCount, 0);
+});
+
 test("budget household inputs map monthly and recurring non-monthly items to cashflow fields", () => {
   const inputs = getBudgetHouseholdInputs([
     {

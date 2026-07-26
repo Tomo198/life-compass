@@ -11,6 +11,7 @@ import { featureTiers } from "../features";
 import type {
   Assets,
   BudgetItem,
+  BudgetItemDraft,
   CashflowPeriod,
   CashflowPeriodDraft,
   DetailedCashflowItem,
@@ -656,15 +657,15 @@ export function useLifePlanEditor() {
     commitPlan({ ...plan, fixedCostItems: (plan.fixedCostItems || []).filter((item) => item.id !== id) });
   };
 
-  const addBudgetItem = () => {
+  const addBudgetItem = (draft: BudgetItemDraft) => {
     const nextItem: BudgetItem = {
       id: createId(),
-      name: "予算項目",
-      category: "other",
-      frequency: "monthlyVariable",
-      budgetAmount: 0,
+      name: draft.name,
+      category: draft.category,
+      frequency: draft.frequency,
+      budgetAmount: draft.budgetAmount,
       actuals: {},
-      memo: ""
+      memo: draft.memo
     };
     commitPlan({ ...plan, budgetItems: [...(plan.budgetItems || []), nextItem] });
   };
@@ -676,14 +677,21 @@ export function useLifePlanEditor() {
     });
   };
 
-  const updateBudgetActual = (id: string, monthKey: string, value: number) => {
-    if (!/^\d{4}-\d{2}$/.test(monthKey)) return;
+  const updateBudgetActual = (id: string, monthKey: string, value: number | undefined) => {
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(monthKey)) return;
 
     commitPlan({
       ...plan,
-      budgetItems: (plan.budgetItems || []).map((item) =>
-        item.id === id ? { ...item, actuals: { ...(item.actuals || {}), [monthKey]: value } } : item
-      )
+      budgetItems: (plan.budgetItems || []).map((item) => {
+        if (item.id !== id) return item;
+        const actuals = { ...(item.actuals || {}) };
+        if (value === undefined) {
+          delete actuals[monthKey];
+        } else {
+          actuals[monthKey] = value;
+        }
+        return { ...item, actuals };
+      })
     });
   };
 

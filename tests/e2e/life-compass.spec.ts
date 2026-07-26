@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
-import type { LifePlan } from "../../src/types";
+import { defaultPlan } from "../../src/data/defaultPlan";
+import type { BudgetCategory, LifePlan } from "../../src/types";
 import { encryptSharedPlan } from "../../src/utils/sharedPlanCrypto";
 
 const uncaughtPageErrors = new WeakMap<Page, Error[]>();
@@ -279,13 +280,83 @@ test("目標とイベントは入力後に登録され、再読み込み後も�
 test("予算実績、イベント設定、月別年表、保存容量を整理して確認できる", async ({ page }) => {
   await openView(page, "budget");
   await expect(page.getByText("月平均予算の全体像", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "予算項目を登録", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "予算入力", exact: true })).toHaveAttribute("aria-pressed", "true");
+
+  const budgetForm = page.getByTestId("budget-create-form");
+  const registeredBudgetRows = page.getByTestId("budget-item-row");
+  await expect(registeredBudgetRows).toHaveCount(4);
+  await budgetForm.getByLabel("項目名").fill("教育費");
+  await budgetForm.getByLabel("カテゴリ").selectOption("education");
+  await budgetForm.getByLabel("予算額").fill("25000");
+  await budgetForm.getByLabel("メモ").fill("月ごとの学習費");
+  await expect(registeredBudgetRows).toHaveCount(4);
+  await budgetForm.getByRole("button", { name: "予算項目を登録", exact: true }).click();
+  await expect(registeredBudgetRows).toHaveCount(5);
+  await expect(budgetForm.getByRole("status")).toContainText("教育費");
+
+  await page.getByRole("button", { name: "実績入力", exact: true }).click();
+  await expect(page.getByRole("button", { name: "実績入力", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("button", { name: "予算入力", exact: true })).toHaveAttribute("aria-pressed", "false");
+  await expect(page.getByRole("heading", { name: /実績入力/ })).toBeVisible();
+  const currentDate = new Date();
+  const currentYear = currentDate.getFullYear();
+  const currentMonth = currentDate.getMonth() + 1;
+  const previousYear = currentYear - 1;
+  await expect(page.locator('input[type="month"]')).toHaveCount(0);
+  await expect(page.getByLabel("実績を確認する年", { exact: true })).toHaveValue(String(currentYear));
+  await expect(page.getByLabel("実績を確認する月", { exact: true })).toHaveValue(String(currentMonth));
   await page.getByLabel("項目を検索").fill("食費");
   await expect(page.locator(".monthly-actual-row")).toHaveCount(1);
+  const foodActualInput = page.locator(".monthly-actual-row").getByLabel("実際に使った額");
+  await foodActualInput.fill("50000");
+  await expect(page.getByText(/実績の全体像/)).toBeVisible();
+  await expect(page.getByText("1/5項目入力済み。実績は月ごとにブラウザ内へ保存されます。")).toBeVisible();
+  await foodActualInput.fill("");
+  await expect(foodActualInput).toHaveValue("");
+  await expect(page.getByText("0/5項目入力済み。実績は月ごとにブラウザ内へ保存されます。")).toBeVisible();
+  await foodActualInput.fill("50000");
+  await page.getByLabel("実績を確認する年", { exact: true }).selectOption(String(previousYear));
+  await page.getByLabel("実績を確認する月", { exact: true }).selectOption("12");
+  await expect(page.getByRole("heading", { name: `${previousYear}-12の実績入力`, exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "翌月", exact: true }).click();
+  await expect(page.getByLabel("実績を確認する年", { exact: true })).toHaveValue(String(currentYear));
+  await expect(page.getByLabel("実績を確認する月", { exact: true })).toHaveValue("1");
+  await page.getByLabel("実績を確認する年", { exact: true }).selectOption(String(previousYear));
+  await page.getByLabel("実績を確認する月", { exact: true }).selectOption("12");
+  await expect(foodActualInput).toHaveValue("");
+  await foodActualInput.fill("12345");
+  await page.getByRole("button", { name: "今月", exact: true }).click();
+  await expect(page.getByLabel("実績を確認する年", { exact: true })).toHaveValue(String(currentYear));
+  await expect(page.getByLabel("実績を確認する月", { exact: true })).toHaveValue(String(currentMonth));
+  await expect(foodActualInput).toHaveValue("50,000");
   await page.getByLabel("項目を検索").fill("");
-  await page.getByRole("button", { name: "月別比較", exact: true }).click();
-  await expect(page.getByRole("heading", { name: /カテゴリ別比較/ })).toBeVisible();
+  await page.getByRole("button", { name: "予算・実績比較", exact: true }).click();
+  await expect(page.getByRole("heading", { name: /予算・実績比較/ })).toBeVisible();
+  await expect(page.getByLabel("カテゴリ別予算実績比較表")).toBeVisible();
   await page.getByRole("button", { name: "年間推移", exact: true }).click();
-  await expect(page.getByRole("heading", { name: /予算・実績推移/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: `${currentYear}年の予算・実績推移`, exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "前月", exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "前年を表示", exact: true }).click();
+  await expect(page.getByRole("heading", { name: `${previousYear}年の予算・実績推移`, exact: true })).toBeVisible();
+  await expect(page.getByText(`${previousYear}年は1/12か月に実績入力があります。`, { exact: true })).toBeVisible();
+  await expect(page.getByText("1/12か月に実績入力あり", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "今年", exact: true }).click();
+  await expect(page.getByLabel("表示する年", { exact: true })).toHaveValue(String(currentYear));
+
+  await page.getByRole("button", { name: "予算入力", exact: true }).click();
+  const foodBudgetRow = page.locator('div[data-testid="budget-item-row"]:has(input[value="食費"])');
+  await expect(foodBudgetRow).toHaveCount(1);
+  page.once("dialog", async (dialog) => {
+    expect(dialog.message()).toContain("2か月分の実績もすべて削除されます");
+    expect(dialog.message()).toContain("元に戻せません");
+    await dialog.dismiss();
+  });
+  await foodBudgetRow.getByRole("button", { name: "「食費」を削除", exact: true }).click();
+  await expect(foodBudgetRow).toHaveCount(1);
+  page.once("dialog", (dialog) => dialog.accept());
+  await foodBudgetRow.getByRole("button", { name: "「食費」を削除", exact: true }).click();
+  await expect(foodBudgetRow).toHaveCount(0);
 
   await openView(page, "events");
   await expect(page.getByRole("heading", { name: "イベント設定", exact: true, level: 1 })).toBeVisible();
@@ -307,6 +378,82 @@ test("予算実績、イベント設定、月別年表、保存容量を整理�
 
   await openView(page, "data");
   await expect(page.getByText("ブラウザ内データの使用目安", { exact: true })).toBeVisible();
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect(overflow).toBeLessThanOrEqual(1);
+});
+
+test("予算項目が50件でも12カテゴリの構成と比較を崩さず表示できる", async ({ page }) => {
+  const currentDate = new Date();
+  const monthKey = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, "0")}`;
+  const categories: BudgetCategory[] = [
+    "food",
+    "daily",
+    "housing",
+    "utilities",
+    "communication",
+    "insurance",
+    "car",
+    "education",
+    "medical",
+    "travel",
+    "subscription",
+    "other"
+  ];
+  const loadPlan = structuredClone(defaultPlan);
+  loadPlan.budgetItems = Array.from({ length: 50 }, (_, index) => {
+    const budgetAmount = 10000 + index * 1000;
+    return {
+      id: `budget-load-${index + 1}`,
+      name: `確認項目${index + 1}`,
+      category: categories[index % categories.length],
+      frequency: "monthlyVariable",
+      budgetAmount,
+      actuals: index === 0
+        ? { [monthKey]: budgetAmount + 500, "1900-01": budgetAmount, "2300-12": budgetAmount }
+        : { [monthKey]: budgetAmount + 500 },
+      memo: "多数項目の表示確認"
+    };
+  });
+  await page.evaluate((plan) => {
+    localStorage.setItem("life-compass-plan-v1", JSON.stringify(plan));
+  }, loadPlan);
+  await page.reload();
+  await openView(page, "budget");
+
+  await expect(page.getByText("12カテゴリ / 50項目", { exact: true })).toBeVisible();
+  await expect(page.locator(".budget-composition-bar > span")).toHaveCount(12);
+  await expect(page.locator(".budget-composition-legend > div")).toHaveCount(12);
+  const budgetChartGeometry = await page.locator(".budget-composition-bar").evaluate((bar) => {
+    const barWidth = bar.getBoundingClientRect().width;
+    const segmentWidths = Array.from(bar.children).map((segment) => segment.getBoundingClientRect().width);
+    return {
+      barWidth,
+      segmentWidthTotal: segmentWidths.reduce((total, width) => total + width, 0),
+      smallestSegmentWidth: Math.min(...segmentWidths)
+    };
+  });
+  expect(budgetChartGeometry.smallestSegmentWidth).toBeGreaterThan(0);
+  expect(Math.abs(budgetChartGeometry.segmentWidthTotal - budgetChartGeometry.barWidth)).toBeLessThanOrEqual(2);
+
+  await page.getByRole("button", { name: "実績入力", exact: true }).click();
+  await expect(page.getByText("50/50項目入力済み", { exact: true })).toBeVisible();
+  await expect(page.locator(".budget-composition-bar > span")).toHaveCount(12);
+  await expect(page.locator(".budget-composition-legend > div")).toHaveCount(12);
+  await page.getByLabel("実績を確認する年", { exact: true }).selectOption("1900");
+  await page.getByLabel("実績を確認する月", { exact: true }).selectOption("1");
+  await expect(page.getByRole("button", { name: "前月", exact: true })).toBeDisabled();
+  await page.getByLabel("実績を確認する年", { exact: true }).selectOption("2300");
+  await page.getByLabel("実績を確認する月", { exact: true }).selectOption("12");
+  await expect(page.getByRole("button", { name: "翌月", exact: true })).toBeDisabled();
+  await page.getByRole("button", { name: "今月", exact: true }).click();
+
+  await page.getByRole("button", { name: "予算・実績比較", exact: true }).click();
+  await expect(page.locator(".budget-comparison-row")).toHaveCount(12);
+  await page.getByRole("button", { name: "年間推移", exact: true }).click();
+  await page.getByLabel("表示する年", { exact: true }).selectOption("1900");
+  await expect(page.getByRole("button", { name: "前年を表示", exact: true })).toBeDisabled();
+  await page.getByLabel("表示する年", { exact: true }).selectOption("2300");
+  await expect(page.getByRole("button", { name: "翌年を表示", exact: true })).toBeDisabled();
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow).toBeLessThanOrEqual(1);
 });

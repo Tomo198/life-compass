@@ -276,6 +276,8 @@ export type BudgetItem = {
   memo: string;
 };
 
+export type BudgetItemDraft = Omit<BudgetItem, "id" | "actuals">;
+
 export type PlanNotes = {
   general: string;
   spendingReview: string;

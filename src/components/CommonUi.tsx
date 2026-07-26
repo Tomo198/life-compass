@@ -127,6 +127,63 @@ export function MoneyInput({
   );
 }
 
+export function OptionalMoneyInput({
+  label,
+  value,
+  onChange,
+  max = MAX_MONEY_AMOUNT
+}: {
+  label: string;
+  value: number | undefined;
+  onChange: (value: number | undefined) => void;
+  max?: number;
+}) {
+  const initialDraft = typeof value === "number" ? formatNumericText(value) : "";
+  const [draft, setDraft] = useState(initialDraft);
+  const draftRef = useRef(initialDraft);
+  const [isFocused, setIsFocused] = useState(false);
+
+  useEffect(() => {
+    if (!isFocused) {
+      const formatted = typeof value === "number" ? formatNumericText(value) : "";
+      draftRef.current = formatted;
+      setDraft(formatted);
+    }
+  }, [isFocused, value]);
+
+  const commitDraft = (nextDraft: string) => {
+    const normalized = normalizeNumericText(nextDraft);
+    draftRef.current = normalized;
+    setDraft(normalized);
+    onChange(normalized === "" ? undefined : clampNumber(parseNumericText(normalized), 0, max));
+  };
+
+  return (
+    <label>
+      {label}
+      <input
+        inputMode="numeric"
+        value={draft}
+        placeholder="未入力"
+        onFocus={() => setIsFocused(true)}
+        onChange={(event) => commitDraft(event.target.value)}
+        onBlur={() => {
+          setIsFocused(false);
+          if (draftRef.current === "") {
+            onChange(undefined);
+            return;
+          }
+          const nextValue = clampNumber(parseNumericText(draftRef.current), 0, max);
+          onChange(nextValue);
+          const formatted = formatNumericText(nextValue);
+          draftRef.current = formatted;
+          setDraft(formatted);
+        }}
+      />
+    </label>
+  );
+}
+
 export function NumericInput({
   value,
   onChange,
