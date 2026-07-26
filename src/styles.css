@@ -4883,6 +4883,16 @@ td select {
   gap: 0.55rem;
 }
 
+.household-invite-link > strong,
+.household-invite-link > span {
+  grid-column: 1 / -1;
+}
+
+.household-invite-link > span {
+  color: var(--muted);
+  line-height: 1.55;
+}
+
 .household-invite-link small {
   grid-column: 1 / -1;
   color: var(--muted);

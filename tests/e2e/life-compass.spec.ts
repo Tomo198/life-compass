@@ -962,6 +962,106 @@ test("設定画面でログインが任意でありログインだけではク�
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
 });
 
+test("招待メールは自動送信されず、招待リンクを相手へ送る手順を案内できる", async ({ page }) => {
+  const householdId = "8aef8bc1-51c6-4241-96c1-edf289c35362";
+  const inviteUrl = `https://life.raotomo.com/#/household-invite/${"a".repeat(48)}`;
+  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: async (text: string) => {
+          (window as Window & { copiedInviteForTest?: string }).copiedInviteForTest = text;
+        }
+      }
+    });
+  });
+  await page.route("**/api/auth/config", (route) => route.fulfill({
+    json: { configured: true, clientId: "test-client-id" }
+  }));
+  await page.route("**/api/me", (route) => route.fulfill({
+    json: {
+      authenticated: true,
+      user: { id: "owner-user", email: "owner@example.com", emailVerified: true }
+    }
+  }));
+  await page.route("**/api/entitlement", (route) => route.fulfill({
+    json: { access: { tier: "pro", mode: "enforced", source: "operator" } }
+  }));
+  await page.route("**/api/shared-household/invitations", async (route) => {
+    expect(route.request().method()).toBe("POST");
+    expect(route.request().postDataJSON()).toEqual({ email: "editor@example.com" });
+    await route.fulfill({
+      status: 201,
+      json: {
+        invitation: {
+          id: "invite-1",
+          inviteUrl,
+          expiresAt
+        }
+      }
+    });
+  });
+  await page.route("**/api/shared-household", (route) => route.fulfill({
+    json: {
+      mode: "preview",
+      canCreate: false,
+      household: {
+        id: householdId,
+        role: "owner",
+        status: "active",
+        keyEpoch: 1,
+        currentRevision: 0,
+        memberCount: 1,
+        members: [{
+          id: "owner-membership",
+          role: "owner",
+          email: "owner@example.com",
+          isCurrentUser: true,
+          joinedAt: new Date().toISOString()
+        }],
+        pendingInvitations: [],
+        readAllowed: true,
+        writeAllowed: true,
+        ownerProActive: true,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      }
+    }
+  }));
+
+  await page.reload();
+  await page.getByRole("button", { name: "設定", exact: true }).click();
+  const sharingPanel = page.getByTestId("household-sharing-panel");
+  await expect(sharingPanel).toBeVisible();
+  await expect(sharingPanel.getByText("招待メールは自動送信されません", { exact: true })).toBeVisible();
+  await expect(sharingPanel).toContainText("コピーしてLINEやメールなどで共有したい相手へ送ってください");
+
+  await sharingPanel.getByLabel("招待するGoogleアカウントのメール").fill("editor@example.com");
+  await sharingPanel.getByRole("button", { name: "招待リンクを作成", exact: true }).click();
+  await expect(sharingPanel.getByText(
+    "招待リンクを作成しました。メールは自動送信されません。リンクをコピーして相手へ送ってください。",
+    { exact: true }
+  )).toBeVisible();
+  await expect(sharingPanel.getByText("招待リンクを共有したい相手へ送ってください", { exact: true })).toBeVisible();
+  await expect(sharingPanel).toContainText("LINEやメールなどのメッセージに貼り付けて送信します");
+  await expect(sharingPanel).toContainText("この画面を閉じる前にコピーしてください");
+  await expect(sharingPanel).toContainText("共有パスワードは招待リンクとは別の方法で伝えます");
+
+  await sharingPanel.getByRole("button", { name: "招待リンクをコピー", exact: true }).click();
+  await expect(sharingPanel.getByText(
+    "招待リンクをコピーしました。共有したい相手とのメッセージ画面に貼り付けて送信してください。",
+    { exact: true }
+  )).toBeVisible();
+  await expect.poll(() => page.evaluate(
+    () => (window as Window & { copiedInviteForTest?: string }).copiedInviteForTest
+  )).toBe(inviteUrl);
+
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect(overflow).toBeLessThanOrEqual(1);
+});
+
 test("運営者テストでは端末ごとの暗号化自動同期を有効化し、再読み込み後も利用できる", async ({ page }) => {
   const householdId = "7f3c6fa0-21b5-4f8d-bbf5-32208c557619";
   const sharedPassword = "household-test-password";

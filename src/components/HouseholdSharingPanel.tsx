@@ -255,13 +255,13 @@ export function HouseholdSharingPanel({
     });
     setInviteEmail("");
     await loadOverview();
-    setMessage("24時間有効の招待リンクを作成しました。共有パスワードはリンクと別の方法で伝えてください。");
+    setMessage("招待リンクを作成しました。メールは自動送信されません。リンクをコピーして相手へ送ってください。");
   });
 
   const handleCopyInvite = () => run(async () => {
     if (!createdInvite) return;
     await navigator.clipboard.writeText(createdInvite.url);
-    setMessage("招待リンクをコピーしました。");
+    setMessage("招待リンクをコピーしました。共有したい相手とのメッセージ画面に貼り付けて送信してください。");
   });
 
   const handleRevokeInvitation = (id: string) => run(async () => {
@@ -583,6 +583,10 @@ export function HouseholdSharingPanel({
           {canManage && household.status === "active" && !editor && (
             <div className="household-invite-section">
               <h3>共同利用者を招待</h3>
+              <div className="notice-band check household-invite-delivery-note">
+                <strong>招待メールは自動送信されません</strong>
+                <span>招待リンクを作成後、コピーしてLINEやメールなどで共有したい相手へ送ってください。</span>
+              </div>
               <label>
                 招待するGoogleアカウントのメール
                 <input
@@ -597,9 +601,14 @@ export function HouseholdSharingPanel({
               </button>
               {createdInvite && (
                 <div className="household-invite-link">
+                  <strong>招待リンクを共有したい相手へ送ってください</strong>
+                  <span>「招待リンクをコピー」を押し、LINEやメールなどのメッセージに貼り付けて送信します。</span>
                   <input type="text" readOnly value={createdInvite.url} aria-label="招待リンク" />
-                  <button type="button" className="secondary" onClick={() => void handleCopyInvite()}>コピー</button>
-                  <small>{formatDateTime(createdInvite.expiresAt)}まで有効</small>
+                  <button type="button" className="secondary" onClick={() => void handleCopyInvite()}>招待リンクをコピー</button>
+                  <small>
+                    {formatDateTime(createdInvite.expiresAt)}まで有効です。この画面を閉じる前にコピーしてください。
+                    共有パスワードは招待リンクとは別の方法で伝えます。
+                  </small>
                 </div>
               )}
               {household.pendingInvitations.map((invitation) => (
