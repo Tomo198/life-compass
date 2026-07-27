@@ -2,6 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react
 import {
   canOpenView,
   defaultAccessState,
+  getPlanScopedAccessState,
   hasFeatureAccess,
   type AccessState
 } from "./features";
@@ -85,7 +86,7 @@ const householdSyncLabels: Record<HouseholdSyncStatus, string> = {
   locked: "共有設定が必要",
   pending: "共有へ保存待ち",
   syncing: "共有へ同期中",
-  synced: "共有済み",
+  synced: "同期済み",
   offline: "オフライン",
   conflict: "共有を要確認",
   error: "共有エラー"
@@ -179,19 +180,46 @@ function App() {
   const [notificationMessage, setNotificationMessage] = useState("");
   const reminders = useMemo(() => getAppReminders(plan, settings), [plan, settings]);
   const householdSync = useHouseholdAutoSync({ plan, commitPlan, accountVersion });
+  const planAccessState = useMemo(
+    () => getPlanScopedAccessState(accessState, {
+      enabled: householdSync.enabled,
+      householdId: householdSync.householdId
+    }),
+    [accessState, householdSync.enabled, householdSync.householdId]
+  );
 
   const refreshAccessState = useCallback(async () => {
     try {
       const response = await fetch("/api/entitlement", { credentials: "same-origin" });
       if (!response.ok) return;
-      const body = await response.json() as { access?: Partial<AccessState> };
-      const access = body.access;
+      const body = await response.json() as { access?: unknown };
+      if (!body.access || typeof body.access !== "object") return;
+      const access = body.access as Record<string, unknown>;
       if (
-        (access?.tier === "free" || access?.tier === "pro") &&
+        (access.tier === "free" || access.tier === "pro") &&
         (access.mode === "preview" || access.mode === "enforced") &&
         (access.source === "local-preview" || access.source === "operator" || access.source === "anonymous" || access.source === "subscription")
       ) {
-        setAccessState({ tier: access.tier, mode: access.mode, source: access.source });
+        const household = access.household && typeof access.household === "object"
+          ? access.household as Record<string, unknown>
+          : null;
+        const householdTier = household?.effectiveTier;
+        const householdAccess: AccessState["household"] = household
+          && typeof household.householdId === "string"
+          && (householdTier === "free" || householdTier === "pro")
+          && typeof household.writeAllowed === "boolean"
+          ? {
+              householdId: household.householdId,
+              effectiveTier: householdTier,
+              writeAllowed: household.writeAllowed
+            }
+          : null;
+        setAccessState({
+          tier: access.tier,
+          mode: access.mode,
+          source: access.source,
+          household: householdAccess
+        });
       }
     } catch {
       // Static development mode keeps the local preview state when the Worker API is unavailable.
@@ -208,7 +236,7 @@ function App() {
   }, [refreshAccessState]);
 
   const setActiveView = (view: ViewKey) => {
-    const nextView = canOpenView(accessState, view) ? view : "pricing";
+    const nextView = canOpenView(planAccessState, view) ? view : "pricing";
     if (nextView !== "scenarios") setReviewPlanYear(null);
     setMobileMenuOpen(false);
     setActiveViewState(nextView);
@@ -223,11 +251,11 @@ function App() {
     const handlePopState = () => {
       const requestedView = getViewForPath(window.location.pathname);
       setMobileMenuOpen(false);
-      setActiveViewState(canOpenView(accessState, requestedView) ? requestedView : "pricing");
+      setActiveViewState(canOpenView(planAccessState, requestedView) ? requestedView : "pricing");
     };
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
-  }, [accessState]);
+  }, [planAccessState]);
 
   useEffect(() => {
     document.title = `${getViewTitle(activeView)} | Life Compass`;
@@ -302,7 +330,7 @@ function App() {
             reminders={reminders}
             setActiveView={setActiveView}
             startEmptyPlan={startEmptyPlan}
-            proAccess={hasFeatureAccess(accessState, "reviewHistory")}
+            proAccess={hasFeatureAccess(planAccessState, "reviewHistory")}
           />
         );
       case "profile":
@@ -333,7 +361,7 @@ function App() {
             updateFixedCostItem={updateFixedCostItem}
             removeFixedCostItem={removeFixedCostItem}
             setActiveView={setActiveView}
-            accessState={accessState}
+            accessState={planAccessState}
           />
         );
       case "budget":
@@ -383,7 +411,7 @@ function App() {
               setReviewPlanYear(year);
               setActiveView("scenarios");
             }}
-            accessState={accessState}
+            accessState={planAccessState}
           />
         );
       case "timeline":
@@ -531,7 +559,7 @@ function App() {
         <div className="mobile-menu-heading">
           <div>
             <strong>すべての機能</strong>
-            <small>入力、見直し、データ管理</small>
+            <small>入力、見直し、バックアップ</small>
           </div>
           <button type="button" className="secondary" onClick={() => setMobileMenuOpen(false)}>閉じる</button>
         </div>
@@ -571,7 +599,11 @@ function App() {
                 type="button"
                 className={`secondary household-sync-button ${householdSync.status}`}
                 onClick={() => setActiveView("settings")}
-                title={householdSync.message || "共同世帯の同期状態"}
+                title={
+                  householdSync.lastSyncedAt
+                    ? `最終同期: ${new Date(householdSync.lastSyncedAt).toLocaleString("ja-JP")}`
+                    : householdSync.message || "共同世帯の同期状態"
+                }
               >
                 {householdSyncLabels[householdSync.status]}
               </button>
@@ -591,7 +623,7 @@ function App() {
               <p>{storageError}</p>
             </div>
             <button type="button" className="secondary" onClick={() => setActiveView("data")}>
-              データ管理を開く
+              バックアップ・復元を開く
             </button>
           </section>
         )}

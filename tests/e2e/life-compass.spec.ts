@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { MAX_PLAN_YEAR } from "../../src/config";
 import { defaultPlan } from "../../src/data/defaultPlan";
 import type { BudgetCategory, LifePlan } from "../../src/types";
 import { encryptSharedPlan } from "../../src/utils/sharedPlanCrypto";
@@ -73,9 +74,9 @@ test("基本入力が画面移動と再読み込み後も保存される", async
   await expect(page.getByLabel("月収")).toHaveValue("450,000");
 });
 
-test("基本収支を世帯別の詳細収支へ同値変換し、追加項目と方式を保存できる", async ({ page }) => {
+test("世帯全体の収支を家族ごとの入力へ同値変換し、期間は必要なときだけ設定できる", async ({ page }) => {
   await openView(page, "household");
-  await page.getByRole("button", { name: "世帯別の詳細方式", exact: true }).click();
+  await page.getByRole("button", { name: "家族ごとに入力", exact: true }).click();
 
   const converted = await page.evaluate(() => {
     const plan = JSON.parse(localStorage.getItem("life-compass-plan-v1") || "{}");
@@ -102,25 +103,47 @@ test("基本収支を世帯別の詳細収支へ同値変換し、追加項目�
   await expect(page.getByRole("textbox", { name: "月収", exact: true })).toBeDisabled();
 
   const form = page.getByTestId("detailed-cashflow-create-form");
+  await expect(form.getByLabel("誰の収支ですか？")).toContainText("世帯共通");
+  await expect(form.getByLabel("開始年")).toHaveCount(0);
+  await expect(form.getByText("今から継続", { exact: true })).toBeVisible();
+  await form.getByRole("button", { name: "将来変わる予定", exact: true }).click();
+  await expect(form.getByLabel("開始年")).toBeVisible();
+  await expect(form.getByLabel("終了年")).toBeVisible();
+  await form.getByRole("button", { name: "将来変わる予定", exact: true }).click();
+  await expect(form.getByLabel("開始年")).toHaveCount(0);
   await form.getByLabel("項目名").fill("配偶者の収入");
   await form.getByLabel("金額（月額）").fill("50000");
   await form.getByRole("button", { name: "収支項目を登録", exact: true }).click();
   await expect(form.getByRole("status")).toContainText("配偶者の収入");
   await expect(page.locator(".detailed-cashflow-list")).toContainText("配偶者の収入");
+  const addedItem = page.locator(".scenario-record-editor").filter({ hasText: "配偶者の収入" });
+  await addedItem.locator(":scope > summary").click();
+  await expect(addedItem.getByLabel("開始年")).not.toBeVisible();
+  await addedItem.locator(".cashflow-schedule-details > summary").click();
+  await expect(addedItem.getByLabel("開始年")).toBeVisible();
+  const savedSchedule = await page.evaluate(() => {
+    const plan = JSON.parse(localStorage.getItem("life-compass-plan-v1") || "{}");
+    const item = plan.detailedCashflowItems.find((entry: { title: string }) => entry.title === "配偶者の収入");
+    return { startYear: item.startYear, endYear: item.endYear };
+  });
+  expect(savedSchedule).toEqual({
+    startYear: new Date().getFullYear(),
+    endYear: MAX_PLAN_YEAR
+  });
 
   await page.reload();
   await openView(page, "household");
-  await expect(page.getByRole("button", { name: "世帯別の詳細方式", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("button", { name: "家族ごとに入力", exact: true })).toHaveAttribute("aria-pressed", "true");
   await expect(page.locator(".detailed-cashflow-list")).toContainText("配偶者の収入");
 
-  await page.getByRole("button", { name: "基本方式", exact: true }).click();
+  await page.getByRole("button", { name: "世帯全体で入力", exact: true }).click();
   await expect(page.getByLabel("月収")).toBeEnabled();
   await expect(page.getByText("時期別の収入・支出", { exact: true })).toBeVisible();
 });
 
 test("詳細収支のシナリオを基本プランと分けて編集・保存できる", async ({ page }) => {
   await openView(page, "household");
-  await page.getByRole("button", { name: "世帯別の詳細方式", exact: true }).click();
+  await page.getByRole("button", { name: "家族ごとに入力", exact: true }).click();
   const baseCount = await page.evaluate(() => {
     const plan = JSON.parse(localStorage.getItem("life-compass-plan-v1") || "{}");
     return plan.detailedCashflowItems.length;
@@ -134,7 +157,7 @@ test("詳細収支のシナリオを基本プランと分けて編集・保存�
 
   const form = page.getByTestId("detailed-cashflow-create-form");
   await form.getByLabel("項目名").fill("シナリオ内の副業収入");
-  await form.getByLabel("収支の種類").selectOption("sideIncome");
+  await form.getByLabel("何を入力しますか？").selectOption("sideIncome");
   await form.getByLabel("金額（月額）").fill("40000");
   await form.getByRole("button", { name: "収支項目を登録", exact: true }).click();
   await expect(form.getByRole("status")).toContainText("シナリオ内の副業収入");
@@ -234,7 +257,7 @@ test("ブラウザ保存に失敗した場合は画面上へ通知する", async
 
   await page.getByLabel("プラン名").fill("保存失敗確認");
   await expect(page.getByRole("alert")).toContainText("ブラウザ内への保存を確認してください");
-  await expect(page.getByRole("button", { name: "データ管理を開く" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "バックアップ・復元を開く" })).toBeVisible();
 });
 
 test("目標とイベントは入力後に登録され、再読み込み後も残る", async ({ page }) => {
@@ -502,7 +525,7 @@ test("無料版とPro版の境界が表示され、横方向にはみ出さな�
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow).toBeLessThanOrEqual(1);
 
-  await page.getByRole("button", { name: "開発中のPro機能を確認する", exact: true }).click();
+  await page.getByRole("button", { name: "Pro機能を確認する", exact: true }).click();
   await expect(page.getByRole("heading", { name: "見直しプラン", level: 1 })).toBeVisible();
   await page.getByRole("button", { name: "現状維持", exact: true }).click();
   await expect(page.locator(".scenario-row")).toHaveCount(1);
@@ -553,10 +576,10 @@ test("無料版でも一定利回りの積立・取り崩し試算を利用で�
   }, expiredProPlan);
   await page.reload();
   await openView(page, "household");
-  await expect(page.getByRole("button", { name: "世帯別の詳細方式", exact: true })).toBeDisabled();
-  await expect(page.getByRole("button", { name: "基本方式", exact: true })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "家族ごとに入力", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "世帯全体で入力", exact: true })).toBeEnabled();
   await expect(page.getByRole("textbox", { name: "月収", exact: true })).toBeDisabled();
-  await page.getByRole("button", { name: "基本方式", exact: true }).click();
+  await page.getByRole("button", { name: "世帯全体で入力", exact: true }).click();
   await expect(page.getByRole("textbox", { name: "月収", exact: true })).toBeEnabled();
   const retainedDetailedCashflow = await page.evaluate(() => {
     const plan = JSON.parse(localStorage.getItem("life-compass-plan-v1") || "{}");
@@ -596,7 +619,7 @@ test("運営者としてログインした場合だけ課金なしでPro機能�
   await openView(page, "pricing");
   await expect(page.getByTestId("access-summary")).toContainText("運営者テスト");
   await expect(page.getByText("一般利用者には無料版の機能境界が適用されます。", { exact: false })).toBeVisible();
-  const openPro = page.getByRole("button", { name: "開発中のPro機能を確認する", exact: true });
+  const openPro = page.getByRole("button", { name: "Pro機能を確認する", exact: true });
   await expect(openPro).toBeEnabled();
   await openPro.click();
   await expect(page.getByRole("heading", { name: "見直しプラン", level: 1 })).toBeVisible();
@@ -956,10 +979,39 @@ test("設定画面でログインが任意でありログインだけではク�
   await expect(accountPanel).toContainText("無料版はログインなしで利用できます");
   await expect(accountPanel).toContainText("ログインしただけでは自動でクラウド保存しません");
   await expect(accountPanel).toContainText("Googleログインは設定中です");
+  await page.getByRole("button", { name: "表示・通知", exact: true }).click();
   await page.getByRole("button", { name: /^ダーク/ }).click();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
   await page.reload();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+});
+
+test("設定を用途別に切り替え、PWAとバックアップの案内を確認できる", async ({ page }) => {
+  await page.getByRole("button", { name: "設定", exact: true }).click();
+  const settingsNavigation = page.getByRole("navigation", { name: "設定項目" });
+  await expect(settingsNavigation.getByRole("button", { name: "アカウント・共同世帯", exact: true })).toHaveAttribute("aria-pressed", "true");
+
+  await settingsNavigation.getByRole("button", { name: "バックアップ・復元", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Life Compassをアプリとして追加", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "バックアップ・復元を開く", exact: true })).toBeVisible();
+
+  await settingsNavigation.getByRole("button", { name: "使い方", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "基本的な使い方", exact: true })).toBeVisible();
+
+  const manifestResponse = await page.request.get("/manifest.webmanifest");
+  expect(manifestResponse.ok()).toBe(true);
+  const manifest = await manifestResponse.json() as {
+    display?: string;
+    icons?: Array<{ sizes?: string; type?: string }>;
+  };
+  expect(manifest.display).toBe("standalone");
+  expect(manifest.icons).toEqual(expect.arrayContaining([
+    expect.objectContaining({ sizes: "192x192", type: "image/png" }),
+    expect.objectContaining({ sizes: "512x512", type: "image/png" })
+  ]));
+
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect(overflow).toBeLessThanOrEqual(1);
 });
 
 test("招待メールは自動送信されず、招待リンクを相手へ送る手順を案内できる", async ({ page }) => {
@@ -1062,7 +1114,8 @@ test("招待メールは自動送信されず、招待リンクを相手へ送�
   expect(overflow).toBeLessThanOrEqual(1);
 });
 
-test("運営者テストでは端末ごとの暗号化自動同期を有効化し、再読み込み後も利用できる", async ({ page }) => {
+test("Freeの共同利用者は自動同期中の世帯プランだけPro編集できる", async ({ page }) => {
+  test.setTimeout(90_000);
   const householdId = "7f3c6fa0-21b5-4f8d-bbf5-32208c557619";
   const sharedPassword = "household-test-password";
   const plaintextMarker = "共有平文を送らない確認プラン";
@@ -1077,11 +1130,25 @@ test("運営者テストでは端末ごとの暗号化自動同期を有効化�
   await page.route("**/api/me", (route) => route.fulfill({
     json: {
       authenticated: true,
-      user: { id: "owner-user", email: "owner@example.com", emailVerified: true }
+      user: { id: "editor-user", email: "editor@example.com", emailVerified: true }
     }
   }));
   await page.route("**/api/entitlement", (route) => route.fulfill({
-    json: { access: { tier: "pro", mode: "enforced", source: "operator" } }
+    json: {
+      access: {
+        tier: "free",
+        mode: "enforced",
+        source: "anonymous",
+        household: {
+          householdId,
+          effectiveTier: "pro",
+          writeAllowed: true
+        }
+      }
+    }
+  }));
+  await page.route("**/api/backups", (route) => route.fulfill({
+    json: { available: true, backups: [], limit: 5 }
   }));
   await page.route("**/api/shared-household/revisions", (route) => route.fulfill({
     json: {
@@ -1154,15 +1221,15 @@ test("運営者テストでは端末ごとの暗号化自動同期を有効化�
       canCreate: false,
       household: {
         id: householdId,
-        role: "owner",
+        role: "editor",
         status: "active",
         keyEpoch: 1,
         currentRevision,
         memberCount: 1,
         members: [{
-          id: "owner-membership",
-          role: "owner",
-          email: "owner@example.com",
+          id: "editor-membership",
+          role: "editor",
+          email: "editor@example.com",
           isCurrentUser: true,
           joinedAt: new Date().toISOString()
         }],
@@ -1177,6 +1244,8 @@ test("運営者テストでは端末ごとの暗号化自動同期を有効化�
   }));
 
   await page.reload();
+  await openView(page, "household");
+  await expect(page.getByRole("button", { name: "家族ごとに入力", exact: true })).toHaveCount(0);
   await openView(page, "profile");
   await page.getByLabel("プラン名").fill(plaintextMarker);
   await page.getByRole("button", { name: "設定", exact: true }).click();
@@ -1191,6 +1260,12 @@ test("運営者テストでは端末ごとの暗号化自動同期を有効化�
   await expect(sharingPanel).toContainText("同期済み");
   await expect(sharingPanel.getByLabel("現在の共有パスワード")).toHaveValue("");
   await expect(sharingPanel.getByRole("button", { name: "今すぐ同期", exact: true })).toBeVisible();
+
+  await openView(page, "household");
+  await expect(page.getByRole("button", { name: "家族ごとに入力", exact: true })).toBeEnabled();
+  await openView(page, "data");
+  await expect(page.getByText("新しいクラウドバックアップの保存はPro版", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("保存用の復旧パスワード")).toHaveCount(0);
 
   await expect.poll(() => savedRequestBody.length).toBeGreaterThan(0);
   const savedBody = JSON.parse(savedRequestBody) as {
@@ -1240,7 +1315,7 @@ test("運営者テストでは端末ごとの暗号化自動同期を有効化�
   const autoSavedMarker = "自動同期で保存する確認プラン";
   await openView(page, "profile");
   await page.getByLabel("プラン名").fill(autoSavedMarker);
-  await expect.poll(() => currentRevision, { timeout: 20_000 }).toBe(2);
+  await expect.poll(() => currentRevision, { timeout: 35_000 }).toBe(2);
   expect(savedRequestBody).not.toContain(autoSavedMarker);
   expect(savedRequestBody).not.toContain(sharedPassword);
 

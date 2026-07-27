@@ -16,6 +16,7 @@ import {
   canOpenView,
   defaultAccessState,
   getEffectiveTier,
+  getPlanScopedAccessState,
   getScenarioLimit,
   hasFeatureAccess,
   type AccessState
@@ -32,7 +33,7 @@ import { createScenarioFromTemplate, scenarioTemplates } from "../src/data/scena
 import type { LifePlan } from "../src/types";
 import { decryptCloudBackup, encryptCloudBackup } from "../src/utils/cloudBackupCrypto";
 import { decryptSharedPlan, encryptSharedPlan } from "../src/utils/sharedPlanCrypto";
-import { convertBasicCashflowToDetailedItems } from "../src/utils/detailedCashflow";
+import { convertBasicCashflowToDetailedItems, createDetailedCashflowDraft } from "../src/utils/detailedCashflow";
 import {
   buildPlanFromScenario,
   emergencyMonthsLabel,
@@ -140,6 +141,67 @@ test("enforced Pro access unlocks Pro views without preview mode", () => {
   assert.equal(hasFeatureAccess(access, "lifePlanDiagnosis"), true);
   assert.equal(hasFeatureAccess(access, "planVersionHistory"), true);
   assert.equal(canOpenView(access, "diagnosis"), true);
+});
+
+test("active writable household plan inherits owner Pro without changing personal access", () => {
+  const personalAccess: AccessState = {
+    tier: "free",
+    mode: "enforced",
+    source: "anonymous",
+    household: {
+      householdId: "household-1",
+      effectiveTier: "pro",
+      writeAllowed: true
+    }
+  };
+  const planAccess = getPlanScopedAccessState(personalAccess, {
+    enabled: true,
+    householdId: "household-1"
+  });
+
+  assert.equal(getEffectiveTier(personalAccess), "free");
+  assert.equal(hasFeatureAccess(personalAccess, "encryptedCloudBackup"), false);
+  assert.equal(getEffectiveTier(planAccess), "pro");
+  assert.equal(hasFeatureAccess(planAccess, "detailedCashflow"), true);
+  assert.equal(canOpenView(planAccess, "scenarios"), true);
+});
+
+test("household Pro stays unavailable outside the matching writable auto-synced plan", () => {
+  const personalAccess: AccessState = {
+    tier: "free",
+    mode: "enforced",
+    source: "anonymous",
+    household: {
+      householdId: "household-1",
+      effectiveTier: "pro",
+      writeAllowed: true
+    }
+  };
+
+  assert.equal(
+    getEffectiveTier(getPlanScopedAccessState(personalAccess, {
+      enabled: false,
+      householdId: "household-1"
+    })),
+    "free"
+  );
+  assert.equal(
+    getEffectiveTier(getPlanScopedAccessState(personalAccess, {
+      enabled: true,
+      householdId: "different-household"
+    })),
+    "free"
+  );
+  assert.equal(
+    getEffectiveTier(getPlanScopedAccessState({
+      ...personalAccess,
+      household: { ...personalAccess.household!, writeAllowed: false }
+    }, {
+      enabled: true,
+      householdId: "household-1"
+    })),
+    "free"
+  );
 });
 
 test("life plan diagnosis links a household deficit to an editable spending scenario", () => {
@@ -1330,6 +1392,14 @@ test("detailed cashflow mode sums active items and never adds basic household va
   assert.equal(annualRow.annualSavings, 2280000);
   assert.ok(annualRow.cashflowChangeTitles.includes("本人収入"));
   assert.ok(!annualRow.cashflowChangeTitles.includes("詳細方式では無視"));
+});
+
+test("new detailed cashflow items default to ongoing from the current year", () => {
+  const draft = createDetailedCashflowDraft(35, "member-self");
+
+  assert.equal(draft.memberId, "member-self");
+  assert.equal(draft.startYear, new Date().getFullYear());
+  assert.equal(draft.endYear, MAX_PLAN_YEAR);
 });
 
 test("basic cashflow conversion preserves overlapping period assumptions and annual projections", () => {

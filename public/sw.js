@@ -1,5 +1,12 @@
-const CACHE_NAME = "life-compass-v5";
-const APP_SHELL = ["/index.html", "/manifest.webmanifest", "/icons/life-compass.svg"];
+const CACHE_NAME = "life-compass-v6";
+const APP_SHELL = [
+  "/index.html",
+  "/manifest.webmanifest",
+  "/icons/life-compass.svg",
+  "/icons/life-compass-180.png",
+  "/icons/life-compass-192.png",
+  "/icons/life-compass-512.png"
+];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL)).then(() => self.skipWaiting()));

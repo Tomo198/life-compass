@@ -6,6 +6,7 @@ const MAX_SHARED_PLAN_BODY_BYTES = 7 * 1024 * 1024;
 const MAX_SHARED_PLAN_CIPHERTEXT_BYTES = 5 * 1024 * 1024 + 16;
 const MAX_REVISIONS = 10;
 const MAX_OBJECT_CLEANUP_BATCH = 100;
+const MAX_RETENTION_CLEANUP_HOUSEHOLDS = 100;
 const FRESH_SESSION_MAX_AGE_SECONDS = 10 * 60;
 const SHARED_PLAN_FORMAT = "life-compass-shared-plan";
 const SHARED_PLAN_VERSION = 1;
@@ -286,6 +287,27 @@ const cleanupOldRevisions = async (env, householdId) => {
   }
 };
 
+const cleanupExcessRevisions = async (env) => {
+  try {
+    const result = await env.DB.prepare(
+      `SELECT household_id
+         FROM shared_plan_revisions
+        GROUP BY household_id
+       HAVING COUNT(*) > ?
+        ORDER BY household_id ASC
+        LIMIT ?`
+    ).bind(MAX_REVISIONS, MAX_RETENTION_CLEANUP_HOUSEHOLDS).all();
+
+    for (const row of result.results || []) {
+      await cleanupOldRevisions(env, row.household_id);
+    }
+  } catch {
+    console.error(JSON.stringify({
+      event: "shared_plan_retention_scan_failed"
+    }));
+  }
+};
+
 const savePlan = async (request, env, jsonResponse, rotateKey = false) => {
   if (!sameOrigin(request)) {
     throw new AuthError(403, "invalid_origin", "Shared plan request origin is invalid.");
@@ -516,6 +538,8 @@ export const cleanupPendingSharedPlanObjects = async (env) => {
       "shared_plan_scheduled_object_cleanup_failed"
     );
   }
+
+  await cleanupExcessRevisions(env);
 };
 
 export const handleSharedPlanRequest = async (request, env, jsonResponse) => {

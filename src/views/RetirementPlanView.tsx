@@ -62,7 +62,7 @@ export function RetirementPlanView({
             </button>
           </div>
         </div>
-        <span className="lock-badge">Coming soon</span>
+        <span className="lock-badge">Pro機能</span>
       </section>
 
       <section className="panel">

@@ -971,6 +971,45 @@ td select {
   align-self: center;
 }
 
+.onboarding-panel.compact {
+  padding-block: 1rem;
+  box-shadow: none;
+}
+
+.onboarding-panel.compact .section-heading {
+  margin-bottom: 0;
+}
+
+.pwa-install-panel {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: center;
+  border-color: color-mix(in srgb, var(--primary) 20%, var(--line));
+}
+
+.pwa-install-panel > div:first-child {
+  max-width: 52rem;
+}
+
+.pwa-install-panel h2 {
+  margin-bottom: 0.35rem;
+}
+
+.pwa-install-panel p {
+  margin-bottom: 0.3rem;
+}
+
+.pwa-install-panel small {
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.pwa-install-panel .button-row {
+  flex: 0 0 auto;
+  justify-content: flex-end;
+}
+
 .onboarding-steps {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -3212,6 +3251,74 @@ td select {
   margin-top: 0;
 }
 
+.family-cashflow-member-field select {
+  border-color: color-mix(in srgb, var(--primary) 42%, var(--line));
+  background: color-mix(in srgb, var(--primary-soft) 34%, var(--surface));
+  font-weight: 700;
+}
+
+.cashflow-schedule-control {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding-top: 0.15rem;
+}
+
+.cashflow-schedule-control > span {
+  color: var(--muted);
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.cashflow-schedule-toggle {
+  min-height: 2.35rem;
+  padding: 0.5rem 0.75rem;
+}
+
+.cashflow-schedule-fields {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
+  gap: 0.75rem;
+  align-items: end;
+  padding: 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.cashflow-schedule-fields > .text-button {
+  align-self: end;
+  min-height: 2.55rem;
+}
+
+.cashflow-schedule-details {
+  grid-column: 1 / -1;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface-soft) 58%, transparent);
+}
+
+.cashflow-schedule-details > summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  color: var(--primary-dark);
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.cashflow-schedule-details > summary small {
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.cashflow-schedule-details[open] > summary {
+  margin-bottom: 0.75rem;
+}
+
 .detailed-cashflow-toolbar {
   display: grid;
   grid-template-columns: minmax(14rem, 1fr) minmax(12rem, 0.4fr);
@@ -4428,6 +4535,30 @@ td select {
   margin-top: 1.2rem;
 }
 
+.settings-index .section-heading {
+  margin-bottom: 0.85rem;
+}
+
+.settings-section-tabs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.55rem;
+}
+
+.settings-section-tabs button {
+  min-height: 3rem;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.settings-section-tabs button.active {
+  border-color: color-mix(in srgb, var(--primary) 55%, var(--line));
+  background: var(--surface-soft);
+  color: var(--primary-dark);
+  box-shadow: inset 0 -3px 0 var(--primary);
+}
+
 .setting-option {
   display: grid;
   gap: 0.35rem;
@@ -4848,6 +4979,25 @@ td select {
 
 .household-sync-button {
   min-width: 7rem;
+}
+
+.household-sync-button.synced {
+  min-width: 0;
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+  box-shadow: none;
+}
+
+.household-sync-button.pending,
+.household-sync-button.syncing {
+  border-color: color-mix(in srgb, var(--primary) 38%, var(--line));
+  color: var(--primary-dark);
+}
+
+.household-sync-button.offline {
+  border-color: color-mix(in srgb, #a56718 44%, var(--line));
+  color: #8a540f;
 }
 
 .household-sync-button.conflict,
@@ -5327,6 +5477,23 @@ td select {
 }
 
 @media (max-width: 720px) {
+  .settings-section-tabs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .pwa-install-panel {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .pwa-install-panel .button-row {
+    justify-content: stretch;
+  }
+
+  .pwa-install-panel .button-row button {
+    width: 100%;
+  }
+
   .legal-link-grid {
     grid-template-columns: 1fr;
   }
@@ -5830,6 +5997,20 @@ td select {
 
   .cashflow-mode-control,
   .detailed-cashflow-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .cashflow-schedule-control,
+  .cashflow-schedule-details > summary {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .cashflow-schedule-control button {
+    width: 100%;
+  }
+
+  .cashflow-schedule-fields {
     grid-template-columns: 1fr;
   }
 

@@ -223,7 +223,7 @@ export function NotesView({
         <StepFlowNav
           setActiveView={setActiveView}
           previous={{ view: "timeline", label: "年表" }}
-          next={{ view: "data", label: "データ管理" }}
+          next={{ view: "data", label: "バックアップ・復元" }}
         />
       )}
 

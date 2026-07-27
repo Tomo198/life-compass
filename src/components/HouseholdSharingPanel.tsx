@@ -227,7 +227,7 @@ export function HouseholdSharingPanel({
     });
     await saveSharedPlan(household.currentRevision, CURRENT_PLAN_VERSION, envelope);
     await loadOverview();
-    setMessage(`共有プランを版${revision}として暗号化保存しました。`);
+    setMessage("共有プランを暗号化して保存しました。");
   });
 
   const handleEnableAutoSync = () => run(async () => {
@@ -325,7 +325,7 @@ export function HouseholdSharingPanel({
     setNewPassword("");
     setNewPasswordConfirmation("");
     await loadOverview();
-    setMessage(`共有パスワードを更新し、版${revision}として保存しました。`);
+    setMessage("共有パスワードを更新し、共有プランを保存しました。");
   });
 
   const handleLeave = () => run(async () => {
@@ -359,6 +359,12 @@ export function HouseholdSharingPanel({
   const household = overview?.household || null;
   const editor = household?.members.find((member) => member.role === "editor");
   const canManage = household?.role === "owner";
+  const currentSharedRevision = household
+    ? revisions.find((revision) => revision.revision === household.currentRevision)
+    : undefined;
+  const recoveryRevisions = household
+    ? revisions.filter((revision) => revision.revision !== household.currentRevision)
+    : [];
 
   return (
     <section className="panel household-sharing-panel" data-testid="household-sharing-panel">
@@ -413,8 +419,15 @@ export function HouseholdSharingPanel({
           <dl className="household-status-grid">
             <div><dt>権限</dt><dd>{household.role === "owner" ? "契約者" : "共同利用者"}</dd></div>
             <div><dt>参加人数</dt><dd>{household.memberCount}/2人</dd></div>
-            <div><dt>現在版</dt><dd>{household.currentRevision > 0 ? `版${household.currentRevision}` : "未保存"}</dd></div>
-            <div><dt>最終更新</dt><dd>{formatDateTime(household.updatedAt)}</dd></div>
+            <div><dt>現在の共有データ</dt><dd>{household.currentRevision > 0 ? "保存済み" : "未保存"}</dd></div>
+            <div>
+              <dt>最終保存</dt>
+              <dd>
+                {household.currentRevision > 0
+                  ? formatDateTime(currentSharedRevision?.createdAt || household.updatedAt)
+                  : "―"}
+              </dd>
+            </div>
           </dl>
 
           {household.status === "read_only" && (
@@ -528,15 +541,18 @@ export function HouseholdSharingPanel({
             </details>
           )}
 
-          {revisions.length > 0 && household.status !== "deleting" && (
+          {recoveryRevisions.length > 0 && household.status !== "deleting" && (
             <details className="projection-details household-revisions">
-              <summary>過去の共有版を確認（{revisions.length}件）</summary>
+              <summary>困ったときの復元（{recoveryRevisions.length}件）</summary>
+              <p className="projection-detail-intro">
+                現在のデータを含め最新10件までを自動保持し、古いものから自動削除します。
+              </p>
               <div className="recovery-list">
-                {revisions.map((revision) => (
+                {recoveryRevisions.map((revision) => (
                   <div className="recovery-item" key={revision.revision}>
                     <div>
-                      <strong>版{revision.revision}</strong>
-                      <span>{formatDateTime(revision.createdAt)} / 鍵世代{revision.keyEpoch}</span>
+                      <strong>{formatDateTime(revision.createdAt)}</strong>
+                      <span>この日時に保存されたデータ</span>
                     </div>
                     <button
                       type="button"
@@ -544,10 +560,10 @@ export function HouseholdSharingPanel({
                       disabled={busy}
                       onClick={() => void run(() => loadIntoBrowser(
                         getSharedRevision(revision.revision),
-                        `共有プランの版${revision.revision}`
+                        `${formatDateTime(revision.createdAt)}の共有データ`
                       ))}
                     >
-                      ブラウザへ読み込む
+                      この内容を読み込む
                     </button>
                   </div>
                 ))}
@@ -676,7 +692,7 @@ export function HouseholdSharingPanel({
           {canManage && (
             <div className="household-danger-zone">
               <h3>共同世帯を削除</h3>
-              <p>参加権限、暗号化された共有プラン、共有版を削除します。ブラウザ内のプランは残ります。</p>
+              <p>参加権限、暗号化された共有プラン、復元用履歴を削除します。ブラウザ内のプランは残ります。</p>
               <label>
                 確認のため「削除」と入力
                 <input value={deleteConfirmation} onChange={(event) => setDeleteConfirmation(event.target.value)} />

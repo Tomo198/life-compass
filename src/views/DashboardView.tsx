@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { Metric } from "../components/CommonUi";
 import { LineChart } from "../components/Charts";
+import { PwaInstallPanel } from "../components/PwaInstallPanel";
 import type { LifePlan, ViewKey } from "../types";
 import {
   emergencyMonthsLabel,
@@ -156,94 +157,6 @@ export function DashboardView({ plan, reminders, setActiveView, startEmptyPlan, 
 
   return (
     <div className="view-stack">
-      {showStarterGuide && (
-        <section className="panel onboarding-panel">
-          <div className="section-heading">
-            <div>
-              <p className="eyebrow">{samplePlan ? "サンプルプラン表示中" : "はじめての使い方"}</p>
-              <h2>{samplePlan ? "自分のプランは空の状態から順番に作れます" : "まずは生活の全体像を入力します"}</h2>
-              <p>
-                {samplePlan
-                  ? "現在の数値は使い方を確認するためのサンプルです。自分用に作る場合は、空のプランに切り替えて基本情報から入力すると迷いにくくなります。"
-                  : "すべてを一度に埋めなくても大丈夫です。基本情報、資産、家計、予算・実績、目標、シミュレーション、イベント設定、年表の順に進められます。"}
-              </p>
-            </div>
-            <div className="button-row">
-              {samplePlan && (
-                <button type="button" onClick={handleStartEmptyPlan}>
-                  空のプランで始める
-                </button>
-              )}
-              <button type="button" className={samplePlan ? "secondary" : ""} onClick={() => setActiveView(samplePlan ? "profile" : firstMissingView)}>
-                {samplePlan ? "サンプルを編集する" : "次の入力へ"}
-              </button>
-            </div>
-          </div>
-          <div className="onboarding-steps" aria-label="入力の流れ">
-            <button type="button" onClick={() => setActiveView("profile")}>
-              <span>1</span>
-              <strong>基本情報</strong>
-              <small>年齢、家族構成、働き方</small>
-            </button>
-            <button type="button" onClick={() => setActiveView("assets")}>
-              <span>2</span>
-              <strong>資産・負債</strong>
-              <small>現金、資産、ローン</small>
-            </button>
-            <button type="button" onClick={() => setActiveView("household")}>
-              <span>3</span>
-              <strong>家計</strong>
-              <small>収入、生活費、特別支出</small>
-            </button>
-            <button type="button" onClick={() => setActiveView("budget")}>
-              <span>4</span>
-              <strong>予算・実績</strong>
-              <small>月の予算と月末実績</small>
-            </button>
-            <button type="button" onClick={() => setActiveView("goals")}>
-              <span>5</span>
-              <strong>目標</strong>
-              <small>目標額、期限、準備状況</small>
-            </button>
-            <button type="button" onClick={() => setActiveView("simulation")}>
-              <span>6</span>
-              <strong>シミュレーション</strong>
-              <small>資産推移と生活防衛資金</small>
-            </button>
-            <button type="button" onClick={() => setActiveView("events")}>
-              <span>7</span>
-              <strong>イベント設定</strong>
-              <small>時期、対象者、家計への影響</small>
-            </button>
-            <button type="button" onClick={() => setActiveView("timeline")}>
-              <span>8</span>
-              <strong>年表</strong>
-              <small>目標と予定を月ごとに確認</small>
-            </button>
-          </div>
-        </section>
-      )}
-
-      {reminders.length > 0 && (
-        <section className="panel reminder-panel">
-          <div className="section-heading">
-            <div>
-              <p className="eyebrow">リマインダー</p>
-              <h2>確認する項目が{reminders.length}件あります</h2>
-            </div>
-            <button type="button" className="secondary" onClick={() => setActiveView("settings")}>通知設定</button>
-          </div>
-          <div className="reminder-list">
-            {reminders.map((reminder) => (
-              <button type="button" key={reminder.id} onClick={() => setActiveView(reminder.view)}>
-                <strong>{reminder.title}</strong>
-                <span>{reminder.detail}</span>
-              </button>
-            ))}
-          </div>
-        </section>
-      )}
-
       <section className="dashboard-overview" aria-label="ホーム概要">
         <div className="dashboard-overview-header">
           <div>
@@ -286,8 +199,8 @@ export function DashboardView({ plan, reminders, setActiveView, startEmptyPlan, 
             <span>{plan.goals.length > 0 ? `${plan.goals.length}件の目標` : "目標を登録すると表示"}</span>
           </button>
           <button type="button" onClick={() => setActiveView("timeline")}>
-            <strong>年表を確認</strong>
-            <span>{plan.events.length > 0 ? `${plan.events.length}件のイベント` : "予定を追加"}</span>
+            <strong>{nextEvent ? "次の予定" : "予定を追加"}</strong>
+            <span>{nextEvent ? `${nextEvent.year}年${nextEvent.month}月 ${nextEvent.title}` : "年表で将来を整理"}</span>
           </button>
           <button type="button" onClick={() => setActiveView("data")}>
             <strong>バックアップ</strong>
@@ -295,6 +208,57 @@ export function DashboardView({ plan, reminders, setActiveView, startEmptyPlan, 
           </button>
         </div>
       </section>
+
+      {reminders.length > 0 && (
+        <section className="panel reminder-panel">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">リマインダー</p>
+              <h2>確認する項目が{reminders.length}件あります</h2>
+            </div>
+            <button type="button" className="secondary" onClick={() => setActiveView("settings")}>通知設定</button>
+          </div>
+          <div className="reminder-list">
+            {reminders.map((reminder) => (
+              <button type="button" key={reminder.id} onClick={() => setActiveView(reminder.view)}>
+                <strong>{reminder.title}</strong>
+                <span>{reminder.detail}</span>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {showStarterGuide && (
+        <section className="panel onboarding-panel compact">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">{samplePlan ? "サンプルプラン表示中" : "入力ガイド"}</p>
+              <h2>{samplePlan ? "自分のプランへ切り替えられます" : "次に入力する項目があります"}</h2>
+              <p>
+                {samplePlan
+                  ? "現在の数値は使い方を確認するためのサンプルです。空のプランから始めても、サンプルを確認しながら編集しても構いません。"
+                  : `入力完了度は${completion.percentage}%です。入力できる項目から少しずつ整えられます。詳しい使い方は設定で確認できます。`}
+              </p>
+            </div>
+            <div className="button-row">
+              {samplePlan && (
+                <button type="button" onClick={handleStartEmptyPlan}>
+                  空のプランで始める
+                </button>
+              )}
+              <button type="button" className={samplePlan ? "secondary" : ""} onClick={() => setActiveView(samplePlan ? "profile" : firstMissingView)}>
+                {samplePlan ? "サンプルを確認" : "入力を続ける"}
+              </button>
+              <button type="button" className="secondary" onClick={() => setActiveView("settings")}>
+                使い方を見る
+              </button>
+            </div>
+          </div>
+        </section>
+      )}
+
+      <PwaInstallPanel onOpenBackup={() => setActiveView("data")} />
 
       {proAccess && (
         <section className="panel pro-review-dashboard">

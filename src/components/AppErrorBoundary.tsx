@@ -31,7 +31,7 @@ export class AppErrorBoundary extends Component<Props, State> {
           <div className="button-row">
             <button type="button" onClick={() => window.location.reload()}>ページを再読み込み</button>
             <button type="button" className="secondary" onClick={() => window.location.assign("/data")}>
-              データ管理を開く
+              バックアップ・復元を開く
             </button>
           </div>
         </section>

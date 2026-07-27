@@ -134,7 +134,7 @@ export function DataView({
   return (
     <div className="view-stack" data-testid="data-view">
       <section className="panel">
-        <StepTitle step="12" title="データ管理" description="収入・支出・資産・家族情報は、通常このブラウザ内に保存します。" />
+        <StepTitle step="12" title="バックアップ・復元" description="収入・支出・資産・家族情報は、通常このブラウザ内に保存します。" />
         <div className="data-status-grid" aria-label="保存状態">
           <div><span>通常の保存先</span><strong>このブラウザ内</strong><small>共同世帯の自動同期を有効にした端末だけ、暗号化した変更内容も共有します。</small></div>
           <div><span>最終保存</span><strong>{updatedAt}</strong><small>入力変更時に自動保存されます。</small></div>

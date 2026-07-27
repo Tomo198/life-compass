@@ -74,33 +74,33 @@ export function HouseholdView({
     const switched = enableDetailedCashflow();
     setCashflowModeMessage(
       switched
-        ? "詳細収支を計算に使用します。基本収支と時期別変更は保持されています。"
+        ? "家族ごとの入力を計算に使用します。世帯全体の入力は保持されています。"
         : "詳細収支へ変換できる項目数の上限を超えています。時期別変更を整理してから再度お試しください。"
     );
   };
   const handleUseBasicCashflow = () => {
     useBasicCashflow();
-    setCashflowModeMessage("基本収支と時期別変更を計算に使用します。詳細収支は保持されています。");
+    setCashflowModeMessage("世帯全体の入力を計算に使用します。家族ごとの入力は保持されています。");
   };
 
   return (
     <div className="view-stack">
       <section className="panel form-panel">
-        <StepTitle step="3" title="基本収支" description="月単位の収支と年間特別支出を整理します。" />
+        <StepTitle step="3" title="世帯全体で入力" description="世帯全体の月収、生活費、年間特別支出をまとめて整理します。" />
         {canUseDetailedCashflow || isDetailedCashflow ? (
           <div className="cashflow-mode-control">
             <div>
-              <strong>計算に使う収支</strong>
-              <span>{isDetailedCashflow ? "世帯別の詳細収支" : "基本収支と時期別変更"}</span>
+              <strong>家計の入力方法</strong>
+              <span>{isDetailedCashflow ? "家族ごとの金額を合計します" : "世帯全体の合計を入力します"}</span>
             </div>
-            <div className="segmented-control" aria-label="収支の入力方式">
+            <div className="segmented-control" aria-label="家計の入力方法">
               <button
                 type="button"
                 className={!isDetailedCashflow ? "active" : ""}
                 aria-pressed={!isDetailedCashflow}
                 onClick={handleUseBasicCashflow}
               >
-                基本方式
+                世帯全体で入力
               </button>
               <button
                 type="button"
@@ -108,9 +108,9 @@ export function HouseholdView({
                 aria-pressed={isDetailedCashflow}
                 onClick={handleEnableDetailedCashflow}
                 disabled={!canUseDetailedCashflow}
-                title={!canUseDetailedCashflow ? "世帯別の詳細方式はPro版で利用できます。" : undefined}
+                title={!canUseDetailedCashflow ? "家族ごとの入力はPro版で利用できます。" : undefined}
               >
-                世帯別の詳細方式
+                家族ごとに入力
               </button>
             </div>
             <span className="cashflow-mode-message" role="status" aria-live="polite">{cashflowModeMessage}</span>
@@ -132,8 +132,8 @@ export function HouseholdView({
         </fieldset>
         {isDetailedCashflow ? (
           <div className="notice-band check cashflow-mode-note">
-            <strong>基本収支は保持されています</strong>
-            <span>現在の計算には、下の世帯別・期間別の詳細収支を使用しています。</span>
+            <strong>世帯全体の入力は保持されています</strong>
+            <span>現在の計算には、下の家族ごとの収入・支出を使用しています。</span>
           </div>
         ) : null}
       </section>
@@ -182,10 +182,10 @@ export function HouseholdView({
             <div className="section-heading">
               <div>
                 <div className="title-with-badge">
-                  <h2>世帯別・期間別の詳細収支</h2>
+                  <h2>家族ごとの収入・支出</h2>
                   <span className="pro-inline-badge">Pro</span>
                 </div>
-                <p>本人、配偶者、子ども、親、世帯共通の収入と支出を期間ごとに整理します。</p>
+                <p>本人、配偶者、子ども、親、世帯共通に分けて、現在の収入と支出を整理します。</p>
               </div>
             </div>
             <DetailedCashflowEditor

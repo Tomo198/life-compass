@@ -147,7 +147,7 @@ export function ScenarioComparisonView({
           <h2>暮らしの選択肢を作って比べる</h2>
           <p>支出、働き方、住まい、退職時期などの変更案を別のプランとして保存し、現在プランとの差を確認します。</p>
         </div>
-        <span className="lock-badge">Coming soon</span>
+        <span className="lock-badge">Pro機能</span>
       </section>
 
       <div className="segmented-control scenario-workspace-tabs" aria-label="見直しプランの表示内容">

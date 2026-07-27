@@ -719,6 +719,23 @@ class FakeD1 {
             };
           }
           if (
+            normalized.includes("FROM shared_plan_revisions")
+            && normalized.includes("GROUP BY household_id")
+            && normalized.includes("HAVING COUNT(*) > ?")
+          ) {
+            const counts = new Map();
+            for (const revision of this.sharedPlanRevisions.values()) {
+              counts.set(revision.household_id, (counts.get(revision.household_id) || 0) + 1);
+            }
+            return {
+              results: [...counts.entries()]
+                .filter(([, count]) => count > Number(args[0]))
+                .sort(([left], [right]) => left.localeCompare(right))
+                .slice(0, Number(args[1]))
+                .map(([household_id]) => ({ household_id }))
+            };
+          }
+          if (
             normalized.includes("FROM shared_households AS households")
             && normalized.includes("date('now', '-90 days')")
           ) {
@@ -1577,11 +1594,15 @@ test("encrypted shared plans enforce membership, integrity, concurrency, and rev
   assert.equal(SHARED_PLANS.objects.size, 11);
 
   SHARED_PLANS.failDeletes = false;
+  await secureWorker.scheduled({}, authEnv);
+  assert.equal(DB.sharedPlanRevisions.size, 10);
+  assert.equal(DB.sharedPlanRevisions.has(`${householdId}:1`), false);
+  assert.equal(SHARED_PLANS.objects.size, 10);
+
   const retentionRetry = await saveRevision(11);
   assert.equal(retentionRetry.status, 201);
   assert.equal(DB.sharedHouseholds.get(householdId).current_revision, 12);
   assert.equal(DB.sharedPlanRevisions.size, 10);
-  assert.equal(DB.sharedPlanRevisions.has(`${householdId}:1`), false);
   assert.equal(DB.sharedPlanRevisions.has(`${householdId}:2`), false);
   assert.equal(SHARED_PLANS.objects.size, 10);
 

@@ -35,7 +35,7 @@ export function PricingView({
 
       <section className="pricing-grid">
         <div className="pricing-card pro-offer">
-          <span>Coming soon</span>
+          <span>課金開始前</span>
           <h2>Pro版</h2>
           <strong>{legalConfig.proPriceLabel}</strong>
           <p className="muted">1か月ごとの自動更新を予定</p>
@@ -48,7 +48,7 @@ export function PricingView({
             <li>年金等を含む老後生活の詳細見通し</li>
           </ul>
           <button type="button" disabled={!hasProAccess} onClick={() => setActiveView("scenarios")}>
-            {hasProAccess ? "開発中のPro機能を確認する" : "Pro版は準備中"}
+            {hasProAccess ? "Pro機能を確認する" : "Pro版は準備中"}
           </button>
           <small className="pricing-preview-note">
             {isOperatorTest
@@ -76,10 +76,10 @@ export function PricingView({
       <section className="panel">
         <div className="section-heading">
           <div>
-            <h2>開発中のPro機能を確認</h2>
-            <p>{hasProAccess ? "運営者テストで、以下の機能を現在の入力条件から確認できます。" : "以下の機能は正式提供後にPro契約で利用できる予定です。"}</p>
+            <h2>Pro機能の現在の状態</h2>
+            <p>{hasProAccess ? "以下の機能は実装済みです。課金開始前の運営者テストとして、現在の入力条件から一連の操作を確認できます。" : "以下の機能は実装済みで、正式提供前の安全性と操作性を確認しています。"}</p>
           </div>
-          <span className="status-pill recurring">Coming soon</span>
+          <span className="status-pill recurring">{hasProAccess ? "機能テスト中" : "課金開始前"}</span>
         </div>
         <div className="template-actions">
           <button type="button" className="secondary" disabled={!hasProAccess} onClick={() => setActiveView("scenarios")}>見直しプラン</button>

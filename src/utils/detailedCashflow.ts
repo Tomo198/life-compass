@@ -69,20 +69,15 @@ export const setDetailedCashflowTargetAmount = (
   ));
 };
 
-const getDefaultEndYear = (currentAge: number) => {
-  const yearsUntilRetirement = currentAge > 0 ? Math.max(1, 65 - currentAge) : 30;
-  return Math.min(MAX_PLAN_YEAR, new Date().getFullYear() + yearsUntilRetirement);
-};
-
 export const createDetailedCashflowDraft = (
-  currentAge: number,
+  _currentAge: number,
   primaryMemberId: string | null
 ): DetailedCashflowItemDraft => ({
   title: "",
   memberId: primaryMemberId,
   target: "monthlyIncome",
   startYear: new Date().getFullYear(),
-  endYear: getDefaultEndYear(currentAge),
+  endYear: MAX_PLAN_YEAR,
   amount: 0,
   memo: ""
 });

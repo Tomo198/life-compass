@@ -8,6 +8,16 @@ export type AccessState = {
   tier: AccessTier;
   mode: AccessMode;
   source: AccessSource;
+  household?: {
+    householdId: string;
+    effectiveTier: AccessTier;
+    writeAllowed: boolean;
+  } | null;
+};
+
+export type HouseholdPlanSession = {
+  enabled: boolean;
+  householdId: string | null;
 };
 
 export type FeatureKey =
@@ -63,7 +73,8 @@ export type FeatureAccessKey = Exclude<keyof typeof featureTiers.free, "planLimi
 export const defaultAccessState: AccessState = {
   tier: "free",
   mode: "enforced",
-  source: "anonymous"
+  source: "anonymous",
+  household: null
 };
 
 const proViewFeatures: Partial<Record<ViewKey, FeatureAccessKey>> = {
@@ -75,6 +86,28 @@ const proViewFeatures: Partial<Record<ViewKey, FeatureAccessKey>> = {
 
 export const getEffectiveTier = (access: AccessState): AccessTier =>
   access.mode === "preview" ? "pro" : access.tier;
+
+const hasHouseholdPlanProAccess = (
+  access: AccessState,
+  session: HouseholdPlanSession
+) => Boolean(
+  session.enabled
+  && session.householdId
+  && access.household?.householdId === session.householdId
+  && access.household.effectiveTier === "pro"
+  && access.household.writeAllowed
+);
+
+/**
+ * Derives permissions only for the plan currently protected by household auto-sync.
+ * Personal account features must keep using the original AccessState.
+ */
+export const getPlanScopedAccessState = (
+  access: AccessState,
+  session: HouseholdPlanSession
+): AccessState => hasHouseholdPlanProAccess(access, session)
+  ? { ...access, tier: "pro" }
+  : access;
 
 export const hasFeatureAccess = (access: AccessState, feature: FeatureAccessKey) =>
   Boolean(featureTiers[getEffectiveTier(access)][feature]);

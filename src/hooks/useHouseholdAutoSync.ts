@@ -51,8 +51,8 @@ type Runtime = {
   credential: TrustedSharedPlanCredential;
 };
 
-const SYNC_DELAY_MS = 10_000;
-const POLL_INTERVAL_MS = 30_000;
+const SYNC_DELAY_MS = 20_000;
+const POLL_INTERVAL_MS = 60_000;
 
 const responseContext = (response: SharedPlanResponse) => {
   if (!response.revision || !response.envelope) throw new Error("共有プランはまだ保存されていません。");

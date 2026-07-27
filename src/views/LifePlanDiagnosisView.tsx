@@ -79,7 +79,7 @@ export function LifePlanDiagnosisView({ plan, setActiveView, addScenario }: Life
           <h2>入力条件の確認ポイントを横断整理</h2>
           <p>家計、資産、目標、イベント、レビュー履歴をまとめて確認します。結果は助言ではなく、入力条件に基づく参考メモです。</p>
         </div>
-        <span className="lock-badge">Coming soon</span>
+        <span className="lock-badge">Pro機能</span>
       </section>
 
       <section className="calculation-band compact">
