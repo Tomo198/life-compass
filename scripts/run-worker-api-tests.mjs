@@ -16,6 +16,11 @@ const utcDateAfter = (days) => {
   date.setUTCDate(date.getUTCDate() + days);
   return date.toISOString().slice(0, 10);
 };
+const utcInstantAfter = (days) => {
+  const date = new Date();
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString();
+};
 
 class FakeD1 {
   constructor() {
@@ -143,7 +148,8 @@ class FakeD1 {
               event_id: eventId,
               event_type: eventType,
               provider_object_id: providerObjectId,
-              status: "received"
+              status: "received",
+              received_at: new Date().toISOString()
             });
             return { success: true };
           }
@@ -590,6 +596,26 @@ class FakeD1 {
             return backup?.user_id === args[1] ? backup : null;
           }
           if (normalized.includes("FROM billing_webhook_events")) {
+            if (normalized.includes("invoice.scheduled_charge_failed")) {
+              const matchingEvents = [...this.billingWebhookEvents.values()]
+                .filter((event) => (
+                  event.provider === "square"
+                  && event.provider_object_id === args[0]
+                  && event.status === "processed"
+                ));
+              const latestPaidAt = matchingEvents
+                .filter((event) => event.event_type === "invoice.payment_made")
+                .map((event) => String(event.received_at))
+                .sort((left, right) => right.localeCompare(left))[0] || "";
+              return matchingEvents
+                .filter((event) => (
+                  event.event_type === "invoice.scheduled_charge_failed"
+                  && String(event.received_at) >= latestPaidAt
+                ))
+                .sort((left, right) => (
+                  String(left.received_at).localeCompare(String(right.received_at))
+                ))[0] || null;
+            }
             return this.billingWebhookEvents.get(`${args[0]}:${args[1]}`) || null;
           }
           if (normalized.includes("FROM subscriptions") && normalized.includes("provider_subscription_id = ?")) {
@@ -660,8 +686,15 @@ class FakeD1 {
               && item.expires_at > Math.floor(Date.now() / 1000)
             ));
             const household = invitation ? this.sharedHouseholds.get(invitation.household_id) : null;
+            const owner = household ? this.usersById.get(household.owner_user_id) : null;
             return invitation && household?.status === "active" && !household.deleted_at
-              ? { ...invitation }
+              && owner && !owner.deleted_at
+              ? {
+                  ...invitation,
+                  owner_user_id: household.owner_user_id,
+                  owner_google_sub: owner.google_sub,
+                  owner_email_verified: owner.email_verified
+                }
               : null;
           }
           if (
@@ -895,7 +928,7 @@ test("me endpoint does not pretend the user is logged in", async () => {
   assert.equal(body.loginConfigured, false);
 });
 
-test("entitlement endpoint enables Pro preview only when explicitly configured", async () => {
+test("preview access mode keeps an anonymous user Free", async () => {
   const response = await worker.fetch(
     new Request("https://life.example/api/entitlement"),
     { ...env, ACCESS_MODE: "preview" },
@@ -907,10 +940,15 @@ test("entitlement endpoint enables Pro preview only when explicitly configured",
   assert.equal(body.access.tier, "free");
   assert.equal(body.access.mode, "preview");
   assert.equal(body.access.billingConfigured, false);
-  assert.equal(body.access.effectiveTier, "pro");
+  assert.equal(body.access.effectiveTier, "free");
+  assert.equal(body.access.source, "anonymous");
+  assert.equal(body.access.entitlement.personal.status, "none");
+  assert.equal(body.access.entitlement.personal.source, "none");
+  assert.equal(body.limits.planLimit, 1);
+  assert.equal(body.limits.scenarioLimit, 0);
 });
 
-test("enforced access grants test Pro only to the configured Google owner", async () => {
+test("verified owner manual access is independent of preview mode and exact-sub scoped", async () => {
   const DB = new FakeD1();
   const secureWorker = createWorker({
     verifyGoogleToken: async ({ credential }) => ({
@@ -964,6 +1002,26 @@ test("enforced access grants test Pro only to the configured Google owner", asyn
   }));
   assert.equal(unverified.access.tier, "free");
   assert.equal(unverified.access.source, "anonymous");
+
+  authEnv.ACCESS_MODE = "preview";
+  const previewOwner = await json(await authRequest("/api/entitlement", {
+    headers: { Cookie: `__Host-lc_session=${ownerCookie}` }
+  }));
+  assert.equal(previewOwner.access.mode, "preview");
+  assert.equal(previewOwner.access.tier, "pro");
+  assert.equal(previewOwner.access.effectiveTier, "pro");
+  assert.equal(previewOwner.access.source, "operator");
+  assert.equal(previewOwner.access.entitlement.personal.status, "active");
+  assert.equal(previewOwner.access.entitlement.personal.source, "manual");
+  assert.equal(previewOwner.access.entitlement.household.role, "none");
+
+  const previewOther = await json(await authRequest("/api/entitlement", {
+    headers: { Cookie: `__Host-lc_session=${otherCookie}` }
+  }));
+  assert.equal(previewOther.access.mode, "preview");
+  assert.equal(previewOther.access.tier, "free");
+  assert.equal(previewOther.access.effectiveTier, "free");
+  assert.equal(previewOther.access.source, "anonymous");
 });
 
 test("authentication rejects oversized streamed JSON and limits active sessions per account", async () => {
@@ -1145,6 +1203,22 @@ test("one paid owner can securely share household Pro access with one verified e
   assert.equal(created.household.memberCount, 1);
   assert.equal(created.household.writeAllowed, true);
 
+  ownerSubscription.billing_provider = "none";
+  const invalidProviderHousehold = await authRequest("/api/shared-household", {
+    headers: { Cookie: `__Host-lc_session=${ownerCookie}` }
+  });
+  assert.equal(invalidProviderHousehold.status, 200);
+  assert.equal((await json(invalidProviderHousehold)).household, null);
+  ownerSubscription.billing_provider = "square";
+
+  DB.sharedHouseholds.get(householdId).current_revision = "0";
+  const invalidRevisionHousehold = await authRequest("/api/shared-household", {
+    headers: { Cookie: `__Host-lc_session=${ownerCookie}` }
+  });
+  assert.equal(invalidRevisionHousehold.status, 200);
+  assert.equal((await json(invalidRevisionHousehold)).household, null);
+  DB.sharedHouseholds.get(householdId).current_revision = 0;
+
   ownerSubscription.status = "canceled";
   const ownerAccountDelete = await authRequest("/api/account", {
     method: "DELETE",
@@ -1225,6 +1299,28 @@ test("one paid owner can securely share household Pro access with one verified e
   const attackerBody = await json(attackerAccept);
   assert.equal(attackerAccept.status, 400);
   assert.equal(attackerBody.error.code, "invalid_invitation");
+
+  ownerSubscription.status = "canceled";
+  const expiredOwnerAccept = await authRequest("/api/shared-household/invitations/accept", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Origin: "https://life.example",
+      Cookie: `__Host-lc_session=${partnerCookie}`
+    },
+    body: JSON.stringify({ token: inviteToken })
+  });
+  const expiredOwnerAcceptBody = await json(expiredOwnerAccept);
+  assert.equal(expiredOwnerAccept.status, 409);
+  assert.equal(expiredOwnerAcceptBody.error.code, "invitation_unavailable");
+  assert.equal(storedInvitation.accepted_at, null);
+  assert.equal(
+    [...DB.householdMemberships.values()].some((membership) => (
+      membership.user_id === partner.id && membership.status === "active"
+    )),
+    false
+  );
+  ownerSubscription.status = "active";
 
   const partnerAccept = await authRequest("/api/shared-household/invitations/accept", {
     method: "POST",
@@ -1357,7 +1453,7 @@ test("one paid owner can securely share household Pro access with one verified e
       Cookie: `__Host-lc_session=${ownerCookie}`
     }
   });
-  assert.equal(duplicateRemove.status, 404);
+  assert.equal(duplicateRemove.status, 403);
   assert.equal(DB.sharedHouseholds.get(householdId).key_epoch, keyEpochAfterRemoval);
 
   const removedPartnerEntitlement = await json(await authRequest("/api/entitlement", {
@@ -1985,6 +2081,12 @@ test("Square webhook verifies signatures, links verified email and waits for suc
   assert.equal(afterPayment.access.tier, "pro");
   assert.equal(afterPayment.access.source, "subscription");
 
+  storedSubscription.billing_provider = "none";
+  const unknownProvider = await json(await billingRequest("/api/entitlement", { headers: authHeaders }));
+  assert.equal(unknownProvider.access.tier, "free");
+  assert.equal(unknownProvider.access.entitlement.personal.status, "revoked");
+  storedSubscription.billing_provider = "square";
+
   storedSubscription.current_period_end = utcDateAfter(-1);
   const afterExpiry = await json(await billingRequest("/api/entitlement", { headers: authHeaders }));
   assert.equal(afterExpiry.access.tier, "free");
@@ -2046,6 +2148,8 @@ test("Square webhook verifies signatures, links verified email and waits for suc
   assert.equal(updatedResponse.status, 200);
   assert.equal(storedSubscription.cancel_at_period_end, 1);
   assert.equal(storedSubscription.payment_status, "paid");
+  const cancelScheduled = await json(await billingRequest("/api/entitlement", { headers: authHeaders }));
+  assert.equal(cancelScheduled.access.entitlement.personal.status, "cancel_at_period_end");
 
   const failedResponse = await sendEvent({
     merchant_id: "merchant-1",
@@ -2055,8 +2159,33 @@ test("Square webhook verifies signatures, links verified email and waits for suc
   });
   assert.equal(failedResponse.status, 200);
   assert.equal(storedSubscription.payment_status, "failed");
+  const failedEvent = DB.billingWebhookEvents.get("square:event-failed");
+  const failedAt = new Date(failedEvent.received_at).toISOString();
+  const expectedGraceUntil = new Date(
+    Date.parse(failedAt) + 7 * 24 * 60 * 60 * 1000
+  ).toISOString();
   const afterFailure = await json(await billingRequest("/api/entitlement", { headers: authHeaders }));
-  assert.equal(afterFailure.access.tier, "free");
+  assert.equal(afterFailure.access.tier, "pro");
+  assert.equal(afterFailure.access.entitlement.personal.status, "past_due");
+  assert.equal(afterFailure.access.entitlement.personal.validUntil, failedAt);
+  assert.equal(afterFailure.access.entitlement.personal.graceUntil, expectedGraceUntil);
+
+  const retryFailureResponse = await sendEvent({
+    merchant_id: "merchant-1",
+    type: "invoice.scheduled_charge_failed",
+    event_id: "event-failed-retry",
+    data: { object: { invoice: { subscription_id: "subscription-1" } } }
+  });
+  assert.equal(retryFailureResponse.status, 200);
+  const retryFailure = await json(await billingRequest("/api/entitlement", { headers: authHeaders }));
+  assert.equal(retryFailure.access.entitlement.personal.validUntil, failedAt);
+  assert.equal(retryFailure.access.entitlement.personal.graceUntil, expectedGraceUntil);
+
+  DB.billingWebhookEvents.get("square:event-paid").received_at = utcInstantAfter(-10);
+  failedEvent.received_at = utcInstantAfter(-8);
+  DB.billingWebhookEvents.get("square:event-failed-retry").received_at = utcInstantAfter(-1);
+  const afterGrace = await json(await billingRequest("/api/entitlement", { headers: authHeaders }));
+  assert.equal(afterGrace.access.tier, "free");
 
   const invalidLinkResponse = await secureWorker.fetch(new Request("https://life.example/api/billing/checkout", {
     method: "POST",
@@ -2134,6 +2263,31 @@ test("enforced cloud backup requires Pro for writes and keeps existing backups r
   assert.equal(freeList.status, 200);
   assert.deepEqual((await json(freeList)).backups, []);
 
+  authEnv.ACCESS_MODE = "preview";
+  const previewAccess = await json(await authRequest("/api/entitlement", { headers }));
+  assert.equal(previewAccess.access.tier, "free");
+  assert.equal(previewAccess.access.effectiveTier, "free");
+  const forgedManualBody = JSON.stringify({
+    ...JSON.parse(body),
+    tier: "pro",
+    source: "manual",
+    snapshot: {
+      personal: {
+        status: "active",
+        validUntil: null,
+        graceUntil: null,
+        source: "manual"
+      }
+    }
+  });
+  const forgedManualWrite = await authRequest("/api/backups", {
+    method: "POST",
+    headers,
+    body: forgedManualBody
+  });
+  assert.equal(forgedManualWrite.status, 403);
+  delete authEnv.ACCESS_MODE;
+
   const withoutSubscription = await authRequest("/api/backups", { method: "POST", headers, body });
   assert.equal(withoutSubscription.status, 403);
 
@@ -2151,10 +2305,13 @@ test("enforced cloud backup requires Pro for writes and keeps existing backups r
   const subscription = {
     id: "local-subscription",
     user_id: DB.usersBySub.get("owner").id,
+    billing_provider: "square",
+    provider_subscription_id: "subscription-1",
     tier: "pro",
     status: "active",
     payment_status: "unknown",
-    current_period_end: utcDateAfter(30)
+    current_period_end: utcDateAfter(30),
+    cancel_at_period_end: 0
   };
   DB.subscriptionsByProviderId.set("square:subscription-1", subscription);
   const beforePayment = await authRequest("/api/backups", { method: "POST", headers, body });
@@ -2165,6 +2322,36 @@ test("enforced cloud backup requires Pro for writes and keeps existing backups r
   const afterExpiry = await authRequest("/api/backups", { method: "POST", headers, body });
   assert.equal(afterExpiry.status, 403);
 
+  subscription.payment_status = "failed";
+  const withoutFailureTimestamp = await authRequest("/api/backups", {
+    method: "POST",
+    headers,
+    body
+  });
+  assert.equal(withoutFailureTimestamp.status, 403);
+  const backupFailureEvent = {
+    id: "backup-failure-event",
+    provider: "square",
+    event_id: "backup-failure",
+    event_type: "invoice.scheduled_charge_failed",
+    provider_object_id: "subscription-1",
+    status: "processed",
+    received_at: utcInstantAfter(0)
+  };
+  DB.billingWebhookEvents.set("square:backup-failure", backupFailureEvent);
+  const duringGrace = await authRequest("/api/backups", { method: "POST", headers, body });
+  assert.equal(duringGrace.status, 201);
+  const graceBackup = await json(duringGrace);
+  const deleteGraceBackup = await authRequest(`/api/backups/${graceBackup.backup.id}`, {
+    method: "DELETE",
+    headers
+  });
+  assert.equal(deleteGraceBackup.status, 200);
+  backupFailureEvent.received_at = utcInstantAfter(-8);
+  const afterGrace = await authRequest("/api/backups", { method: "POST", headers, body });
+  assert.equal(afterGrace.status, 403);
+
+  subscription.payment_status = "paid";
   subscription.current_period_end = utcDateAfter(30);
   const paidAndActive = await authRequest("/api/backups", { method: "POST", headers, body });
   assert.equal(paidAndActive.status, 201);

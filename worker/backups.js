@@ -1,6 +1,7 @@
 import { AuthError, getCurrentUser } from "./auth.js";
 import { isOwnerTestUser, resolvePersonalAccess } from "./access.js";
 import { parseBoundedJsonBody, sameOrigin } from "./security.js";
+import { canPerformOperation } from "../shared/entitlement-policy.js";
 
 const MAX_BACKUP_BODY_BYTES = 7 * 1024 * 1024;
 const MAX_BACKUPS_PER_USER = 5;
@@ -39,8 +40,13 @@ const requireBackupReadAccess = (user, env) => {
 const requireBackupWriteAccess = async (user, env) => {
   requireBackupReadAccess(user, env);
   if (backupMode(env) === "preview") return;
-  const access = await resolvePersonalAccess(user, env);
-  if (access.tier !== "pro") {
+  const evaluatedAt = new Date().toISOString();
+  const access = await resolvePersonalAccess(user, env, evaluatedAt);
+  if (!canPerformOperation(
+    access.snapshot,
+    "create_cloud_backup",
+    evaluatedAt
+  ).allowed) {
     throw new AuthError(403, "pro_required", "An active Pro subscription is required.");
   }
 };

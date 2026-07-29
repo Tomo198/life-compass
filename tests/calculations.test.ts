@@ -19,6 +19,7 @@ import {
   getPlanScopedAccessState,
   getScenarioLimit,
   hasFeatureAccess,
+  parseWorkerAccessState,
   type AccessState
 } from "../src/features";
 import {
@@ -116,16 +117,20 @@ test("default access fails closed as free until the Worker resolves entitlement"
   assert.equal(getScenarioLimit(defaultAccessState), 0);
 });
 
-test("explicit preview access keeps Pro features available for automated testing", () => {
-  const access: AccessState = { tier: "free", mode: "preview", source: "local-preview" };
-  assert.equal(getEffectiveTier(access), "pro");
-  assert.equal(hasFeatureAccess(access, "simulationVariability"), true);
-  assert.equal(canOpenView(access, "scenarios"), true);
-  assert.equal(getScenarioLimit(access), 20);
+test("preview mode alone does not unlock Pro features", () => {
+  const access: AccessState = {
+    ...defaultAccessState,
+    mode: "preview",
+    source: "anonymous"
+  };
+  assert.equal(getEffectiveTier(access), "free");
+  assert.equal(hasFeatureAccess(access, "simulationVariability"), false);
+  assert.equal(canOpenView(access, "scenarios"), false);
+  assert.equal(getScenarioLimit(access), 0);
 });
 
 test("enforced free access blocks Pro views and capabilities", () => {
-  const access: AccessState = { tier: "free", mode: "enforced", source: "anonymous" };
+  const access: AccessState = { ...defaultAccessState };
   assert.equal(getEffectiveTier(access), "free");
   assert.equal(hasFeatureAccess(access, "fixedCostImpact"), false);
   assert.equal(hasFeatureAccess(access, "budgetPlanning"), true);
@@ -136,21 +141,83 @@ test("enforced free access blocks Pro views and capabilities", () => {
 });
 
 test("enforced Pro access unlocks Pro views without preview mode", () => {
-  const access: AccessState = { tier: "pro", mode: "enforced", source: "operator" };
+  const access: AccessState = {
+    ...defaultAccessState,
+    tier: "pro",
+    source: "operator",
+    entitlement: {
+      ...defaultAccessState.entitlement,
+      personal: {
+        status: "active",
+        validUntil: null,
+        graceUntil: null,
+        source: "manual"
+      },
+      evaluatedAt: new Date().toISOString()
+    }
+  };
   assert.equal(getEffectiveTier(access), "pro");
   assert.equal(hasFeatureAccess(access, "lifePlanDiagnosis"), true);
   assert.equal(hasFeatureAccess(access, "planVersionHistory"), true);
   assert.equal(canOpenView(access, "diagnosis"), true);
 });
 
-test("active writable household plan inherits owner Pro without changing personal access", () => {
-  const personalAccess: AccessState = {
+test("enforced client access ignores legacy Pro flags when the new snapshot is missing", () => {
+  assert.equal(parseWorkerAccessState({
+    tier: "pro",
+    mode: "enforced",
+    source: "subscription"
+  }), null);
+  assert.equal(parseWorkerAccessState({
+    tier: "free",
+    mode: "preview",
+    source: "local-preview"
+  }), null);
+});
+
+test("enforced client access derives legacy tier from the validated personal snapshot", () => {
+  const parsed = parseWorkerAccessState({
     tier: "free",
     mode: "enforced",
     source: "anonymous",
+    entitlement: {
+      ...defaultAccessState.entitlement,
+      personal: {
+        status: "active",
+        validUntil: null,
+        graceUntil: null,
+        source: "manual"
+      },
+      evaluatedAt: new Date().toISOString()
+    }
+  });
+  assert.equal(parsed?.tier, "pro");
+  assert.equal(parsed?.source, "operator");
+});
+
+test("active writable household plan enables only household editing features", () => {
+  const personalAccess: AccessState = {
+    ...defaultAccessState,
+    entitlement: {
+      ...defaultAccessState.entitlement,
+      household: {
+        householdId: "household-1",
+        role: "editor",
+        status: "active",
+        revision: 0,
+        revokedAt: null,
+        readAllowed: true,
+        writeAllowed: true,
+        retentionUntil: null
+      },
+      evaluatedAt: new Date().toISOString()
+    },
     household: {
       householdId: "household-1",
       effectiveTier: "pro",
+      role: "editor",
+      revision: 0,
+      readAllowed: true,
       writeAllowed: true
     }
   };
@@ -161,19 +228,35 @@ test("active writable household plan inherits owner Pro without changing persona
 
   assert.equal(getEffectiveTier(personalAccess), "free");
   assert.equal(hasFeatureAccess(personalAccess, "encryptedCloudBackup"), false);
-  assert.equal(getEffectiveTier(planAccess), "pro");
+  assert.equal(getEffectiveTier(planAccess), "free");
   assert.equal(hasFeatureAccess(planAccess, "detailedCashflow"), true);
-  assert.equal(canOpenView(planAccess, "scenarios"), true);
+  assert.equal(canOpenView(planAccess, "scenarios"), false);
+  assert.equal(hasFeatureAccess(planAccess, "encryptedCloudBackup"), false);
 });
 
 test("household Pro stays unavailable outside the matching writable auto-synced plan", () => {
   const personalAccess: AccessState = {
-    tier: "free",
-    mode: "enforced",
-    source: "anonymous",
+    ...defaultAccessState,
+    entitlement: {
+      ...defaultAccessState.entitlement,
+      household: {
+        householdId: "household-1",
+        role: "editor",
+        status: "active",
+        revision: 0,
+        revokedAt: null,
+        readAllowed: true,
+        writeAllowed: true,
+        retentionUntil: null
+      },
+      evaluatedAt: new Date().toISOString()
+    },
     household: {
       householdId: "household-1",
       effectiveTier: "pro",
+      role: "editor",
+      revision: 0,
+      readAllowed: true,
       writeAllowed: true
     }
   };
@@ -193,14 +276,28 @@ test("household Pro stays unavailable outside the matching writable auto-synced 
     "free"
   );
   assert.equal(
-    getEffectiveTier(getPlanScopedAccessState({
+    hasFeatureAccess(getPlanScopedAccessState({
       ...personalAccess,
-      household: { ...personalAccess.household!, writeAllowed: false }
+      household: { ...personalAccess.household!, writeAllowed: false },
+      entitlement: {
+        ...personalAccess.entitlement,
+        household: {
+          ...personalAccess.entitlement.household,
+          writeAllowed: false
+        }
+      }
     }, {
       enabled: true,
       householdId: "household-1"
-    })),
-    "free"
+    }), "detailedCashflow"),
+    false
+  );
+  assert.equal(
+    getPlanScopedAccessState(
+      { ...personalAccess, householdPlanScope: true },
+      { enabled: false, householdId: "household-1" }
+    ).householdPlanScope,
+    false
   );
 });
 
@@ -2978,6 +3075,21 @@ test("import validation normalizes and limits plan revisions", () => {
   assert.equal(imported.planRevisions[0].source, "manual");
   assert.equal(imported.planRevisions[0].snapshot.household.monthlyIncome, 0);
   assert.ok(Number.isFinite(Date.parse(imported.planRevisions[0].createdAt)));
+});
+
+test("import validation does not silently truncate scenarios", () => {
+  const scenario = createScenarioFromTemplate(basePlan, scenarioTemplates[0]);
+  const scenarios = Array.from({ length: 22 }, (_, index) => ({
+    ...scenario,
+    id: `scenario-${index + 1}`,
+    name: `見直しプラン${index + 1}`
+  }));
+
+  const imported = validateImportedPlan({ ...basePlan, scenarios });
+
+  assert.equal(imported.scenarios.length, scenarios.length);
+  assert.equal(imported.scenarios[0].name, "見直しプラン1");
+  assert.equal(imported.scenarios.at(-1)?.name, "見直しプラン22");
 });
 
 test("import validation normalizes timeline memos", () => {

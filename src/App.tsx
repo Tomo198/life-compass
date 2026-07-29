@@ -4,6 +4,7 @@ import {
   defaultAccessState,
   getPlanScopedAccessState,
   hasFeatureAccess,
+  parseWorkerAccessState,
   type AccessState
 } from "./features";
 import { useHouseholdAutoSync, type HouseholdSyncStatus } from "./hooks/useHouseholdAutoSync";
@@ -191,38 +192,14 @@ function App() {
   const refreshAccessState = useCallback(async () => {
     try {
       const response = await fetch("/api/entitlement", { credentials: "same-origin" });
-      if (!response.ok) return;
-      const body = await response.json() as { access?: unknown };
-      if (!body.access || typeof body.access !== "object") return;
-      const access = body.access as Record<string, unknown>;
-      if (
-        (access.tier === "free" || access.tier === "pro") &&
-        (access.mode === "preview" || access.mode === "enforced") &&
-        (access.source === "local-preview" || access.source === "operator" || access.source === "anonymous" || access.source === "subscription")
-      ) {
-        const household = access.household && typeof access.household === "object"
-          ? access.household as Record<string, unknown>
-          : null;
-        const householdTier = household?.effectiveTier;
-        const householdAccess: AccessState["household"] = household
-          && typeof household.householdId === "string"
-          && (householdTier === "free" || householdTier === "pro")
-          && typeof household.writeAllowed === "boolean"
-          ? {
-              householdId: household.householdId,
-              effectiveTier: householdTier,
-              writeAllowed: household.writeAllowed
-            }
-          : null;
-        setAccessState({
-          tier: access.tier,
-          mode: access.mode,
-          source: access.source,
-          household: householdAccess
-        });
+      if (!response.ok) {
+        setAccessState(defaultAccessState);
+        return;
       }
+      const body = await response.json() as { access?: unknown };
+      setAccessState(parseWorkerAccessState(body.access) ?? defaultAccessState);
     } catch {
-      // Static development mode keeps the local preview state when the Worker API is unavailable.
+      setAccessState(defaultAccessState);
     }
   }, []);
 
@@ -231,12 +208,13 @@ function App() {
   }, [refreshAccessState]);
 
   const handleAccountChange = useCallback(async () => {
+    setAccessState(defaultAccessState);
     setAccountVersion((value) => value + 1);
     await refreshAccessState();
   }, [refreshAccessState]);
 
   const setActiveView = (view: ViewKey) => {
-    const nextView = canOpenView(planAccessState, view) ? view : "pricing";
+    const nextView = canOpenView(accessState, view) ? view : "pricing";
     if (nextView !== "scenarios") setReviewPlanYear(null);
     setMobileMenuOpen(false);
     setActiveViewState(nextView);
@@ -251,11 +229,11 @@ function App() {
     const handlePopState = () => {
       const requestedView = getViewForPath(window.location.pathname);
       setMobileMenuOpen(false);
-      setActiveViewState(canOpenView(planAccessState, requestedView) ? requestedView : "pricing");
+      setActiveViewState(canOpenView(accessState, requestedView) ? requestedView : "pricing");
     };
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
-  }, [planAccessState]);
+  }, [accessState]);
 
   useEffect(() => {
     document.title = `${getViewTitle(activeView)} | Life Compass`;
@@ -330,7 +308,7 @@ function App() {
             reminders={reminders}
             setActiveView={setActiveView}
             startEmptyPlan={startEmptyPlan}
-            proAccess={hasFeatureAccess(planAccessState, "reviewHistory")}
+            proAccess={hasFeatureAccess(accessState, "reviewHistory")}
           />
         );
       case "profile":
@@ -411,7 +389,7 @@ function App() {
               setReviewPlanYear(year);
               setActiveView("scenarios");
             }}
-            accessState={planAccessState}
+            accessState={accessState}
           />
         );
       case "timeline":

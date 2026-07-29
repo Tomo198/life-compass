@@ -1,6 +1,7 @@
 import { getCurrentUser } from "./auth.js";
 import { getHouseholdSharingMode, resolveHouseholdAccess } from "./access.js";
 import { AuthError, parseBoundedJsonBody, sameOrigin } from "./security.js";
+import { canPerformOperation } from "../shared/entitlement-policy.js";
 
 const MAX_SHARED_PLAN_BODY_BYTES = 7 * 1024 * 1024;
 const MAX_SHARED_PLAN_CIPHERTEXT_BYTES = 5 * 1024 * 1024 + 16;
@@ -43,11 +44,14 @@ const requireAccess = async (request, env, write = false) => {
     throw new AuthError(403, "verified_email_required", "A verified Google email is required.");
   }
 
-  const access = await resolveHouseholdAccess(user, env);
-  if (!access.available || !access.readAllowed) {
+  const evaluatedAt = new Date().toISOString();
+  const access = await resolveHouseholdAccess(user, env, evaluatedAt);
+  const operation = write ? "edit_household" : "view_household";
+  const decision = canPerformOperation(access.snapshot, operation, evaluatedAt);
+  if (!access.available || (!write && !decision.allowed)) {
     throw new AuthError(403, "household_access_denied", "Household access is not available.");
   }
-  if (write && !access.writeAllowed) {
+  if (write && !decision.allowed) {
     throw new AuthError(403, "household_write_locked", "Shared plan updates are currently locked.");
   }
   return { user, access };

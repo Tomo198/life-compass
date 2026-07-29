@@ -19,6 +19,7 @@ import {
   handleSquareWebhook
 } from "./billing.js";
 import {
+  combineEntitlementSnapshot,
   getHouseholdSharingMode,
   resolveHouseholdAccess,
   resolvePersonalAccess
@@ -135,28 +136,38 @@ async function meResponse(request, env) {
 
 async function entitlementResponse(request, env) {
   const user = await getCurrentUser(request, env);
-  const personalAccess = await resolvePersonalAccess(user, env);
+  const evaluatedAt = new Date().toISOString();
+  const personalAccess = await resolvePersonalAccess(user, env, evaluatedAt);
   const householdAccess = getHouseholdSharingMode(env) === "disabled"
-    ? await resolveHouseholdAccess(null, env)
-    : await resolveHouseholdAccess(user, env);
+    ? await resolveHouseholdAccess(null, env, evaluatedAt)
+    : await resolveHouseholdAccess(user, env, evaluatedAt);
   const tier = personalAccess.tier;
   const mode = env?.ACCESS_MODE === "preview" ? "preview" : "enforced";
-  const effectiveTier = mode === "preview" ? "pro" : tier;
+  const entitlement = combineEntitlementSnapshot(
+    personalAccess,
+    householdAccess,
+    evaluatedAt
+  );
+  const effectiveTier = tier;
   const billingConfigured = getBillingConfig(env).configured;
+  const {
+    householdEntitlement: _householdEntitlement,
+    snapshot: _householdSnapshot,
+    ...publicHouseholdAccess
+  } = householdAccess;
 
   return jsonResponse({
     ok: true,
     access: {
       tier,
       mode,
-      source: personalAccess.source === "anonymous" && mode === "preview"
-        ? "local-preview"
-        : personalAccess.source,
+      source: personalAccess.source,
       effectiveTier,
       billingConfigured,
       currentPeriodEnd: personalAccess.currentPeriodEnd,
       cancelAtPeriodEnd: personalAccess.cancelAtPeriodEnd,
-      household: householdAccess
+      entitlement,
+      household: publicHouseholdAccess
     },
     limits: {
       planLimit: effectiveTier === "pro" ? 20 : 1,

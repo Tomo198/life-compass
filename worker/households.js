@@ -6,6 +6,7 @@ import {
   resolveHouseholdAccess,
   resolvePersonalAccess
 } from "./access.js";
+import { canPerformOperation } from "../shared/entitlement-policy.js";
 import {
   bytesToBase64Url,
   parseBoundedJsonBody,
@@ -95,8 +96,16 @@ const requireInvitePepper = (env) => {
 const normalizeEmail = (value) => typeof value === "string" ? value.trim().toLowerCase() : "";
 
 const requireMembership = async (user, env) => {
-  const access = await resolveHouseholdAccess(user, env);
-  if (!access.available || !access.readAllowed) {
+  const evaluatedAt = new Date().toISOString();
+  const access = await resolveHouseholdAccess(user, env, evaluatedAt);
+  if (
+    !access.available
+    || !canPerformOperation(
+      access.snapshot,
+      "view_household",
+      evaluatedAt
+    ).allowed
+  ) {
     throw new AuthError(403, "household_access_denied", "Household access is not available.");
   }
   return access;
@@ -104,7 +113,11 @@ const requireMembership = async (user, env) => {
 
 const requireOwner = async (user, env) => {
   const access = await requireMembership(user, env);
-  if (access.role !== "owner") {
+  if (!canPerformOperation(
+    access.snapshot,
+    "manage_household_members",
+    access.snapshot.evaluatedAt
+  ).allowed) {
     throw new AuthError(403, "household_owner_required", "Only the household owner can perform this action.");
   }
   return access;
@@ -164,8 +177,16 @@ const listPendingInvitations = async (env, householdId) => {
 };
 
 const publicHousehold = async (user, env) => {
-  const access = await resolveHouseholdAccess(user, env);
-  if (!access.available) return null;
+  const evaluatedAt = new Date().toISOString();
+  const access = await resolveHouseholdAccess(user, env, evaluatedAt);
+  if (
+    !access.available
+    || !canPerformOperation(
+      access.snapshot,
+      "view_household",
+      evaluatedAt
+    ).allowed
+  ) return null;
   const members = await listPublicMembers(env, access.householdId, user.id);
   return {
     id: access.householdId,
@@ -386,16 +407,22 @@ const acceptInvitation = async (request, env, jsonResponse) => {
     `SELECT invitations.id,
             invitations.household_id,
             invitations.invitee_email_hmac,
-            invitations.expires_at
+            invitations.expires_at,
+            households.owner_user_id,
+            owners.google_sub AS owner_google_sub,
+            owners.email_verified AS owner_email_verified
        FROM household_invitations AS invitations
        JOIN shared_households AS households
          ON households.id = invitations.household_id
+       JOIN users AS owners
+         ON owners.id = households.owner_user_id
       WHERE invitations.token_hash = ?
         AND invitations.accepted_at IS NULL
         AND invitations.revoked_at IS NULL
         AND invitations.expires_at > unixepoch()
         AND households.deleted_at IS NULL
         AND households.status = 'active'
+        AND owners.deleted_at IS NULL
       LIMIT 1`
   ).bind(tokenHash).first();
   if (!invitation) {
@@ -405,6 +432,27 @@ const acceptInvitation = async (request, env, jsonResponse) => {
   const expectedEmailHmac = await emailHmac(normalizeEmail(user.email), requireInvitePepper(env));
   if (!(await secureEqualText(expectedEmailHmac, invitation.invitee_email_hmac))) {
     throw new AuthError(400, "invalid_invitation", "Invitation is invalid or expired.");
+  }
+
+  const evaluatedAt = new Date().toISOString();
+  const ownerAccess = await resolveHouseholdAccess({
+    id: invitation.owner_user_id,
+    googleSub: invitation.owner_google_sub,
+    emailVerified: invitation.owner_email_verified === 1
+  }, env, evaluatedAt);
+  if (
+    ownerAccess.householdId !== invitation.household_id
+    || !canPerformOperation(
+      ownerAccess.snapshot,
+      "manage_household_members",
+      evaluatedAt
+    ).allowed
+  ) {
+    throw new AuthError(
+      409,
+      "invitation_unavailable",
+      "Invitation can no longer be accepted."
+    );
   }
 
   const membershipId = crypto.randomUUID();

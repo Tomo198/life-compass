@@ -1,18 +1,51 @@
 import type { ViewKey } from "./types";
+import {
+  canPerformOperation,
+  createDefaultEntitlementSnapshot,
+  deriveLegacyPersonalTier,
+  parseEntitlementSnapshot,
+  type EntitlementSnapshot,
+  type HouseholdRole,
+  type ProOperation
+} from "../shared/entitlement-policy.js";
+
+export type {
+  EntitlementSnapshot,
+  HouseholdEntitlement,
+  HouseholdRole,
+  PermissionDecision,
+  PermissionReason,
+  PersonalBillingStatus,
+  PersonalEntitlement,
+  PersonalEntitlementSource,
+  ProOperation
+} from "../shared/entitlement-policy.js";
+export {
+  canPerformOperation,
+  createDefaultEntitlementSnapshot,
+  parseEntitlementSnapshot
+} from "../shared/entitlement-policy.js";
 
 export type AccessTier = "free" | "pro";
 export type AccessMode = "preview" | "enforced";
 export type AccessSource = "local-preview" | "operator" | "anonymous" | "subscription";
 
 export type AccessState = {
+  /** @deprecated Read compatibility only. New checks use entitlement operations. */
   tier: AccessTier;
   mode: AccessMode;
   source: AccessSource;
+  entitlement: EntitlementSnapshot;
   household?: {
     householdId: string;
     effectiveTier: AccessTier;
+    role: Exclude<HouseholdRole, "none">;
+    revision: number;
+    readAllowed: boolean;
     writeAllowed: boolean;
   } | null;
+  /** @deprecated Narrow adapter for editable household-plan fields only. */
+  householdPlanScope?: boolean;
 };
 
 export type HouseholdPlanSession = {
@@ -74,6 +107,7 @@ export const defaultAccessState: AccessState = {
   tier: "free",
   mode: "enforced",
   source: "anonymous",
+  entitlement: createDefaultEntitlementSnapshot(),
   household: null
 };
 
@@ -84,18 +118,28 @@ const proViewFeatures: Partial<Record<ViewKey, FeatureAccessKey>> = {
   reviews: "reviewHistory"
 };
 
-export const getEffectiveTier = (access: AccessState): AccessTier =>
-  access.mode === "preview" ? "pro" : access.tier;
+/**
+ * @deprecated Compatibility adapter for existing UI. New authorization checks
+ * must call canPerformOperation with an explicit operation.
+ */
+export const getEffectiveTier = (
+  access: AccessState,
+  currentTime = new Date().toISOString()
+): AccessTier => deriveLegacyPersonalTier(access.entitlement, currentTime);
 
 const hasHouseholdPlanProAccess = (
   access: AccessState,
-  session: HouseholdPlanSession
+  session: HouseholdPlanSession,
+  currentTime = new Date().toISOString()
 ) => Boolean(
   session.enabled
   && session.householdId
   && access.household?.householdId === session.householdId
-  && access.household.effectiveTier === "pro"
-  && access.household.writeAllowed
+  && canPerformOperation(
+    access.entitlement,
+    "edit_household",
+    currentTime
+  ).allowed
 );
 
 /**
@@ -105,12 +149,25 @@ const hasHouseholdPlanProAccess = (
 export const getPlanScopedAccessState = (
   access: AccessState,
   session: HouseholdPlanSession
-): AccessState => hasHouseholdPlanProAccess(access, session)
-  ? { ...access, tier: "pro" }
-  : access;
+): AccessState => ({
+  ...access,
+  householdPlanScope: hasHouseholdPlanProAccess(access, session)
+});
 
+const householdPlanFeatures = new Set<FeatureAccessKey>([
+  "detailedCashflow",
+  "fixedCostImpact"
+]);
+
+/**
+ * @deprecated Compatibility adapter for existing feature flags. It deliberately
+ * limits household scope to household editing and never changes personal tier.
+ */
 export const hasFeatureAccess = (access: AccessState, feature: FeatureAccessKey) =>
-  Boolean(featureTiers[getEffectiveTier(access)][feature]);
+  Boolean(
+    (access.householdPlanScope && householdPlanFeatures.has(feature))
+    || featureTiers[getEffectiveTier(access)][feature]
+  );
 
 export const canOpenView = (access: AccessState, view: ViewKey) => {
   const feature = proViewFeatures[view];
@@ -119,6 +176,51 @@ export const canOpenView = (access: AccessState, view: ViewKey) => {
 
 export const getPlanLimit = (access: AccessState) => featureTiers[getEffectiveTier(access)].planLimit;
 export const getScenarioLimit = (access: AccessState) => featureTiers[getEffectiveTier(access)].scenarioLimit;
+
+export const parseWorkerAccessState = (value: unknown): AccessState | null => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const access = value as Record<string, unknown>;
+  if (access.mode !== "preview" && access.mode !== "enforced") return null;
+
+  const entitlement = parseEntitlementSnapshot(access.entitlement);
+  if (!entitlement) return null;
+
+  const householdEntitlement = entitlement.household;
+  const household: AccessState["household"] = householdEntitlement.householdId
+    && householdEntitlement.role !== "none"
+    && householdEntitlement.revision !== null
+    ? {
+        householdId: householdEntitlement.householdId,
+        effectiveTier: householdEntitlement.writeAllowed ? "pro" : "free",
+        role: householdEntitlement.role,
+        revision: householdEntitlement.revision,
+        readAllowed: householdEntitlement.readAllowed,
+        writeAllowed: householdEntitlement.writeAllowed
+      }
+    : null;
+  const tier = deriveLegacyPersonalTier(entitlement, new Date().toISOString());
+  const source: AccessSource = access.mode === "preview" && access.source === "local-preview"
+    ? "local-preview"
+    : entitlement.personal.source === "manual"
+      ? "operator"
+      : entitlement.personal.source === "square" && tier === "pro"
+        ? "subscription"
+        : "anonymous";
+
+  return {
+    tier,
+    mode: access.mode,
+    source,
+    entitlement,
+    household
+  };
+};
+
+export const canPerformPersonalOperation = (
+  access: AccessState,
+  operation: ProOperation,
+  currentTime = new Date().toISOString()
+) => canPerformOperation(access.entitlement, operation, currentTime);
 
 export const featureComparison: Array<{
   key: FeatureKey;

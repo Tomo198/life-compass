@@ -5,6 +5,44 @@ import type { BudgetCategory, LifePlan } from "../../src/types";
 import { encryptSharedPlan } from "../../src/utils/sharedPlanCrypto";
 
 const uncaughtPageErrors = new WeakMap<Page, Error[]>();
+const freeEntitlement = (household: {
+  householdId: string | null;
+  role: "none" | "owner" | "editor" | "viewer";
+  status: "none" | "active" | "read_only" | "deleting";
+  revision: number | null;
+  revokedAt: string | null;
+  readAllowed: boolean;
+  writeAllowed: boolean;
+  retentionUntil: string | null;
+} = {
+  householdId: null,
+  role: "none",
+  status: "none",
+  revision: null,
+  revokedAt: null,
+  readAllowed: false,
+  writeAllowed: false,
+  retentionUntil: null
+}) => ({
+  personal: {
+    status: "none",
+    validUntil: null,
+    graceUntil: null,
+    source: "none"
+  },
+  household,
+  evaluatedAt: new Date().toISOString(),
+  revision: 1
+});
+const manualProEntitlement = () => ({
+  ...freeEntitlement(),
+  personal: {
+    status: "active",
+    validUntil: null,
+    graceUntil: null,
+    source: "manual"
+  }
+});
 
 const mobilePrimaryViews: Partial<Record<string, string>> = {
   dashboard: "home",
@@ -37,7 +75,14 @@ test.beforeEach(async ({ page }) => {
   uncaughtPageErrors.set(page, errors);
   page.on("pageerror", (error) => errors.push(error));
   await page.route("**/api/entitlement", (route) => route.fulfill({
-    json: { access: { tier: "free", mode: "preview", source: "local-preview" } }
+    json: {
+      access: {
+        tier: "pro",
+        mode: "enforced",
+        source: "operator",
+        entitlement: manualProEntitlement()
+      }
+    }
   }));
   await page.goto("/");
   await page.evaluate(() => localStorage.clear());
@@ -482,8 +527,8 @@ test("予算項目が50件でも12カテゴリの構成と比較を崩さず表�
 });
 
 test("無料版とPro版の境界が表示され、横方向にはみ出さない", async ({ page }, testInfo) => {
-  await expect(page.getByTestId("app-shell")).toHaveAttribute("data-access-mode", "preview");
-  await expect(page.getByTestId("app-shell")).toHaveAttribute("data-access-tier", "free");
+  await expect(page.getByTestId("app-shell")).toHaveAttribute("data-access-mode", "enforced");
+  await expect(page.getByTestId("app-shell")).toHaveAttribute("data-access-tier", "pro");
   await openView(page, "household");
   await expect(page.getByText("Proプレビュー", { exact: true }).first()).toBeVisible();
   await openView(page, "simulation");
@@ -501,7 +546,7 @@ test("無料版とPro版の境界が表示され、横方向にはみ出さな�
 
   await openView(page, "pricing");
   await expect(page.getByRole("heading", { name: "無料版とPro版の比較" })).toBeVisible();
-  await expect(page.getByTestId("access-summary")).toContainText("課金なし・プレビュー");
+  await expect(page.getByTestId("access-summary")).toContainText("運営者テスト");
 
   if (testInfo.project.name === "mobile") {
     const bottomNav = page.getByTestId("mobile-bottom-nav");
@@ -531,8 +576,27 @@ test("無料版とPro版の境界が表示され、横方向にはみ出さな�
   await expect(page.locator(".scenario-row")).toHaveCount(1);
   await page.getByRole("button", { name: "比較結果", exact: true }).click();
   await expect(page.getByRole("cell", { name: "10年後資産", exact: true })).toBeVisible();
+  await expect(page.getByTestId("app-shell")).toHaveAttribute("data-access-mode", "enforced");
+  await expect(page.getByTestId("app-shell")).toHaveAttribute("data-access-tier", "pro");
+});
+
+test("preview表示だけでは一般利用者にPro権限を付与しない", async ({ page }) => {
+  await page.route("**/api/entitlement", (route) => route.fulfill({
+    json: {
+      access: {
+        tier: "free",
+        mode: "preview",
+        source: "anonymous",
+        entitlement: freeEntitlement()
+      }
+    }
+  }));
+  await page.reload();
+
   await expect(page.getByTestId("app-shell")).toHaveAttribute("data-access-mode", "preview");
   await expect(page.getByTestId("app-shell")).toHaveAttribute("data-access-tier", "free");
+  await openView(page, "pricing");
+  await expect(page.getByRole("button", { name: "Pro版は準備中", exact: true })).toBeDisabled();
 });
 
 test("無料版でも一定利回りの積立・取り崩し試算を利用できる", async ({ page }) => {
@@ -540,7 +604,14 @@ test("無料版でも一定利回りの積立・取り崩し試算を利用で�
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ access: { tier: "free", mode: "enforced", source: "anonymous" } })
+      body: JSON.stringify({
+        access: {
+          tier: "free",
+          mode: "enforced",
+          source: "anonymous",
+          entitlement: freeEntitlement()
+        }
+      })
     });
   });
   await page.route("**/api/backups", async (route) => {
@@ -612,7 +683,14 @@ test("無料版でも一定利回りの積立・取り崩し試算を利用で�
 
 test("運営者としてログインした場合だけ課金なしでPro機能を確認できる", async ({ page }) => {
   await page.route("**/api/entitlement", (route) => route.fulfill({
-    json: { access: { tier: "pro", mode: "enforced", source: "operator" } }
+    json: {
+      access: {
+        tier: "pro",
+        mode: "enforced",
+        source: "operator",
+        entitlement: manualProEntitlement()
+      }
+    }
   }));
   await page.reload();
 
@@ -1039,7 +1117,14 @@ test("招待メールは自動送信されず、招待リンクを相手へ送�
     }
   }));
   await page.route("**/api/entitlement", (route) => route.fulfill({
-    json: { access: { tier: "pro", mode: "enforced", source: "operator" } }
+    json: {
+      access: {
+        tier: "pro",
+        mode: "enforced",
+        source: "operator",
+        entitlement: manualProEntitlement()
+      }
+    }
   }));
   await page.route("**/api/shared-household/invitations", async (route) => {
     expect(route.request().method()).toBe("POST");
@@ -1143,7 +1228,17 @@ test("Freeの共同利用者は自動同期中の世帯プランだけPro編集�
           householdId,
           effectiveTier: "pro",
           writeAllowed: true
-        }
+        },
+        entitlement: freeEntitlement({
+          householdId,
+          role: "editor",
+          status: "active",
+          revision: 0,
+          revokedAt: null,
+          readAllowed: true,
+          writeAllowed: true,
+          retentionUntil: null
+        })
       }
     }
   }));
@@ -1368,7 +1463,16 @@ test("Freeの共同利用者は自動同期中の世帯プランだけPro編集�
 test("ログアウトとアカウント削除後にGoogleログインボタンを再表示できる", async ({ page }) => {
   await page.route("**/api/auth/config", (route) => route.fulfill({ json: { configured: true, clientId: "test-client-id" } }));
   await page.route("**/api/me", (route) => route.fulfill({ json: { authenticated: true, user: { id: "user-1", email: "test@example.com", emailVerified: true } } }));
-  await page.route("**/api/entitlement", (route) => route.fulfill({ json: { access: { tier: "free", mode: "preview", source: "local-preview" } } }));
+  await page.route("**/api/entitlement", (route) => route.fulfill({
+    json: {
+      access: {
+        tier: "free",
+        mode: "preview",
+        source: "anonymous",
+        entitlement: freeEntitlement()
+      }
+    }
+  }));
   await page.route("**/api/auth/logout", (route) => route.fulfill({ json: { ok: true } }));
   await page.route("**/api/account", (route) => route.fulfill({ json: { ok: true, accountDeleted: true } }));
   await page.route("**/api/auth/nonce", (route) => route.fulfill({ json: { nonce: "test-nonce" } }));
